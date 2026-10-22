@@ -1,0 +1,11 @@
+# 运行时数据（部署后自动生成）
+data/
+
+# 依赖与日志
+node_modules/
+*.log
+.DS_Store
+
+# WorkBuddy 本地元数据（发布记录，与代码无关）
+.workbuddy/
+.wbapp_*.genie

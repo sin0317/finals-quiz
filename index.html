@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-page-node-id="lJ3zm3qDca58QK24v3j80F"><head data-page-node-id="cuYSCazRPhSqSBPRmIFqC0">
+<meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
+<title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
+<link rel="stylesheet" href="styles.css" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
+<body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
+
+<header class="topbar" data-page-node-id="vpAszC9CQ8kBrNG97IlcRX">
+  <div class="brand" data-page-node-id="RY7KSNqDP4itvhzVATpvAn">
+    <span class="logo" data-page-node-id="unDdTRDgHdCjFSzH7iu3kh">期末</span>
+    <span class="brand-text" data-page-node-id="dm7Ac4zcQpBa2LM8Pcbl1P">笔记变题库</span>
+  </div>
+  <nav class="tabs" id="tabs" data-page-node-id="aDXFhL8tzFSNlILRaNVnyR">
+    <button class="tab active" data-view="import" data-page-node-id="NOuGHHiaIGaCMUBy2W1Vlu">① 导入笔记</button>
+    <button class="tab" data-view="quiz" data-page-node-id="yRTfBVuG8tFuKhu56isBvF">② 刷选择题</button>
+    <button class="tab" data-view="recite" data-page-node-id="KKYhACmzkDuQpNNfzdbYl0">③ 背知识点</button>
+    <button class="tab" data-view="wrong" data-page-node-id="J4oyPeG9TXPrmhvoA8gdkq">④ 错题本</button>
+    <button class="tab" data-view="stats" data-page-node-id="1o8Ffh3dtIcMucePEy1mHg">⑤ 数据统计</button>
+    <button class="tab" data-view="plaza">⑥ 题集广场</button>
+  </nav>
+  <div class="topbar-right" data-page-node-id="47nPBZ8RLH3nwh00L3NbRx">
+    <button id="acctBtn" class="acct-btn" title="账号与同步">
+      <span class="acct-avatar" id="acctAvatar">游</span>
+      <span class="acct-name" id="acctName">游客</span>
+      <span class="acct-dot" id="acctDot" title="同步状态"></span>
+    </button>
+    <select id="bankSelect" class="select mini" title="当前题集" data-page-node-id="ceeF4nn5OQPCCGNL0Oiqs7"></select>
+    <button id="themeBtn" class="icon-btn" title="切换深浅色" data-page-node-id="7d74N3MH7ECAnAfqTbrRO0">🌙</button>
+  </div>
+</header>
+
+<main class="wrap" data-page-node-id="r0jMQqLFvKrizUIZ0FNtOm">
+
+  <!-- ============ 导入笔记 ============ -->
+  <section class="view active" id="view-import" data-page-node-id="vnSqztJkPUlV6JB0zUPFVv">
+    <div class="card" data-page-node-id="tTD58CHkpHE0gdS2r27Ci0">
+      <div class="card-head" data-page-node-id="zvQHGyRmYtUxvtZR6BZBkF" style="background-color: transparent;">
+        <h2 data-page-node-id="WEoYFQkW8PsYbpwI9y6J3S">① 贴上你的课程笔记</h2>
+        <span class="hint" data-page-node-id="YtjZQf2LRcrvgzIHjDHwdh">从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成</span>
+      </div>
+      <div class="row" data-page-node-id="T4qF8VHTmuvmvlI7YBOIo6">
+        <input id="courseName" class="input" placeholder="课程名称，例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
+        <button class="btn ghost" id="loadSampleBtn" data-page-node-id="HcRsxvWmAtqshJZQSfEeJ9">载入示例笔记</button>
+        <button class="btn ghost" id="pickFileBtn" data-page-node-id="0hdABGznxMehC7ioqxEA8x">选择笔记文件</button>
+        <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc" hidden="" data-page-node-id="fDp1g3YhJ24sqiOwX2Sytg">
+      </div>
+      <div id="fileChip" class="file-chip" hidden>
+        <span class="chip-name" id="chipName"></span>
+        <span class="chip-meta" id="chipMeta"></span>
+        <button class="btn ghost" id="chipView">查看 / 编辑原文</button>
+        <button class="mini-btn" id="chipClear" title="移除这个文件">✕</button>
+      </div>
+      <div id="dropZone" class="textarea" placeholder="" data-page-node-id="9RVOIMlwe4JpPzKfAa7LbK">
+        <textarea id="noteText" class="textarea-inner" rows="12" placeholder="把笔记整段粘进来。写的时候尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。
+
+例如：
+林则徐是开眼看世界的第一人。
+太平天国运动爆发的标志是1851年金田起义。" data-page-node-id="Fl3m1b0mChhv2u6geFaiQr"></textarea>
+      </div>
+      <div class="row right" data-page-node-id="ciA1ASKpKV0e1ULoxdlVXk">
+        <span class="muted" id="noteStat" data-page-node-id="BvMPvwrERWtZFgFz2m1sKq">共 399 字，18 句</span>
+        <button class="btn primary" id="extractBtn" data-page-node-id="fDHAOqKYdbneEEsCNn6BqL">一键提炼知识点</button>
+      </div>
+    </div>
+
+    <div class="card" id="previewCard" hidden="" data-page-node-id="EMuEPNkastADHWqyICIDA0">
+      <div class="card-head" data-page-node-id="hobyNoFzplqTPDPMNFkqaB">
+        <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C">② 核对题目，可随手改</h2>
+        <span class="hint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">按笔记原文顺序生成，可用 ↑ ↓ 调顺序；题干与答案都能直接改，不需要的取消勾选</span>
+      </div>
+      <div class="table-wrap" data-page-node-id="oFailoM5P4xZr4yu9TZlsh">
+        <table id="previewTable" data-page-node-id="G3a2FyDWBPFFm95OSTHn7V">
+          <thead data-page-node-id="NFeDCquXfYRKEDeXr3FJJD">
+            <tr data-page-node-id="RxH2qk3wQ2tibrqDxdMzdk">
+              <th class="c-chk" data-page-node-id="KfBOQNX6EnT3cz09YRLDsv"><input type="checkbox" id="chkAll" data-page-node-id="vs5eolcnTxZKJU6i0ZYIeG"></th>
+              <th class="c-type" data-page-node-id="ye7aFgnYlP1UzWRpo5kqaR">题型</th>
+              <th data-page-node-id="7LetMH3Hae7kwm4FTidHIS">题干（挖空处用 ____ 表示）</th>
+              <th class="c-ans" data-page-node-id="wFcPxju5iYFLxpExY2xmUs">正确答案</th>
+              <th class="c-op" data-page-node-id="uAEn0dCGjvaW80QGfcPCTR"></th>
+            </tr>
+          </thead>
+          <tbody id="previewBody" data-page-node-id="oWtwtH6WeYf74RodPcF2Pf"></tbody>
+        </table>
+      </div>
+      <div class="row" data-page-node-id="xijCEqIFqPPzZQ9lGpjQuZ">
+        <span class="muted" id="previewCount" data-page-node-id="xNw5g0fSfxpGGUo1NF4IdN"></span>
+        <div class="grow" data-page-node-id="v6ZYdYz3UYA3SkHgFkSRo4"></div>
+        <button class="btn ghost" id="delSelectedBtn" data-page-node-id="AQjKgSWWBgq7CZgJFlJqbg">删除选中</button>
+        <button class="btn primary" id="saveBankBtn" data-page-node-id="4icWKs5E9mPgoF4CN2yzAq">保存到题集</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>我的题集</h2>
+        <span class="hint">左键切换当前题集，右键（或点 ⋯）重命名 / 导出 / 删除</span>
+      </div>
+      <div id="bankList" class="list"></div>
+    </div>
+
+    <div class="card" data-page-node-id="gwpA3j1oDFrh6J0mF7TagU">
+      <div class="card-head" data-page-node-id="7XG5yAYEDFSpXKCiTZdZAc">
+        <h2 data-page-node-id="xvPSyYuQuqOYUamccuugus">题集文件（换电脑 / 分享给同学）</h2>
+        <span class="hint" data-page-node-id="qStLgNofG4dEF3dGqzICYZ">也可以让 AI 直接生成题集 JSON，在这里导入</span>
+      </div>
+      <div class="row" data-page-node-id="alvteHHTOkShjp9DM80Q0o">
+        <button class="btn ghost" id="exportBtn" data-page-node-id="xnLvJrZNaukQSaMBE2YP6Y">导出当前题集 JSON</button>
+        <button class="btn ghost" id="importBtn" data-page-node-id="kkWSJEIKsJuZoYQgpDlES9">导入题集 JSON</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden="" data-page-node-id="bTenKzHlyyGN4Tvr7YAxm4">
+        <div class="grow" data-page-node-id="hoZHzOrC4y3KgH1JnLKweS"></div>
+        <button class="btn" id="exportMdBtn" data-page-node-id="P0s3yzABtW0PwGbFizMfrl">导出 Markdown（可直接粘进乐享 / 笔记软件）</button>
+      </div>
+      <details class="detail" data-page-node-id="0ZlHcNL2UaBdJwi4MV31lb">
+        <summary data-page-node-id="q5qQV2OWkTCUZXZusoegp8">题集 JSON 格式说明</summary>
+        <pre data-page-node-id="RKboXcpf7naWU6qmhG2Cmn">{
+  "course": "中国近代史",
+  "questions": [
+    { "type": "single", "stem": "林则徐是____", "answer": "开眼看世界的第一人", "source": "原文句子" },
+    { "type": "multi",  "stem": "洋务运动的内容包括____", "answer": ["创办军事工业", "创办民用工业"], "source": "原文句子" }
+  ]
+}</pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ 刷选择题 ============ -->
+  <section class="view" id="view-quiz" hidden="" data-page-node-id="63QlFxUXZu9pYpe9OjAc2a">
+    <div class="toolbar" data-page-node-id="wJ1qN2LxMpBDJ1vIpsDx27">
+      <select id="qRange" class="select" data-page-node-id="ESwDEg34efww6hREIIePdF">
+        <option value="all" data-page-node-id="CPzwRN6IvnKynVDYOr6ybO">范围：全部</option>
+        <option value="weak" data-page-node-id="c07Gk1LapsnucyIVB3D0yF">范围：未掌握</option>
+        <option value="wrong" data-page-node-id="5d3XtZdpDDWkEsAnL6OPRr">范围：错题</option>
+        <option value="new" data-page-node-id="H7S5Cr0QpjxyWOZFYgTHhL">范围：没练过</option>
+      </select>
+      <select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
+        <option value="all" data-page-node-id="1uhgWD82ochYF4fWtegfZL">题型：全部（选择+填空）</option>
+        <option value="single" data-page-node-id="PcjOpkgoj1FU6dGC82Slzw">题型：单选</option>
+        <option value="multi" data-page-node-id="blIPTiIzZREgSD2aWBx5pE">题型：多选</option>
+        <option value="fill">题型：填空</option>
+      </select>
+      <select id="qForm" class="select">
+        <option value="mix">形式：混合（熟的考填空、生的给选项）</option>
+        <option value="choice">形式：全部给选项</option>
+        <option value="fill">形式：全部考填空</option>
+      </select>
+      <select id="qCount" class="select" data-page-node-id="c4dYGAzSAFNCVuWItiH0Fm">
+        <option value="10" data-page-node-id="kfKHoApxGrspAEIzxFHPQt">题量：10</option>
+        <option value="20" selected="" data-page-node-id="GUZOveJh4SBkfwL663Foto">题量：20</option>
+        <option value="40" data-page-node-id="seSu6uvlNgMeTBIIPwdPRr">题量：40</option>
+        <option value="0" data-page-node-id="keWB5mn5UDPyl2nDc8qQ8b">题量：全部</option>
+      </select>
+      <select id="qOrder" class="select" data-page-node-id="wgCcmfOq8R4SY0sbURp89w">
+        <option value="seq" data-page-node-id="TzdHFn7uw4uS8DfkmSAhtF">顺序：跟着笔记走</option>
+        <option value="rand" data-page-node-id="YGLQ705w0jLxvxp1QOKUWN">顺序：随机乱序</option>
+      </select>
+      <label class="switch" data-page-node-id="3yA1PHCyUW2e7b7si7mmTH"><input type="checkbox" id="qAutoNext" checked="" data-page-node-id="23Sd6gysZfWCoh80tbBDvY"> 答完自动下一题</label>
+      <div class="grow" data-page-node-id="NMGvypGhQ6SQkMdyEkLaMY"></div>
+      <button class="btn primary" id="quizStartBtn" data-page-node-id="hxHNnlj2emeyemlZjuKX3L">开始刷题</button>
+    </div>
+    <div id="quizBody" data-page-node-id="JbZCAcH2GV9a3xp1Ze7IpE"></div>
+  </section>
+
+  <!-- ============ 背知识点 ============ -->
+  <section class="view" id="view-recite" hidden="" data-page-node-id="pfYohoqLe96TNANkljatcQ">
+    <div class="toolbar" data-page-node-id="2FSIYD6mjG5IYYhCliAqDZ">
+      <select id="rRange" class="select" data-page-node-id="CP8tariVXs63DPhPmOoG14">
+        <option value="all" data-page-node-id="O0vF1CuXH75t39phQ4FViE">范围：全部</option>
+        <option value="weak" data-page-node-id="V11EyBMF4ilL02fzlHxvOu">范围：未掌握</option>
+        <option value="wrong" data-page-node-id="DQBMbevSWZVduyrRUtGAYp">范围：错题</option>
+        <option value="new" data-page-node-id="64ZpGOh1QcXUjHERTc4wfB">范围：没练过</option>
+      </select>
+      <select id="rOrder" class="select" data-page-node-id="zrB5IjzhwgjgVnPkJK6W0g">
+        <option value="seq" data-page-node-id="NQCBGAuCHmYrTzI9mgkRos">顺序：跟着笔记走</option>
+        <option value="rand" data-page-node-id="iRLe2iXXqkYb3VI4WSo1FE">顺序：随机乱序</option>
+      </select>
+      <label class="switch" data-page-node-id="XS7izXpVffI27nm4HzH7EL"><input type="checkbox" id="rAutoNext" checked="" data-page-node-id="FXl7HoUIv79xO87HQjuHsO"> 判定后自动下一问</label>
+      <label class="switch" data-page-node-id="zzmReE32IAPfhm7dMDbOj8"><input type="checkbox" id="rHint" data-page-node-id="yx3FyUTg9R1RQIF565heH9"> 给首字提示</label>
+      <div class="grow" data-page-node-id="CUAs99EeS52k0DFX57TDbV"></div>
+      <button class="btn primary" id="reciteStartBtn" data-page-node-id="4g1nOQ3hnDu0iGrJDaEnBO">开始背诵</button>
+    </div>
+    <div id="reciteBody" data-page-node-id="yCPScYveCnVygNnTnPQDHC"></div>
+  </section>
+
+  <!-- ============ 错题本 ============ -->
+  <section class="view" id="view-wrong" hidden="" data-page-node-id="shut4dyKyfBLfk02MfzlyY">
+    <div class="toolbar" data-page-node-id="rT8uF3ecpNbhKvP78VqRWB">
+      <select id="wFilter" class="select" data-page-node-id="FxUqpYZ326eCrqBRnSQfFb">
+        <option value="wrong" data-page-node-id="i9RfEticfGzptfduo2iM1u">只看错题</option>
+        <option value="weak" data-page-node-id="LdsSARh6aAYj9Ei0jNVu6O">未掌握（含错题）</option>
+        <option value="all" data-page-node-id="mMa2O6MacCXFY5f0Tsakcb">全部题目</option>
+      </select>
+      <div class="grow" data-page-node-id="lnsgNKj8BngnJVxnXFnJYk"></div>
+      <button class="btn primary" id="wrongDrillBtn" data-page-node-id="frRyQ7W2Kn54urD3FIGKZx">错题特训</button>
+      <button class="btn ghost" id="clearWrongBtn" data-page-node-id="4Ceahh5vRAOmzQBNHUarue">清空错题记录</button>
+    </div>
+    <div id="wrongList" class="list" data-page-node-id="vskMqGB8GitCPOPKC0LjCP"></div>
+  </section>
+
+  <!-- ============ 数据统计 ============ -->
+  <section class="view" id="view-stats" hidden="" data-page-node-id="PNMTL2oAFXNwAWHcJ9eAMB">
+    <div class="kpis" id="kpis" data-page-node-id="kB1woHNlVAr7ZvCo5cRtX3"></div>
+
+    <div class="cols" data-page-node-id="iPWSObh68IxvaI0WtEdmRu">
+      <div class="card" data-page-node-id="qle7z2AbH0grp97r5GQRRk">
+        <div class="card-head" data-page-node-id="Eyxz0VQtUgji1yO6RZ9W3w"><h3 data-page-node-id="KAL9HsKy4iOhwOGIfxGIgm">掌握度分布</h3></div>
+        <div id="dist" class="dist" data-page-node-id="NBn7uVOwEw13CN7lZtJGcF"></div>
+      </div>
+      <div class="card" data-page-node-id="BhFnwp1aSR2EZhwA3HiS5F">
+        <div class="card-head" data-page-node-id="XuVf4OxzacTHIBOQwkkuMG"><h3 data-page-node-id="RBAsNzEhYzYHJtsmIphLJZ">最近 7 天练习量</h3></div>
+        <div id="weekly" class="weekly" data-page-node-id="3N2sxG1zwAVhALgtU76BPn"></div>
+      </div>
+    </div>
+
+    <div class="card" data-page-node-id="Y6XzC1kr64G6ZqBxYICZWw">
+      <div class="card-head" data-page-node-id="itdr7ADGZCJ3GJd824Q6Dg"><h3 data-page-node-id="lft0PmjSf0bvcJWWKIu0In">最该再背一遍的知识点</h3><span class="hint" data-page-node-id="931dec6aXJhlOIaebaBRP1">按掌握度从低到高</span></div>
+      <div id="weakList" class="list" data-page-node-id="4yJRSX5haCDNZtR74kC9w2"></div>
+    </div>
+
+    <div class="card" id="acctCard">
+      <div class="card-head"><h3>账号与同步</h3><span class="hint" id="syncHint">不登录也能用，数据只存在这台设备的浏览器里</span></div>
+      <div class="acct-body">
+        <div class="acct-who">
+          <span class="acct-avatar big" id="acctAvatar2">游</span>
+          <div class="acct-who-main">
+            <div class="acct-who-name" id="acctName2">游客</div>
+            <div class="acct-who-sub" id="acctSub">登录后可换设备继续刷，题集和练习记录会自动跟着走</div>
+          </div>
+        </div>
+        <div class="row right" id="acctActs">
+          <button class="btn primary" id="loginBtn">注册 / 登录</button>
+          <button class="btn ghost" id="syncNowBtn" hidden>立即同步</button>
+          <button class="btn ghost" id="logoutBtn" hidden>退出登录</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="adminCard" hidden>
+      <div class="card-head"><h3>站点使用情况</h3><span class="hint">只有站长（第一个注册的账号）能看到这一块</span></div>
+      <div class="kpis small" id="adminKpis"></div>
+      <div class="table-wrap"><table class="tbl" id="adminTable"><thead><tr>
+        <th>昵称</th><th>注册时间</th><th>最近活跃</th><th>登录</th><th>题集</th><th>题目</th><th>答题</th><th>正确率</th><th>同步时间</th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="chart-row" id="adminDaily"></div>
+      <div class="row right"><button class="btn ghost" id="adminRefreshBtn">刷新</button></div>
+    </div>
+
+    <div class="card" data-page-node-id="c5Rj1ZPQ7fGbdkS53hzztT">
+      <div class="card-head" data-page-node-id="0MugIRz4RwQPQB5uPd3F92"><h3 data-page-node-id="ZrGeP6V4FHcdmpyTnj0v7e">数据管理</h3></div>
+      <div class="row" data-page-node-id="6VpPbP2aoEioAD7PI9ZWIM">
+        <button class="btn ghost" id="exportAllBtn" data-page-node-id="xfNaUYQS6u54xQqaX59xYf">导出全部数据</button>
+        <button class="btn ghost" id="importAllBtn" data-page-node-id="YpS5hJXgjDdjXuY4kyYYYE">导入全部数据</button>
+        <input type="file" id="importAllFile" accept=".json" hidden="" data-page-node-id="MZM1jnsrsvd8AN7ASFVozh">
+        <div class="grow" data-page-node-id="tzBCXDQAvwKupNqh0nJIUC"></div>
+        <button class="btn danger" id="resetStatsBtn" data-page-node-id="yF3EHExxRtwwbc41cJFkfw">清空练习记录</button>
+        <button class="btn danger" id="delBankBtn" data-page-node-id="6rM7W5bVDWKh5mkQFkZfqA">删除当前题集</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 题集广场 ============ -->
+  <section class="view" id="view-plaza" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h2>题集广场</h2>
+        <span class="hint">同学们分享的题集，按专业和科目挑，点一下就加成自己的</span>
+        <div class="grow"></div>
+        <button class="btn primary" id="plazaShareBtn">分享我的题集</button>
+      </div>
+
+      <div class="plaza-filter">
+        <input id="plazaSearch" class="input" placeholder="搜题集名 / 专业 / 科目">
+        <select id="plazaMajor" class="select"><option value="">全部专业</option></select>
+        <select id="plazaSubject" class="select"><option value="">全部科目</option></select>
+        <select id="plazaSort" class="select">
+          <option value="new">最新分享</option>
+          <option value="hot">最多人取用</option>
+        </select>
+        <button class="btn ghost" id="plazaMineBtn" title="只看我自己分享的">我分享的</button>
+        <button class="btn ghost" id="plazaRefreshBtn" title="重新拉一遍">刷新</button>
+      </div>
+
+      <div id="plazaHint" class="muted"></div>
+      <div id="plazaList" class="list plaza-list"></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="ctxMenu" class="ctx-menu" hidden>
+  <button data-act="use">设为当前题集</button>
+  <button data-act="rename">重命名</button>
+  <button data-act="share">分享到广场</button>
+  <button data-act="export">导出 JSON</button>
+  <button data-act="md">导出 Markdown</button>
+  <button data-act="del" class="danger">删除题集</button>
+</div>
+
+<div id="authModal" class="modal" hidden>
+  <div class="modal-mask" data-close="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-tabs">
+        <button class="mtab active" data-mtab="login">登录</button>
+        <button class="mtab" data-mtab="reg">注册</button>
+      </div>
+      <button class="mini-btn" data-close="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip" id="authTip">不登录也能正常使用；登录后题集会存到云端，换台设备继续刷。</p>
+      <button class="btn wb-btn" id="wbLoginBtn" type="button">
+        <span class="wb-mark">W</span>
+        <span>使用 WorkBuddy 登录</span>
+      </button>
+      <div class="or-line"><span>或使用昵称密码</span></div>
+      <label class="fld">
+        <span>昵称</span>
+        <input id="authUser" class="input" placeholder="例如：小明 / xiaoming" maxlength="20" autocomplete="username">
+      </label>
+      <label class="fld" id="authNameFld" hidden>
+        <span>显示名（可留空）</span>
+        <input id="authName" class="input" placeholder="同学们在榜单里看到的名字，默认就是昵称" maxlength="20">
+      </label>
+      <label class="fld">
+        <span>密码</span>
+        <input id="authPass" class="input" type="password" placeholder="6–64 位" maxlength="64" autocomplete="current-password">
+      </label>
+      <div class="modal-err" id="authErr" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="authFootHint"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-close="1">取消</button>
+      <button class="btn primary" id="authSubmit">登录</button>
+    </div>
+  </div>
+</div>
+
+<div id="shareModal" class="modal" hidden>
+  <div class="modal-mask" data-shareclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>分享到广场</div>
+      <button class="mini-btn" data-shareclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip">分享的是题目和答案，广场上的人都能看到、都能拿去刷；可以随时取消。练习记录不会跟着分享。</p>
+      <label class="fld">
+        <span>题集</span>
+        <select id="shareBank" class="select"></select>
+      </label>
+      <div class="fld-row">
+        <label class="fld">
+          <span>专业</span>
+          <input id="shareMajor" class="input" list="majorList" placeholder="例如：药学" maxlength="12">
+        </label>
+        <label class="fld">
+          <span>科目</span>
+          <input id="shareSubject" class="input" list="subjectList" placeholder="例如：临床药物治疗学" maxlength="24">
+        </label>
+      </div>
+      <label class="fld">
+        <span>一句话推荐（可留空）</span>
+        <input id="shareNote" class="input" placeholder="例如：老师划的重点全在这" maxlength="40">
+      </label>
+      <div class="modal-err" id="shareErr" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="shareMeta"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-shareclose="1">取消</button>
+      <button class="btn primary" id="shareDoBtn">分享</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="majorList"></datalist>
+<datalist id="subjectList"></datalist>
+
+<div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5">示例笔记已载入，点「一键提炼知识点」试试</div>
+
+<script src="vendor/workbuddy-cloud.js"></script>
+<script src="app.js" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+
+
+</body></html>
