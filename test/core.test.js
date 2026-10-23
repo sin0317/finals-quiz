@@ -128,7 +128,7 @@ const NOTE = [
   ok(qs.every(function (q) { return q.type === 'single' || q.type === 'multi' || q.type === 'fill'; }), '每道题都有合法题型');
 
   /* ---------- 2. 刷题 ---------- */
-  console.log('\n[2] 刷选择题');
+  console.log('\n[2] 刷题');
   a.click('.tab[data-view="quiz"]');
   await sleep(60);
   a.setVal('#qCount', '0');
@@ -161,13 +161,24 @@ const NOTE = [
   ok((anyStat.ok + anyStat.bad) > 0, '记录里有对错统计', anyStat);
   ok(typeof anyStat.mastery === 'number' && anyStat.mastery >= 0 && anyStat.mastery <= 1, '掌握度在 0–1 之间', anyStat.mastery);
 
-  /* ---------- 3. 背诵 ---------- */
-  console.log('\n[3] 背知识点（苏格拉底式）');
+  /* ---------- 3. 知识点卡片 → 做题 ---------- */
+  console.log('\n[3] 背知识点（先看卡片，看满再做题）');
   a.click('.tab[data-view="recite"]');
   await sleep(60);
   a.click('#reciteStartBtn');
   await sleep(150);
-  ok(!!a.$('#reciteInput'), '进入背诵模式，出现输入框');
+  ok(!!a.$('#knCard'), '进入第三板块先出知识点卡片');
+  ok(!a.$('#reciteInput'), '卡片阶段不让人做题（没有输入框）');
+  ok(!!a.$('.kn-card .kn-mark'), '卡片里把考点填回去并高亮');
+  ok(!a.$('#knStart'), '没看够张数时不给「开始做题」入口');
+
+  // 一路翻到最后一张，翻到解锁
+  let guard = 0;
+  while (a.$('#knNext') && guard++ < 60) { a.click('#knNext'); await sleep(15); }
+  ok(!!a.$('#knStart'), '知识点都看过之后出现「开始做题」');
+  a.click('#knStart');
+  await sleep(150);
+  ok(!!a.$('#reciteInput'), '点「开始做题」后进入挖空自测');
 
   // 先答错一次
   a.setVal('#reciteInput', '肯定是错的');

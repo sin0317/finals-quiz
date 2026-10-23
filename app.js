@@ -305,6 +305,18 @@
       }
 
       if (!right) return;
+      // 答案只该是一个短语。以前 right 是从触发词一路吃到句尾的：
+      // 「适用于高血压，包括 A、B，用药期间需监测血压」的答案会变成
+      // 「A、B，用药期间需监测血压」，题干只剩「…包括____」，后半句凭空消失。
+      // 这里把答案后面那半句接回题干尾部，题目才读得完整。
+      // 加粗是作者亲手标出来的范围，不切。
+      if (!boldOK) {
+        var cutAt = right.search(/[，,；;]/);
+        if (cutAt >= 2) {
+          tail = tail + right.slice(cutAt);
+          right = right.slice(0, cutAt).trim();
+        }
+      }
       // 加粗指认的空，前面就算一个字没有也能出题；普通句子前面的引子太短没意义
       // 上限从 30 放宽到 56：长句（「…的效应，包括个体间和个体内变异」）以前整句被丢，
       // 其实出成填空题很好用，只要题干长一点而已
@@ -1416,7 +1428,7 @@
   function masteryPct(q) { return Math.round(getStat(q.id).mastery * 100); }
 
   /* =========================================================
-     ② 刷选择题
+     ② 刷题
      ========================================================= */
   $('#quizStartBtn').addEventListener('click', function () {
     var list = pickQuestions({
@@ -1536,9 +1548,14 @@
     // 把答案直接补进题干那个空里，一眼就能看到正确答案
     fillStemBlank($('#quizBody'), q, g.level === 'right');
 
+    // 填空题是手打的，答案还带解析和原文，2.8 秒根本读不完一晃就跳走了。
+    // 给足时间，并把「几秒后跳」写在按钮旁边，让人心里有数。
+    var wait = g.level === 'right' ? 6000 : 9000;
     $('#quizFb').innerHTML = verdictHtml(q, v, g) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
-      (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button></div>';
+      (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
+      ($('#qAutoNext').checked ? '<span class="muted">' + (wait / 1000) + ' 秒后自动下一题，看完再点也行</span>' : '') +
+      '</div>';
     $('#nextQBtn').addEventListener('click', function () {
       quizTimerStop(st);
       st.idx++;
@@ -1547,7 +1564,7 @@
     // 反馈在输入框下面，手机上常常在屏幕外，主动滚过去
     scrollToFb($('#quizFb'));
     // 填空题是手打的，读完答案需要时间，自动跳得比选择题慢
-    quizAutoNext(st, q, g.level === 'wrong' ? 4500 : 2800);
+    quizAutoNext(st, q, wait);
   }
 
   // 自动下一题：只管当前这一题，用户翻页了 / 正在打字就都不插手
@@ -1622,9 +1639,21 @@
     blanks[0].className = 'blank-mark filled' + (right ? ' ok' : '');
   }
 
+  // 反馈卡片在输入框下面。桌面端视口高，它整块落在屏幕外很常见，
+  // 而 block:'nearest' 只要元素露出一丁点边就不滚 —— 用户就一直看不到答案，
+  // 只能靠「上一题」翻回去看。所以这里自己判断：卡片被顶栏挡住、或底部出屏，就滚到中间。
   function scrollToFb(el) {
     if (!el) return;
-    try { el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* 老浏览器 */ }
+    try {
+      var r = el.getBoundingClientRect();
+      var bar = document.querySelector('.topbar');
+      var barH = bar ? bar.getBoundingClientRect().height : 0;
+      var vh = document.documentElement.clientHeight || window.innerHeight || 0;
+      if (!vh) return;
+      if (r.bottom > vh || r.top < barH) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } catch (e) { /* 老浏览器 */ }
   }
 
   function answerQuiz(picked) {
@@ -1713,17 +1742,92 @@
     var range = $('#rRange').value;
     var list = pickQuestions({ range: range, type: 'all', count: 0, shuffle: $('#rOrder').value === 'rand' });
     if (!list.length) { toast('这个范围里没有题'); return; }
-    S.recite = { list: list, idx: 0, prev: null, hint: $('#rHint').checked, ok: 0, mid: 0, bad: 0 };
+    S.recite = {
+      list: list, phase: 'cards', cardIdx: 0, seenIdx: {},
+      idx: 0, prev: null, hint: $('#rHint').checked, ok: 0, mid: 0, bad: 0
+    };
     renderRecite();
   });
 
   function renderReciteEmpty() {
-    $('#reciteBody').innerHTML = '<div class="empty">还没有可以背的知识点。<br>到「① 导入笔记」提炼题目后，回到这里开始背诵 —— 每答一问，立刻给正误，并马上追问下一问。</div>';
+    $('#reciteBody').innerHTML = '<div class="empty">还没有可以看的知识点。<br>到「① 导入笔记」提炼题目后，回到这里先一张张看知识点 —— 看满 20 张（题少就看完为止）再开始做题。</div>';
+  }
+
+  /* 先看知识点卡片，看够 KN_GOAL 张才解锁做题。
+     以前一进来就把句子挖空考人，等于没学过就先考试；
+     卡片模式先把完整表述亮出来（考点高亮成卡片），看过再考。 */
+  var KN_GOAL = 20;
+
+  function knGoal(total) { return Math.max(1, Math.min(KN_GOAL, total)); }
+
+  // 卡片正文：题干里的空用答案填上并高亮 —— 这才叫「知识点」，不是「题目」
+  function knText(q) {
+    var stem = cleanMark(q.stem || '');
+    var ans = answerText(q);
+    var i = stem.indexOf('____');
+    if (i < 0) return esc(stem);
+    return esc(stem.slice(0, i)) + '<mark class="kn-mark">' + esc(ans) + '</mark>' + esc(stem.slice(i + 4));
+  }
+
+  // 卡片阶段「判定后自动下一问」「给首字提示」都没有意义，先藏起来，免得看着奇怪
+  function recitePhaseUI(phase) {
+    [$('#rAutoNext'), $('#rHint')].forEach(function (el) {
+      if (!el || !el.closest) return;
+      var lab = el.closest('label');
+      if (lab) lab.hidden = (phase === 'cards');
+    });
+  }
+
+  function renderReciteCards() {
+    var st = S.recite;
+    var total = st.list.length;
+    var goal = knGoal(total);
+    var i = Math.max(0, Math.min(st.cardIdx, total - 1));
+    st.cardIdx = i;
+    var q = st.list[i];
+
+    // 渲染出来就算「看过」；往回翻不重复计数，所以用下标集合而不是计数
+    st.seenIdx[i] = 1;
+    var seen = Object.keys(st.seenIdx).length;
+    var unlocked = seen >= goal;
+    var pct = Math.round(Math.min(seen, goal) / goal * 100);
+
+    var html = '<div class="quiz-card">' +
+      '<div class="progress"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + total + ' 张</span>' +
+      '<span class="pill">知识点</span>' +
+      '<span>已看 ' + Math.min(seen, goal) + ' / ' + goal + ' 张</span></div>' +
+      '<div class="kn-card" id="knCard">' + knText(q) + '</div>' +
+      '<div class="kn-foot">' +
+      (i > 0 ? '<button class="btn ghost" id="knPrev">← 上一张</button>' : '') +
+      '<span class="muted">' + (unlocked ? '看够了，随时可以开始做题' : '再看 ' + (goal - seen) + ' 张就能开始做题') + '</span>' +
+      '<div class="grow"></div>' +
+      (i + 1 < total ? '<button class="btn" id="knNext">下一张 →</button>' : '') +
+      (unlocked ? '<button class="btn primary" id="knStart">开始做题 →</button>' : '') +
+      '</div></div>';
+    $('#reciteBody').innerHTML = html;
+    recitePhaseUI('cards');
+
+    if ($('#knPrev')) {
+      $('#knPrev').addEventListener('click', function () { st.cardIdx--; renderReciteCards(); });
+    }
+    if ($('#knNext')) {
+      $('#knNext').addEventListener('click', function () { st.cardIdx++; renderReciteCards(); });
+    }
+    if ($('#knStart')) {
+      $('#knStart').addEventListener('click', function () {
+        st.phase = 'drill';
+        st.idx = 0;
+        renderRecite();
+      });
+    }
   }
 
   function renderRecite() {
     var st = S.recite;
     if (!st) return renderReciteEmpty();
+    if (!st.phase || st.phase === 'cards') return renderReciteCards();
+    recitePhaseUI('drill');
     if (st.idx >= st.list.length) return renderReciteEnd();
     var q = st.list[st.idx];
     var isMulti = q.type === 'multi';
@@ -1874,7 +1978,7 @@
       return (sa.mastery - sb.mastery) || (sb.bad - sa.bad);
     });
     if (!qs.length) {
-      $('#wrongList').innerHTML = '<div class="empty">这里空空的 —— 说明最近还没做错过，或者还没开始练。<br>去「② 刷选择题」或「③ 背知识点」试试。</div>';
+      $('#wrongList').innerHTML = '<div class="empty">这里空空的 —— 说明最近还没做错过，或者还没开始练。<br>去「② 刷题」或「③ 背知识点」试试。</div>';
       return;
     }
     $('#wrongList').innerHTML = qs.map(function (q) {
@@ -1895,7 +1999,10 @@
       b.addEventListener('click', function () {
         var q = getQ(b.dataset.drill);
         if (!q) return;
-        S.recite = { list: [q], idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0 };
+        S.recite = {
+          list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
+          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0
+        };
         switchView('recite');
         renderRecite();
       });
@@ -1981,7 +2088,10 @@
       b.addEventListener('click', function () {
         var q = getQ(b.dataset.drill);
         if (!q) return;
-        S.recite = { list: [q], idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0 };
+        S.recite = {
+          list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
+          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0
+        };
         switchView('recite');
         renderRecite();
       });

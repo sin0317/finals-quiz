@@ -124,6 +124,7 @@ async function intoQuiz(a, form) {
   const stem1 = a.text('#quizBody .stem') || '';
   ok(stem1.indexOf('____') < 0 && stem1.indexOf('________') < 0, '题干那个空已经被答案填上', stem1.slice(0, 40));
   ok(!!a.$('#quizBody .stem .blank-mark.filled'), '填入的答案有高亮标记');
+  ok(/秒后自动下一题/.test(fb1), '反馈里写明了多久后自动跳，不用猜', fb1.slice(-50));
 
   /* ---------- 2. 中文输入法：选词那一下 Enter 不能当提交 ---------- */
   console.log('\n[2] 输入法状态下的 Enter');
@@ -155,7 +156,7 @@ async function intoQuiz(a, form) {
   await sleep(2000);
   ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '第 1 题遗留的定时器没有把第 2 题切走');
   ok(c.$('#fillInput') && c.$('#fillInput').value === '恒比', '打了一半的内容还在，没被清掉');
-  await sleep(1200);              // 累计 3.2s，早超过自动跳转时间
+  await sleep(4800);              // 累计 6.8s，超过答对时 6 秒的自动跳转时间
   ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '过了跳转时间仍停在第 2 题（正在打字就不动）');
 
   /* ---------- 4. 回看上一题 ---------- */
@@ -237,6 +238,47 @@ async function intoQuiz(a, form) {
   e.click('#nextQBtn');
   await sleep(200);
   ok(/这一组|正确率|成绩|%/.test(e.text('#quizBody') || ''), '第 3 题作完进入成绩页', (e.text('#quizBody') || '').slice(0, 40));
+
+  /* ---------- 7. 反馈落在屏幕外时必须滚进来 ---------- */
+  // 这是「电脑端看不到答案、要点上一题才看得到」的根子：
+  // block:'nearest' 只要元素露一丁点边就不滚，桌面视口又高，反馈整块待在屏幕下方。
+  console.log('\n[7] 反馈卡片出屏时会被滚进视口');
+  const f = bootApp();
+  await sleep(150);
+  try {
+    Object.defineProperty(f.win.document.documentElement, 'clientHeight', { value: 800, configurable: true });
+  } catch (err) { /* 老实现不可改，下面 getBoundingClientRect 照样能测 */ }
+  const scrolls = [];
+  f.win.Element.prototype.scrollIntoView = function (opt) { scrolls.push(opt || {}); };
+  await intoQuiz(f, 'fill');
+
+  // 假装反馈卡片整块落在视口下方（top 820 > 视口高 800）
+  const fbBox = f.$('#quizFb');
+  fbBox.getBoundingClientRect = function () {
+    return { top: 820, bottom: 980, left: 0, right: 600, width: 600, height: 160 };
+  };
+  f.setVal('#fillInput', '随便写点什么');
+  f.click('#fillSubmit');
+  await sleep(150);
+  ok(scrolls.length > 0, '反馈在屏幕外时主动滚过去');
+  ok(scrolls.some(function (o) { return o.block === 'center'; }),
+    '滚到视口中间，不会被吸顶的顶栏压住', scrolls);
+
+  // 反过来：已经在视口里就别瞎滚，免得打断阅读
+  scrolls.length = 0;
+  if (f.$('#nextQBtn')) { f.click('#nextQBtn'); await sleep(120); }
+  const fbBox2 = f.$('#quizFb');
+  if (fbBox2) {
+    fbBox2.getBoundingClientRect = function () {
+      return { top: 120, bottom: 280, left: 0, right: 600, width: 600, height: 160 };
+    };
+    if (f.$('#fillInput')) {
+      f.setVal('#fillInput', '再来一个');
+      f.click('#fillSubmit');
+      await sleep(150);
+      ok(scrolls.length === 0, '反馈本来就在视口里时不乱滚', scrolls);
+    }
+  }
 
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
   process.exit(fail ? 1 : 0);

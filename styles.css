@@ -408,6 +408,39 @@ tbody tr.off { opacity: .45; }
 .opt.right .key, .opt.right .opt-text { color: var(--ok); }
 .opt.wrong .key, .opt.wrong .opt-text { color: var(--err); }
 
+/* ============ 知识点卡片（第三板块：先看卡片，再做题） ============ */
+.kn-card {
+  margin: 4px 0 2px;
+  padding: 30px 28px;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+  font-size: 18px;
+  line-height: 1.95;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* 卡片里的考点：把「空」填上之后高亮，看的时候一眼抓住要点 */
+.kn-mark {
+  background: var(--brand-soft);
+  color: var(--brand);
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-weight: 800;
+}
+
+.kn-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
 .recite-input-row { display: flex; gap: 10px; }
 
 .recite-input {
@@ -426,6 +459,9 @@ tbody tr.off { opacity: .45; }
   border-color: var(--brand);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
 }
+
+/* 滚动到反馈时留出顶栏高度，别被 sticky 顶栏压住 */
+#quizFb, #reciteVb { scroll-margin-top: 72px; }
 
 .verdict {
   margin-top: 16px;
