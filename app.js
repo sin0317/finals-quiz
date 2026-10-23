@@ -16,7 +16,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.4.1';
+  var FQ_VERSION = '1.5.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1140,6 +1140,112 @@
     }).map(function (q, i) { q.order = i; return q; });
   }
 
+  /* =========================================================
+     用户反馈：这道题该怎么出
+     ---------------------------------------------------------
+     解析器再聪明也会猜错（空挖多了、题干预感被截断、名词解释被当成填空）。
+     与其让人回头改笔记原文再重新提炼一遍，不如在刷题时直接说一句
+     「这题应该这么考」，把改法记在这道题上：
+         q.fix = { type, stem, answer, opts, note, at }
+     之后不管刷题、背卡片、错题本还是导出，都按 q.fix 来 —— 这就是
+     「下次这个知识点按用户反馈出题」。
+     原始解析结果先备份进 q.orig，点「恢复系统原样」能还原。
+     ========================================================= */
+  var FIX_TYPES = ['fill', 'single', 'multi', 'term', 'short'];
+
+  /* 答案怎么拆，每种题型不一样 —— 拆错了判分全乱：
+       fill  多个空按顺序来，顿号分隔；只有一个空就是一个整体
+       single/term  整体（解释里本来就有逗号，不能拆）
+       multi 正确项之间顿号/逗号
+       short 要点按行或分号，逗号不拆（要点内部常带逗号） */
+  function fixAnswerOf(type, text) {
+    var t = String(text == null ? '' : text).replace(/\r\n?/g, '\n').trim();
+    var parts;
+    if (!t) return type === 'multi' || type === 'short' ? [] : '';
+    if (type === 'multi') {
+      parts = t.split(/[、，,;；\n]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      return parts;
+    }
+    if (type === 'short') {
+      parts = t.split(/\n+|[；;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      return parts;
+    }
+    if (type === 'fill') {
+      parts = t.split(/[、\n]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      return parts.length > 1 ? parts : (parts[0] || '');
+    }
+    return t;
+  }
+
+  /* 从题库里凑干扰项：把别的题的答案拿来当错项，够用就行 */
+  function fixOpts(corrects, exclude) {
+    var pool = [];
+    getQs().forEach(function (o) {
+      if (o === exclude) return;
+      (Array.isArray(o.answer) ? o.answer : [o.answer]).forEach(function (a) {
+        if (a) pool.push(String(a));
+      });
+    });
+    var list = (Array.isArray(corrects) ? corrects : [corrects]).map(String);
+    return pickDistractors(list, pool, 2).map(cleanMark);
+  }
+
+  /* 把 q.fix 落到题上。所有展示、判分都读改后的字段，所以只要在
+     加载题库时统一跑一遍，别的地方一行都不用动。 */
+  function applyFix(q) {
+    if (!q) return q;
+    if (!q.fix) { if (q.orig) restoreOrig(q); return q; }
+    if (!q.orig) {
+      q.orig = {
+        type: q.type,
+        stem: q.stem,
+        answer: Array.isArray(q.answer) ? q.answer.slice() : q.answer,
+        opts: (q.opts || []).slice()
+      };
+    }
+    var f = q.fix;
+    q.type = FIX_TYPES.indexOf(f.type) >= 0 ? f.type : q.orig.type;
+    q.stem = String(f.stem || q.orig.stem || '');
+    q.answer = Array.isArray(f.answer) ? f.answer.slice() : f.answer;
+    if (f.opts && f.opts.length) q.opts = f.opts.slice();
+    else if (q.type === 'single' || q.type === 'multi') q.opts = fixOpts(q.answer, q);
+    return q;
+  }
+
+  function restoreOrig(q) {
+    if (!q || !q.orig) return q;
+    q.type = q.orig.type;
+    q.stem = q.orig.stem;
+    q.answer = Array.isArray(q.orig.answer) ? q.orig.answer.slice() : q.orig.answer;
+    q.opts = (q.orig.opts || []).slice();
+    delete q.orig;
+    return q;
+  }
+
+  /* 每次打开题集都把反馈跑一遍：云端同步 / 换设备 / 刷新之后改法还在 */
+  function applyAllFixes() {
+    S.banks.forEach(function (b) {
+      (b.questions || []).forEach(function (q) { applyFix(q); });
+    });
+  }
+
+  function saveFix(q, fix) {
+    if (!q) return null;
+    q.fix = fix;
+    // 之前已经备份过 orig 就不要覆盖，否则「恢复原样」会恢复成改过的版本
+    applyFix(q);
+    save();
+    return q;
+  }
+
+  function clearFix(q) {
+    if (!q) return null;
+    delete q.fix;
+    restoreOrig(q);
+    save();
+    return q;
+  }
+
   /* ---------------- 状态 ---------------- */
   var S = {
     banks: [],
@@ -1174,6 +1280,7 @@
       if (th) document.documentElement.setAttribute('data-theme', th);
     } catch (e) { S.banks = []; S.stats = {}; S.log = []; }
     if (S.banks.length && !S.banks.some(function (b) { return b.id === S.cur; })) S.cur = S.banks[0].id;
+    applyAllFixes();
   }
 
   function getBank() { return S.banks.filter(function (b) { return b.id === S.cur; })[0] || null; }
@@ -1231,6 +1338,10 @@
     var s = esc(stem);
     // 简答/名词解释本来就没有空；多选题的题干是个问句，也不该拖一条下划线
     if (typeof q !== 'string' && (isTypedQ(q) || (q.type === 'multi' && s.indexOf('____') < 0))) return s;
+    // 用户教过的选择题：答案在选项里，题干既不该补空，残留的 ____ 也换成括号
+    if (typeof q !== 'string' && q.fix && (q.type === 'single' || q.type === 'multi')) {
+      return s.replace(/_{2,}/g, '（　）');
+    }
     if (s.indexOf('____') < 0) s += '<span class="blank-mark">____</span>';
     else s = s.replace(/____/g, '<span class="blank-mark">________</span>');
     return s;
@@ -1849,6 +1960,22 @@
     });
     if (!list.length) { toast('请先勾选要保存的题目'); return; }
 
+    // 重新提炼同一份笔记时，之前「教过」的改法要跟着搬过来。
+    // 按原文句子认领：解析规则以后变了、题目 id 跟着变，反馈也不会白教。
+    var fixBySrc = {};
+    S.banks.forEach(function (bb) {
+      (bb.questions || []).forEach(function (q) {
+        if (!q.fix) return;
+        var k = normalize(q.source || q.stem);
+        if (k) fixBySrc[k] = q.fix;
+      });
+    });
+    list.forEach(function (q) {
+      var k = normalize(q.source || q.stem);
+      if (!q.fix && k && fixBySrc[k]) q.fix = fixBySrc[k];
+      if (q.fix) applyFix(q);
+    });
+
     // 按课程名归题集：同名就往里追加，换了一门课就另起一个，不串味
     var courseName = $('#courseName').value.trim() || '我的题集';
     var bank = S.banks.filter(function (b) { return b.course === courseName; })[0];
@@ -1881,7 +2008,12 @@
     download(b.course + '.json', JSON.stringify({
       course: b.course,
       questions: b.questions.map(function (q, i) {
-        return { type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [], source: q.source || '', order: q.order == null ? i : q.order };
+        return {
+          type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
+          source: q.source || '', order: q.order == null ? i : q.order,
+          // 带上用户教过的改法：换台设备 / 换个人接着用，反馈不丢
+          fix: q.fix || null, orig: q.orig || null
+        };
       })
     }, null, 2));
   }
@@ -1952,7 +2084,7 @@
   function normQ(q, idx) {
     var answer = Array.isArray(q.answer) ? q.answer.slice() : String(q.answer || '');
     var seed = (q.stem || '') + '|' + (Array.isArray(answer) ? answer.join('') : answer);
-    return {
+    var out = {
       id: q.id || qidOf(seed),
       type: TYPE_LABEL[q.type] ? q.type : 'single',
       stem: String(q.stem || ''),
@@ -1961,6 +2093,9 @@
       source: q.source || '',
       order: q.order == null ? (idx || 0) : q.order
     };
+    // 导入别人导出的题库时，「教过的改法」也一起接住
+    if (q.fix) { out.fix = q.fix; out.orig = q.orig || null; applyFix(out); }
+    return out;
   }
 
   function download(name, content) {
@@ -2016,6 +2151,12 @@
   // 刷题时每道题怎么考：给选项，还是自己填
   function decideForms(list, mode) {
     return list.map(function (q) {
+      // 用户亲手教过的题，按他指定的题型来 —— 不然「混合」模式
+      // 一看到掌握度高，又会把单选题掰回填空，等于白改
+      if (q.fix && q.fix.type) {
+        if (isTypedQ(q) || q.type === 'fill') return 'fill';
+        return 'choice';
+      }
       // 简答 / 名词解释天生就是手打，给不了选项
       if (isTypedQ(q)) return 'fill';
       if (mode === 'fill') return 'fill';
@@ -2030,6 +2171,211 @@
 
   function renderQuizEmpty() {
     $('#quizBody').innerHTML = '<div class="empty">选择题库还没有生成。<br>先到「① 导入笔记」提炼题目，或用顶部下拉切换题集，再点「开始刷题」。</div>';
+  }
+
+  /* =========================================================
+     刷题页 · 「这题出得不对？」
+     ---------------------------------------------------------
+     解析器只能猜，用户最清楚这道题该怎么考。点按钮 → 说清楚
+     「题型 / 题干 / 答案」→ 存进 q.fix，从此这个知识点按用户
+     的版本出题（刷题、背卡片、错题本、导出全都跟着变）。
+     ========================================================= */
+  var FIX_TYPE_OPT = [
+    ['fill', '填空（挖空，自己填）'],
+    ['single', '单选（一个正确项，配干扰项）'],
+    ['multi', '多选（多个正确项，全对才得分）'],
+    ['term', '名词解释（只留名词，默写解释）'],
+    ['short', '简答（标题 + 答要点）']
+  ];
+  var FIX_ANS_HINT = {
+    fill: '多个空按顺序用顿号隔开，例如：血药浓度、谷浓度',
+    single: '填正确项原文；选项会自动从题库里配干扰项',
+    multi: '多个正确项用顿号隔开，全部选对才算对',
+    term: '填这个名词的完整解释，考试时你要默写出来',
+    short: '一条要点一行（也可以用分号隔开），按要点给分'
+  };
+
+  function closeFixPanel() {
+    var box = $('#fixPanel');
+    if (!box) return;
+    box.hidden = true;
+    box.innerHTML = '';
+  }
+
+  function openFixPanel(q) {
+    var box = $('#fixPanel');
+    if (!box || !q) return;
+    var type = (q.fix && q.fix.type) || q.type || 'fill';
+    var ans = q.fix ? q.fix.answer : q.answer;
+    var ansText = Array.isArray(ans) ? ans.join('、') : (ans == null ? '' : ans);
+    var note = (q.fix && q.fix.note) || '';
+
+    box.innerHTML =
+      '<div class="fix-head">' +
+      '<div class="fix-title"><b>教它怎么出这道题</b>' +
+      '<span class="muted">改完以后，这个知识点每次都按你这一版出</span></div>' +
+      '<button class="mini-btn" id="fixClose" title="关闭">✕</button>' +
+      '</div>' +
+      '<div class="fix-now">系统现在这么出：<span class="pill">' + typeLabel(q) + '</span>' +
+      '<span class="fix-now-stem">' + esc(q.stem) + '</span>' +
+      (q.fix ? '<span class="pill ok">已按你的版本</span>' : '') + '</div>' +
+      '<label class="fld"><span>① 这题该怎么考</span>' +
+      '<select id="fixType" class="select">' +
+      FIX_TYPE_OPT.map(function (o) {
+        return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>';
+      }).join('') +
+      '</select></label>' +
+      '<label class="fld"><span>② 题干（要挖空的地方写 ____，挖几个空就写几个；名词解释/简答直接写标题）</span>' +
+      '<textarea id="fixStem" class="fix-textarea" rows="4" spellcheck="false">' + esc(q.stem) + '</textarea></label>' +
+      '<div class="fix-tools">' +
+      '<button class="btn ghost tiny" id="fixBlankBtn" type="button">✂ 把选中的字挖成空</button>' +
+      '<span class="muted">在题干里选中要考的那几个字，点一下，答案会自动填到下面</span>' +
+      '</div>' +
+      '<label class="fld"><span>③ 答案</span>' +
+      '<input id="fixAns" class="input" autocomplete="off" value="' + esc(ansText) + '"></label>' +
+      '<div class="muted fix-hint" id="fixAnsHint">' + esc(FIX_ANS_HINT[type] || '') + '</div>' +
+      '<label class="fld"><span>④ 想补充一句（可留空）</span>' +
+      '<input id="fixNote" class="input" maxlength="120" autocomplete="off" value="' + esc(note) + '"' +
+      ' placeholder="例如：这句只该挖「血药浓度」，后面是解释不用挖"></label>' +
+      '<div class="fix-foot">' +
+      '<button class="btn primary" id="fixSave" type="button">保存，以后都按这个出</button>' +
+      (q.fix ? '<button class="btn ghost" id="fixUndo" type="button">恢复系统原样</button>' : '') +
+      '<button class="btn ghost" id="fixCancel" type="button">取消</button>' +
+      '<span class="grow"></span>' +
+      '<span class="muted" id="fixErr"></span>' +
+      '</div>';
+
+    box.hidden = false;
+    $('#fixType').value = type;
+    bindFixEvents(q);
+    $('#fixStem').focus();
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* 老浏览器 */ }
+  }
+
+  function bindFixEvents(q) {
+    function warn(msg) {
+      var el = $('#fixErr');
+      if (el) { el.textContent = msg; }
+      toast(msg);
+    }
+
+    $('#fixClose').addEventListener('click', closeFixPanel);
+    $('#fixCancel').addEventListener('click', closeFixPanel);
+    $('#fixType').addEventListener('change', function () {
+      var t = this.value;
+      var hint = $('#fixAnsHint');
+      if (hint) hint.textContent = FIX_ANS_HINT[t] || '';
+      // 名词解释 / 简答没有空，题干里留着 ____ 反而会误导
+      var stem = $('#fixStem');
+      if ((t === 'term' || t === 'short') && stem.value.indexOf('____') >= 0) {
+        hint.textContent = '这两种题型没有空，记得把题干里的 ____ 换成完整标题';
+      }
+    });
+
+    // 选中一段文字 → 变成 ____，同时把这段字填进答案
+    $('#fixBlankBtn').addEventListener('click', function () {
+      var ta = $('#fixStem');
+      var s = ta.selectionStart, e = ta.selectionEnd;
+      if (s == null || s === e) { warn('先在题干里选中要挖掉的那几个字'); return; }
+      var picked = ta.value.slice(s, e).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+      if (!picked) { warn('选中的是空白，重新选一段字'); return; }
+      // 挖空位置两边各留一个空格，避免「是____。」糊在一起看不清
+      var before = ta.value.slice(0, s).replace(/[\s\u3000]+$/, ' ');
+      if (!/\s$/.test(before)) before += ' ';
+      var after = ta.value.slice(e).replace(/^[\s\u3000]+/, '');
+      ta.value = before + '____' + after;
+      var ansEl = $('#fixAns');
+      var cur = ansEl.value.trim();
+      if (!cur) ansEl.value = picked;
+      else if (cur.indexOf(picked) < 0) ansEl.value = cur.replace(/[、，,]\s*$/, '') + '、' + picked;
+      var pos = before.length + 4;
+      ta.selectionStart = ta.selectionEnd = pos;
+      ta.focus();
+      toast('已挖空：' + picked);
+    });
+
+    $('#fixSave').addEventListener('click', function () {
+      var type = $('#fixType').value;
+      var stem = $('#fixStem').value.replace(/\r\n?/g, '\n').trim();
+      var ansRaw = $('#fixAns').value.trim();
+      var note = $('#fixNote').value.trim();
+      if (!stem) { warn('题干不能空着'); return; }
+      if (!ansRaw) { warn('答案得填一个，不然没法判分'); return; }
+
+      var answer = fixAnswerOf(type, ansRaw);
+      var empty = Array.isArray(answer) ? !answer.length : !String(answer).trim();
+      if (empty) { warn('答案得填一个，不然没法判分'); return; }
+
+      // 题型和答案形状对齐：单选/名词解释只能是一个整体，简答必须是若干条
+      if (type === 'multi' && (!Array.isArray(answer) || answer.length < 2)) type = 'single';
+      if (type === 'single' && Array.isArray(answer)) answer = answer.join('、');
+      if (type === 'term' && Array.isArray(answer)) answer = answer.join('、');
+      if (type === 'short' && !Array.isArray(answer)) answer = [answer];
+      if (type === 'fill' && stem.indexOf('____') < 0) stem += ' ____';
+      // 选择题的答案就在选项里，题干再拖一条下划线只会让人以为还要手写
+      if ((type === 'single' || type === 'multi') && stem.indexOf('____') >= 0) {
+        stem = stem.replace(/[ \t\u3000]*_{2,}[ \t\u3000]*/g, '（　）');
+      }
+
+      var fix = { type: type, stem: stem, answer: answer, note: note, at: Date.now() };
+      if (type === 'single' || type === 'multi') {
+        var opts = fixOpts(answer, q);
+        if (opts.length < 2) {
+          // 题库里凑不出干扰项时别硬造选择题：只给正确答案的选项等于送分
+          fix.type = 'fill';
+          if (fix.stem.indexOf('____') < 0) {
+            // 刚才为选择题把空换成了（　），降级回填空时要换回来，别多长一个空
+            if (fix.stem.indexOf('（　）') >= 0) fix.stem = fix.stem.replace('（　）', '____');
+            else fix.stem += ' ____';
+          }
+          toast('题库里凑不出干扰项，这题先按填空出');
+        } else {
+          fix.opts = opts;
+        }
+      }
+
+      saveFix(q, fix);
+      // 这题的呈现形式跟着改：本来决定给选项的，现在要按新题型来
+      if (S.quiz && S.quiz.forms) {
+        var i = S.quiz.list.indexOf(q);
+        if (i >= 0) S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
+      }
+      closeFixPanel();
+      toast('记住了：以后这题按「' + typeLabel(q) + '」出');
+      if (S.recite) renderRecite(); else if (S.quiz) renderQuiz();
+    });
+
+    if ($('#fixUndo')) {
+      $('#fixUndo').addEventListener('click', function () {
+        clearFix(q);
+        if (S.quiz && S.quiz.forms) {
+          var i = S.quiz.list.indexOf(q);
+          if (i >= 0) S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
+        }
+        closeFixPanel();
+        toast('已恢复成系统原来的出法');
+        if (S.recite) renderRecite(); else if (S.quiz) renderQuiz();
+      });
+    }
+  }
+
+  /* 每张卡片右上角的入口。刷题和回顾态都要有 —— 答完看到答案才最想改。 */
+  function bindFixButtons() {
+    $$('#quizBody [data-fix]').forEach(function (b) {
+      if (b.dataset.fixBound) return;   // 答完后会再调一次，别重复绑
+      b.dataset.fixBound = '1';
+      b.addEventListener('click', function () {
+        var q = null;
+        if (S.quiz) q = S.quiz.list.filter(function (x) { return x.id === b.dataset.fix; })[0] || null;
+        if (!q) q = getQ(b.dataset.fix);
+        if (q) openFixPanel(q); else toast('找不到这道题，刷新一下试试');
+      });
+    });
+  }
+
+  function fixBtnHtml(q, label) {
+    return '<button class="btn ghost tiny fix-open" data-fix="' + esc(q.id) + '" type="button">' +
+      (label || '✎ 改题') + '</button>';
   }
 
   function renderQuiz() {
@@ -2069,6 +2415,8 @@
       '<div class="q-meta"><span>第 ' + (st.idx + 1) + ' / ' + st.list.length + ' 题</span>' +
       '<span class="pill">' + (typed ? typeLabel(q) : isFill ? '填空' : isMulti ? '多选' : '单选') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
+      '<span class="grow"></span>' +
+      fixBtnHtml(q) +
       (st.idx > 0 ? '<button class="btn ghost tiny" id="prevQBtn">← 上一题</button>' : '') +
       '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
@@ -2121,6 +2469,7 @@
         b.addEventListener('click', function () { answerQuiz(b.dataset.v); });
       });
     }
+    bindFixButtons();
   }
 
   // 刷题里碰到手打题（填空 / 名词解释 / 简答）：自己写，判分方式和背诵模式一样
@@ -2148,6 +2497,7 @@
     $('#quizFb').innerHTML = verdictHtml(q, v, g) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
       (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
+      fixBtnHtml(q, '✎ 这题出得不对？') +
       '<span class="muted">' + (typed ? '自己写的题不会自动跳，看完答案再点' : '手打题不会自动跳，看完答案再点') + '</span>' +
       '</div>';
     $('#nextQBtn').addEventListener('click', function () {
@@ -2155,6 +2505,7 @@
       st.idx++;
       renderQuiz();
     });
+    bindFixButtons();
     // 反馈在输入框下面，手机上常常在屏幕外，主动滚过去
     scrollToFb($('#quizFb'));
   }
@@ -2178,7 +2529,8 @@
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + (i / st.list.length * 100) + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + st.list.length + ' 题 · 回顾</span>' +
-      '<span class="pill">' + (isTypedQ(q) ? typeLabel(q) : isFill ? '填空' : r.multi ? '多选' : '单选') + '</span></div>' +
+      '<span class="pill">' + (isTypedQ(q) ? typeLabel(q) : isFill ? '填空' : r.multi ? '多选' : '单选') + '</span>' +
+      '<span class="grow"></span>' + fixBtnHtml(q) + '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
       '<div class="verdict ' + cls + '" style="margin-top:12px">' +
       '<div class="verdict-title">' + title + '</div>' +
@@ -2270,12 +2622,14 @@
       (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       '</div>' +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
-      (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button></div>';
+      (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
+      fixBtnHtml(q, '✎ 这题出得不对？') + '</div>';
     $('#nextQBtn').addEventListener('click', function () {
       quizTimerStop(st);
       st.idx++;
       renderQuiz();
     });
+    bindFixButtons();
     // 以前这里会 setTimeout 1.5 秒（答对）/ 2.5 秒（答错）自动翻页。
     // 1.5 秒连「你选了什么」都来不及看，更别说原文，于是看起来就是
     // 「没显示答案就跳了」。现在一律停住，等用户自己点「下一题」。
@@ -3642,6 +3996,13 @@
     buildFromNote: buildFromNote,
     parseBankQuestions: parseBankQuestions,
     parsePaper: parsePaper,
+    applyFix: applyFix,
+    clearFix: clearFix,
+    fixAnswerOf: fixAnswerOf,
+    fixOpts: fixOpts,
+    applyAllFixes: applyAllFixes,
+    openFixPanel: openFixPanel,
+    closeFixPanel: closeFixPanel,
     gradeTyped: gradeTyped,
     gradeAnswer: gradeAnswer,
     decideForms: decideForms,
