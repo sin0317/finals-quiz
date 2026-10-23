@@ -74,7 +74,7 @@ PORT=8080 npm start    # 换端口
 
 ## 测试
 
-9 套脚本、465 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、加粗识别、广场、作答与回看、用户改题：
+9 套脚本、467 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、加粗识别、广场、作答与回看、用户改题：
 
 ```bash
 node test/api.test.js       # 56 项，起临时端口 + 临时数据目录，跑完整接口链路
@@ -85,7 +85,7 @@ node test/bold.test.js      # 49 项，加粗识别、兜底不丢句、挖空�
 node test/plaza.test.js     # 64 项，广场接口 + 前端
 node test/review.test.js    # 51 项，填空判分、答完不自动跳、回看、反馈滚动
 node test/paper.test.js     # 38 项，原卷分区题型、多选全选、名词解释、简答要点、手打判分
-node test/fix.test.js       # 34 项，改题型/题干/答案、挖空按钮、持久化、恢复原样、降级
+node test/fix.test.js       # 36 项，改题型/题干/答案、挖空按钮、持久化、恢复原样、降级、背诵卡
 ```
 
 前端几套用 [happy-dom](https://github.com/capricorn86/happy-dom) 跑，需先 `npm i -D happy-dom`（或全局装好再把 `NODE_PATH` 指过去）。

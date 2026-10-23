@@ -193,5 +193,25 @@ console.log('\n五、题库太小、凑不出干扰项时降级成填空');
   ok(q.stem.indexOf('____') >= 0, '题干保留了空');
 }
 
+/* ---------------- 六、背知识点的卡片也跟着变 ---------------- */
+console.log('\n六、背知识点卡片也用用户的版本');
+{
+  const FIXED = JSON.parse(JSON.stringify(BANK));
+  FIXED[0].questions[0].fix = {
+    type: 'single',
+    stem: '治疗药物监测的最常用标本是（　），结果直接决定给药方案',
+    answer: '血浆',
+    note: '',
+    at: 1
+  };
+  const { win } = boot(FIXED);
+  const d = win.document;
+  d.querySelector('.tab[data-view="recite"]').click();
+  d.querySelector('#reciteStartBtn').click();
+  const txt = d.querySelector('#reciteBody').textContent || '';
+  ok(txt.indexOf('结果直接决定给药方案') >= 0, '知识卡片第一张就是改过的表述');
+  ok(txt.indexOf('____') < 0, '选择题的卡片不会留一条空让人以为要手写');
+}
+
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
 process.exit(fail ? 1 : 0);
