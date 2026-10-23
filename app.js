@@ -156,7 +156,10 @@
     '实行', '推行', '制定', '采用', '采取', '坚持', '依靠', '经历', '达到', '获得', '取得', '保持',
     '维护', '反对', '抵抗', '争夺', '揭示', '表明', '说明', '反映', '体现', '包含', '标志', '促进',
     '推动', '导致', '取决于', '依赖于', '制约', '开始', '进入', '走向', '成为', '促使', '迫使',
-    '允许', '禁止', '规定', '要求', '强调', '指出', '阐明', '论述', '分析', '总结', '归纳'
+    '允许', '禁止', '规定', '要求', '强调', '指出', '阐明', '论述', '分析', '总结', '归纳',
+    // 并列/要求类：药学笔记里「应当/具备/符合/满足 + 一串并列项」极多，
+    // 少了这几个词整句会被 ⑥ 从顿号处切坏，题干只剩半句
+    '应当', '应该', '具备', '具有', '符合', '满足', '需要', '做到', '遵循', '包含', '涵盖'
   ];
 
   // 从下标 2 起找最靠前的谓语起点（多字优先），避免把「中国共产党」切成「中国 / 共产党…」
@@ -178,13 +181,18 @@
      所以这一层不再依赖词表，只要是完整句子就保下来当填空题。
      ⚠️ 只在句子内部真的有分隔时才切：短语和简答提纲（「常用的给药方案设计方法有哪些」）
         没有标点，靠这一条自动排除，否则会吐出一堆残句垃圾题。 */
-  var FILL_LEAD = /^(又称之为|又称为|被称为|被誉为|简称为|指的是|称为|是指|即为|就是|包括|分为|主要有|是|指|为|即|由)/;
+  var FILL_LEAD = /^(又称之为|又称为|被称为|被誉为|简称为|指的是|称为|是指|即为|就是|应当具备|应当|应该|具备|具有|符合|满足|需要|做到|遵循|包括|分为|主要有|是|指|为|即|由)/;
   /* 「……，又称之为」这种，把引导词归到题干，答案才干净。⑤ ⑥ 两条路都要用，
      否则答案会变成「又称之为恒比消除」这种带壳的脏答案 */
+  var LIST_LEAD = /^(应当具备|应当|应该|具备|具有|符合|满足|需要|做到|遵循)/;
   function moveLead(left, right) {
     var m = String(right).match(FILL_LEAD);
     if (m && right.slice(m[1].length).trim().length >= 2) {
-      return { left: left + m[1], right: right.slice(m[1].length).trim() };
+      var rest = right.slice(m[1].length).trim();
+      // 并列引导词只在后面真跟着一串并列项时才并进题干；
+      // 否则「应当在 15 日内报告」会被整段当答案，题干又变半句了
+      if (LIST_LEAD.test(right) && rest.indexOf('、') < 0) return { left: left, right: right };
+      return { left: left + m[1], right: rest };
     }
     return { left: left, right: right };
   }
@@ -241,9 +249,118 @@
      漏进散文后一准切出「A、____」这种碎片，直接跳过，别拿它出题 */
   var OPT_ROW_RE = /(^|[、，,;；])\s*[A-E]\s*[.、．]/;
 
+  /* ---------------------------------------------------------
+     分节标题：题库/笔记里常见「一、单选题」「二、多选题」「三、填空题」
+     「名词解释」「简答题」。同一个句子落在哪个区，题型就不一样 ——
+     单选题区里答案就算是一串并列词，也不能出成多选题。
+     --------------------------------------------------------- */
+  var SECTION_RES = [
+    { re: /多选|多项选择|不定项/, kind: 'multi' },
+    { re: /单选|单项选择|最佳选择/, kind: 'single' },
+    { re: /填空/, kind: 'fill' },
+    { re: /判断/, kind: 'judge' },
+    { re: /名词解释|简答|问答|论述|案例/, kind: 'open' }
+  ];
+  // 标题行要短、且不是一道题本身（「下列属于…的是」不算标题）
+  function sectionKind(line) {
+    var t = String(line).replace(/^[#\s]+/, '').replace(/[（(]\s*\d+\s*[题分][)）]?/g, '').trim();
+    if (!t || t.length > 16) return '';
+    if (/[。？：]$/.test(t)) return '';
+    for (var i = 0; i < SECTION_RES.length; i++) {
+      if (SECTION_RES[i].re.test(t)) return SECTION_RES[i].kind;
+    }
+    return '';
+  }
+
+  function splitSentencesWithSection(text) {
+    var out = [], sec = '';
+    markBold(String(text)).split(/\r?\n/).forEach(function (line) {
+      var k = sectionKind(line);
+      if (k) { sec = k; return; }   // 标题行本身不出题
+      line = line.replace(/^\s*([-*•·]|\d+[.、)）]|[（(]\d+[)）]|[一二三四五六七八九十]+[、.])\s*/, '');
+      line.split(/[。！？；;!?]+/).forEach(function (s) {
+        s = s.trim();
+        if (s) out.push({ s: s, sec: sec });
+      });
+    });
+    return out;
+  }
+
+  /* ---------------------------------------------------------
+     一个空该挖在哪：答案只能是一个短语，不能是半句话
+     ---------------------------------------------------------
+     老逻辑从触发词一路挖到句号，「胃酸分泌增多时，____」的答案会是
+     「弱酸性药物的吸收增强」——题干看着完整，其实问不出东西，
+     而且答案长到要背书。新规则：
+       ① 答案 ≤16 字、不以虚词/连接词开头、不挨着并列标点，才算合格；
+       ② 不合格就把空往前挪，挖掉前半句末尾那个名词短语，
+          后半句原样留在题干里 —— 题干永远是完整句子，答案一口能答。
+     --------------------------------------------------------- */
+  var ANS_MAX = 16;
+  var BAD_ANS_HEAD = /^(的|了|着|和|或|与|及|是|属于|为|包括|分为|主要有|指|如|例如|即|也就是|则|且|并|可|应|需|使|能|会|有|无)/;
+  var PUNCT_END = /[、，,；;：:]$/;      // 题干/答案的收尾标点
+  var LIST_END = /[、；;：:]$/;          // 空挖在并列项中间（只剩顿号、分号靠后）
+
+  function hanLen(s) { return (String(s).match(/[\u4e00-\u9fa5]/g) || []).length; }
+
+  /* 数字与英文术语是最靠谱的考点：「15 日内」「40%」「CYP3A4」挖掉之后，
+     题干整句都在，答案也短，不会出现「新的、____」这种只剩半句的题。
+     排在普通规则后面当兜底：普通规则切不出好空时，才用它救这一句。 */
+  function numBlank(sent) {
+    var re = /(\d+(?:\.\d+)?\s*(?:%|mg|g|ml|mL|L|h|min|日|天|周|月|年|岁|次|种|个|片|IU|mmol\/L)?)|([A-Za-z][A-Za-z0-9\-]{2,})/g;
+    var m, best = null;
+    while ((m = re.exec(sent))) {
+      var raw = String(m[1] || m[2] || '').trim();
+      if (raw.length < 2) continue;
+      var pre = sent.slice(0, m.index).trim();
+      var post = sent.slice(m.index + m[0].length).trim();
+      if (hanLen(pre) < 4 || hanLen(post) < 1) continue;
+      // 数字夹在括号里（（1分））多半是分值，跳过
+      if (/[（(]$/.test(sent.slice(0, m.index)) && /^[）)]/.test(post)) continue;
+      best = { left: pre, right: raw, tail: post };
+      break;
+    }
+    return best;
+  }
+
+  function fixBlank(left, trig, right, tail) {
+    // 名词解释那种「术语：定义」：空就该留在定义上，答案是整句也没关系，
+    // 题干里必须留着术语，否则就成了「____：指血浆药物浓度下降一半所需的时间」
+    var defLike = (trig === '：' || trig === ':') && hanLen(left) <= 12 && left.indexOf('，') < 0;
+    // 「应当/具备 + 一串并列项」：答案是一整组并列词，不是半句话，别拿长度和首字去卡它
+    var isList = !!right && right.split(/[、，,]/).length >= 2;
+    // 题干以「，」结尾是正常的（「……效应，包括____」），只有顿号/分号才是挖在并列项中间
+    if (defLike || (right && (isList || (right.length <= ANS_MAX && !BAD_ANS_HEAD.test(right)))
+        && !LIST_END.test(left))) {
+      return { left: left, trig: trig, right: right, tail: tail, reversed: false };
+    }
+    // 反向挖：在前半句里从右往左找一个 2–14 字的名词块
+    var seg = String(left).replace(/[、，,；;：:]+$/, '');
+    var m = seg.match(/([^、，,；;：:的在对与和或使把将被由从以]{2,14})$/);
+    if (!m) return null;
+    var phrase = m[1];
+    var pre = seg.slice(0, seg.length - phrase.length);
+    if (PUNCT_END.test(pre)) return null;       // 还是挖在并列项中间，宁可不出
+    if (hanLen(phrase) < 2) return null;
+    var post = String(trig || '') + String(right || '') + String(tail || '');
+    if (hanLen(post) < 4) return null;          // 空后面得有内容，否则题干没有信息
+    return { left: pre, trig: '', right: phrase, tail: post, reversed: true };
+  }
+
+  // 「为」当触发词的条件：紧跟着的不是「了/止/什么」，前面也不是「因/认/行」
+  function bestWei(sent) {
+    var i = sent.lastIndexOf('为');
+    if (i < 4) return -1;
+    if ('了止什'.indexOf(sent.charAt(i + 1)) >= 0) return -1;
+    if ('因认行作'.indexOf(sent.charAt(i - 1)) >= 0) return -1;
+    if (sent.slice(i + 1).trim().length < 2) return -1;
+    return i;
+  }
+
   function extractPoints(text) {
     var pts = [], seen = {};
-    splitSentences(text).forEach(function (sent) {
+    splitSentencesWithSection(text).forEach(function (line) {
+      var sent = line.s, sec = line.sec;
       if (sent.length < 6 || sent.length > 90) return;
       if (OPT_ROW_RE.test(sent)) return;
       var left = '', trig = '', right = '', tail = '', forcedFill = false;
@@ -273,6 +390,13 @@
           left = sent.slice(0, best.i).trim();
           trig = best.t;
           right = sent.slice(best.i + best.t.length).trim().replace(/[。.]$/, '');
+        } else if (bestWei(sent) >= 0) {
+          // ③' 「……为……」：题库里的标准写法（「溶媒为林格氏液」）。
+          // 只认最后那个「为」，且前面至少 4 个字，避开「因为/为了/认为」
+          var wi = bestWei(sent);
+          left = sent.slice(0, wi).trim();
+          trig = '为';
+          right = sent.slice(wi + 1).trim().replace(/[。.]$/, '');
         } else if (sent.lastIndexOf(TRIGGER_SHI) >= 0) {
           // ③ 退回最通用的「……是……」
           var i2 = sent.lastIndexOf(TRIGGER_SHI);
@@ -304,23 +428,63 @@
         }
       }
 
+      // 整句一个标点都没有（「急诊处方一般不得超过3日用量」），前面几步都切不出来：
+      // 还有一条最稳的路 —— 挖掉里面的数字或英文术语
+      if (!right && !boldOK) {
+        var nb0 = numBlank(sent);
+        if (nb0) {
+          left = nb0.left; trig = ''; right = nb0.right; tail = nb0.tail;
+          forcedFill = true; reversed = true;
+        }
+      }
       if (!right) return;
       // 答案只该是一个短语。以前 right 是从触发词一路吃到句尾的：
       // 「适用于高血压，包括 A、B，用药期间需监测血压」的答案会变成
       // 「A、B，用药期间需监测血压」，题干只剩「…包括____」，后半句凭空消失。
       // 这里把答案后面那半句接回题干尾部，题目才读得完整。
       // 加粗是作者亲手标出来的范围，不切。
+      var reversed = false;
       if (!boldOK) {
         var cutAt = right.search(/[，,；;]/);
         if (cutAt >= 2) {
           tail = tail + right.slice(cutAt);
           right = right.slice(0, cutAt).trim();
         }
+        // 多选题本来就是一串并列项，长度规则另算，不挪空
+        var rawPre = right.split(/[、，,]/).map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+        var mayMulti = rawPre.length >= 2 && rawPre.length <= 6 &&
+          rawPre.every(function (s) { return s.length <= 26; }) &&
+          ['包括', '分为', '主要有', '：', ':'].indexOf(trig) >= 0;
+        if (!mayMulti) {
+          var fixed = fixBlank(left, trig, right, tail);
+          if (fixed) {
+            left = fixed.left; trig = fixed.trig; right = fixed.right; tail = fixed.tail;
+            reversed = fixed.reversed;
+          } else {
+            // 整句都是「一长串并列/半句话」，切不出短语：退一步挖数字或英文术语
+            var nb = numBlank(sent);
+            if (!nb) return;
+            left = nb.left; trig = ''; right = nb.right; tail = nb.tail;
+            forcedFill = true; reversed = true;
+          }
+        }
       }
-      // 加粗指认的空，前面就算一个字没有也能出题；普通句子前面的引子太短没意义
+      // 答案尾巴上的量词（「安全、有效、经济、适当四个要素」）不是考点，接回题干
+      var qm = right.match(/([一二三四五六七八九十两\d]+个?(?:要素|方面|环节|阶段|类型|因素|要点|原则|条件|部分|指标|措施|步骤)|等)$/);
+      if (qm && right.length > qm[1].length + 1) {
+        tail = qm[1] + (tail || '');
+        right = right.slice(0, right.length - qm[1].length).trim();
+      }
+      // 答案开头的介词/副词（「当药物浓度」的「当」）属于题干，挪过去
+      var pm = right.match(/^(当|在|对|由|使|于|从|向|把|将)/);
+      if (pm && right.length > pm[1].length + 1) {
+        left = left + pm[1];
+        right = right.slice(pm[1].length).trim();
+      }
+      // 加粗/反向挖出来的空，前面就算一个字没有也能出题；普通句子前面的引子太短没意义
       // 上限从 30 放宽到 56：长句（「…的效应，包括个体间和个体内变异」）以前整句被丢，
       // 其实出成填空题很好用，只要题干长一点而已
-      if (left.length < (boldOK ? 0 : 2) || left.length > 56) return;
+      if ((!boldOK && !reversed && left.length < 2) || left.length > 56) return;
       if (right.length < 1 || right.length > 60) return;
       if (/^[的了和或与及是]$/.test(right)) return;
       var k = left + '|' + right;
@@ -330,7 +494,10 @@
       var type = 'single', items = null;
       var raw = right.split(/[、，,]/).map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
       var listOK = raw.length >= 2 && raw.length <= 6 && raw.every(function (s) { return s.length <= 26; });
-      if (forcedFill) {
+      if (forcedFill && listOK && sec === 'multi') {
+        // 多选题区里的并列句即使是从谓语兜底切出来的，也还是多选
+        type = 'multi'; items = raw;
+      } else if (forcedFill) {
         // ⑤ 兜底出来的，一律当填空题考：整句太长，硬凑选项反而难看
         type = 'fill';
       } else if (boldOK && listOK) {
@@ -339,6 +506,10 @@
       } else if (listOK && (['包括', '分为', '主要有', '：', ':'].indexOf(trig) >= 0 || (trig === '是' && raw.length >= 3))) {
         type = 'multi'; items = raw;
       }
+      /* 分区决定题型：单选题区里就算答案是一串并列词，也不能出成多选；
+         多选题只出现在「多选题」那一节里。填空题/名词解释/简答区一律按手打处理。 */
+      if (type === 'multi' && sec === 'single') { type = 'single'; items = null; }
+      if (sec === 'fill' || sec === 'open' || sec === 'judge') { type = 'fill'; items = null; }
       // order 记录这个知识点在笔记原文里出现的先后，用来「跟着笔记顺序出题」
       pts.push({
         left: left, t: trig, right: right, tail: tail,
@@ -564,7 +735,8 @@
       if (/简答|案例分析/.test(name)) continue;          // 提纲不提炼
       var seg = text.slice(marks[i].at, end);
       seg = seg.replace(/^[^\n]*\n?/, '');               // 去掉标题那一行
-      out += seg;
+      // 但区名得留下：后面要靠它判断「这一节的题不许出成多选」
+      out += '\n' + name + '\n' + seg;
     }
     return out;
   }
@@ -1554,13 +1726,13 @@
     // 把答案直接补进题干那个空里，一眼就能看到正确答案
     fillStemBlank($('#quizBody'), q, g.level === 'right');
 
-    // 填空题是手打的，答案还带解析和原文，2.8 秒根本读不完一晃就跳走了。
-    // 给足时间，并把「几秒后跳」写在按钮旁边，让人心里有数。
-    var wait = g.level === 'right' ? 6000 : 9000;
+    // 填空题是手打的，答案还带解析和原文，读一遍至少十来秒 —— 不管有没有勾
+    // 「答完自动下一题」，这一题都停住不动，等你自己点「下一题」。
+    // 勾选只对选择题生效，免得答案还没看清就被下一题顶掉。
     $('#quizFb').innerHTML = verdictHtml(q, v, g) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
       (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
-      ($('#qAutoNext').checked ? '<span class="muted">' + (wait / 1000) + ' 秒后自动下一题，看完再点也行</span>' : '') +
+      '<span class="muted">手打题不会自动跳，看完答案再点</span>' +
       '</div>';
     $('#nextQBtn').addEventListener('click', function () {
       quizTimerStop(st);
@@ -1569,8 +1741,6 @@
     });
     // 反馈在输入框下面，手机上常常在屏幕外，主动滚过去
     scrollToFb($('#quizFb'));
-    // 填空题是手打的，读完答案需要时间，自动跳得比选择题慢
-    quizAutoNext(st, q, wait);
   }
 
   // 自动下一题：只管当前这一题，用户翻页了 / 正在打字就都不插手

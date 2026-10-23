@@ -201,6 +201,62 @@ console.log('\n逐项核对（名词解释与简答）：');
   ok(!qs.some((q) => /^[①②③]/.test(q.stem)), '简答提纲条目没有被当成题干');
 })();
 
+console.log('\n分区题型：单选题区里不许冒出多选题：');
+(function () {
+  const NOTE = [
+    '一、单选题（2 题）',
+    '1. 药物治疗的前提是安全性。',
+    '2. 所选药物对患者应当安全、有效、经济、适当。',
+    '二、多选题（1 题）',
+    '1. 药物不良反应包括副作用、毒性反应、变态反应三种。',
+    '三、填空题（2 题）',
+    '1. 治疗药物监测的最常用标本是血样。',
+    '2. 妊娠期第 2 周属于不易感期。'
+  ].join('\n');
+  const qs = api.buildFromNote(NOTE);
+  const secSingle = qs.filter((q) => /药物治疗的前提|所选药物对患者/.test(q.stem));
+  const secMulti = qs.filter((q) => /药物不良反应包括/.test(q.stem));
+  const secFill = qs.filter((q) => /最常用标本|不易感期/.test(q.stem));
+
+  ok(secSingle.length === 2, '单选题区两面都出了题', secSingle.map((q) => q.type));
+  ok(secSingle.every((q) => q.type !== 'multi'), '单选题区里没有一道变成多选', secSingle.map((q) => q.type));
+  ok(secMulti.length === 1 && secMulti[0].type === 'multi',
+    '多选题区里那道仍是多选', secMulti.map((q) => q.type));
+  ok(secMulti.length === 1 && (secMulti[0].answer || []).length === 3,
+    '多选题答案仍是三个并列项', secMulti[0] && secMulti[0].answer);
+  ok(secFill.length === 2 && secFill.every((q) => q.type === 'fill'),
+    '填空题区里一律按手打填空出', secFill.map((q) => q.type));
+})();
+
+console.log('\n挖空粒度：空不能挖在并列项中间、答案不能是半句话：');
+(function () {
+  const NOTE = [
+    '所选药物对患者应当安全、有效、经济、适当。',
+    '胃酸分泌增多时，弱酸性药物的吸收增强。',
+    '新的、严重的药品不良反应应当在 15 日内报告。',
+    '清除半衰期：指血浆药物浓度下降一半所需要的时间。'
+  ].join('\n');
+  const qs = api.buildFromNote(NOTE);
+  ok(qs.length >= 3, '四句话至少留下三道题', qs.length);
+
+  const badStem = qs.filter((q) => /[、；]$/.test(String(q.stem).split('____')[0] || ''));
+  ok(badStem.length === 0, '没有一道题的题干停在顿号上（…经济、____）',
+    badStem.map((q) => q.stem));
+
+  const longAns = qs.filter((q) => {
+    const a = Array.isArray(q.answer) ? q.answer.join('') : q.answer;
+    return q.type !== 'multi' && !/：\s*____/.test(q.stem) && String(a).length > 16;
+  });
+  ok(longAns.length === 0, '单空答案都不超过 16 字（不是把半句话挖走）',
+    longAns.map((q) => q.stem + ' → ' + q.answer));
+
+  const head = qs.filter((q) => {
+    const a = Array.isArray(q.answer) ? q.answer.join('') : q.answer;
+    return /^(属于|包括|分为|是|为|如|例如|即|且|并|可|应|需|使)/.test(String(a));
+  });
+  ok(head.length === 0, '答案不以虚词/连接词开头', head.map((q) => q.answer));
+})();
+
 console.log('\n纯散文笔记：');
 (function () {
   const plain = '林则徐是开眼看世界的第一人。\n辛亥革命推翻了清王朝的统治。';

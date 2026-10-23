@@ -118,7 +118,7 @@ async function intoQuiz(a, form) {
   ok(a.$('#prevQBtn') === null, '第 1 题没有「上一题」按钮（前面没题）');
 
   a.setVal('#fillInput', '随便乱写一个');
-  // 「自动下一题」默认是关的，这一条要验证勾上之后有没有写明倒计时
+  // 手打题永远不自动跳：就算勾上「答完自动下一题」，也该停在答案上等人看完
   a.$('#qAutoNext').checked = true;
   a.click('#fillSubmit');
   await sleep(150);
@@ -129,7 +129,12 @@ async function intoQuiz(a, form) {
   const stem1 = a.text('#quizBody .stem') || '';
   ok(stem1.indexOf('____') < 0 && stem1.indexOf('________') < 0, '题干那个空已经被答案填上', stem1.slice(0, 40));
   ok(!!a.$('#quizBody .stem .blank-mark.filled'), '填入的答案有高亮标记');
-  ok(/秒后自动下一题/.test(fb1), '反馈里写明了多久后自动跳，不用猜', fb1.slice(-50));
+  ok(/手打题不会自动跳/.test(fb1), '明确告诉用户手打题不会自己跳走', fb1.slice(-60));
+  ok(!/秒后自动下一题/.test(fb1), '填空不再出现「几秒后自动跳」，省得以为答案会消失');
+  await sleep(6500);                       // 勾着也得停住
+  ok(/第\s*1\s*\//.test(a.text('#quizBody .q-meta') || ''),
+    '勾了「答完自动下一题」，填空题也停在第 1 题不跳', a.text('#quizBody .q-meta'));
+  ok(!!a.$('#quizFb .verdict'), '答案卡片还在，没有被下一题顶掉');
   a.$('#qAutoNext').checked = false;   // 后面的用例回到默认状态
 
   /* ---------- 2. 中文输入法：选词那一下 Enter 不能当提交 ---------- */
@@ -309,14 +314,12 @@ async function intoQuiz(a, form) {
   ok(/正确/.test(fbOk), '答对了有判定', fbOk.slice(0, 40));
   ok(/正确答案/.test(fbOk), '答对时也明确写出「正确答案」', fbOk.slice(0, 80));
   ok(fbOk.indexOf(ans0) >= 0, '写出来的就是那个标准答案', ans0);
-  ok(/秒后自动下一题/.test(fbOk), '勾选时写明了几秒后跳');
+  ok(fbOk.indexOf('手打题不会自动跳') >= 0, '答对时也说明这题不会自己跳走');
 
-  // 中途反悔：取消勾选，已经排好的那一次跳转必须作废
-  g.$('#qAutoNext').checked = false;
-  g.$('#qAutoNext').dispatchEvent(new g.win.Event('change', { bubbles: true }));
-  await sleep(6300);            // 答对是 6 秒后跳，等够
+  // 勾着也不跳：等够 9 秒以上，仍然停在第 1 题
+  await sleep(9500);
   ok(/第\s*1\s*\//.test(g.text('#quizBody .q-meta') || ''),
-    '取消勾选后，已排好的自动跳转被撤销，答案还留在这一题', g.text('#quizBody .q-meta'));
+    '全程勾选自动下一题，填空题也一直停在这一题', g.text('#quizBody .q-meta'));
   ok(!!g.$('#quizFb .verdict'), '反馈卡片没有被下一题顶掉');
 
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');

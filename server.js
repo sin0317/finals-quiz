@@ -310,11 +310,14 @@ function serveStatic(req, res, urlPath) {
     if (err || !st.isFile()) return fail(res, 404, '找不到 ' + rel);
     const ext = path.extname(abs).toLowerCase();
     const type = MIME[ext] || 'application/octet-stream';
+    // 页面、样式、脚本一律不许缓存：以前发版后用户刷新还是旧 JS，
+    // 看到的还是修好之前的 bug，排查了半天才发现是浏览器缓存
+    const noStore = ['.html', '.htm', '.js', '.css'].indexOf(ext) >= 0;
     res.writeHead(200, {
       'Content-Type': type,
       'Content-Length': st.size,
-      // 前端改动后刷新即可生效；带 hash 的静态资源另说
-      'Cache-Control': 'no-cache'
+      'Cache-Control': noStore ? 'no-store, must-revalidate' : 'no-cache',
+      'Last-Modified': st.mtime.toUTCString()
     });
     fs.createReadStream(abs).pipe(res);
   });
