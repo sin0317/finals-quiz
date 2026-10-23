@@ -137,6 +137,32 @@ body {
   letter-spacing: .2px;
 }
 .app-footer #appVer { font-variant-numeric: tabular-nums; }
+.app-footer .foot-sep { margin: 0 7px; opacity: .55; }
+.app-footer .star-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  margin-left: 1px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 12.5px;
+  line-height: 1;
+  transition: color .15s ease, border-color .15s ease, background .15s ease, transform .15s ease;
+}
+.app-footer .star-link svg { color: var(--warn); transition: transform .2s ease; }
+.app-footer .star-link:hover,
+.app-footer .star-link:focus-visible {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  outline: none;
+}
+.app-footer .star-link:hover svg { transform: rotate(-14deg) scale(1.14); }
+.app-footer .star-link:active { transform: translateY(1px); }
 
 .view { display: none; animation: fade .22s ease; }
 .view.active { display: block; }

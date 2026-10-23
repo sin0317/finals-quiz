@@ -147,6 +147,9 @@ test/        测试脚本
 发新版时改 package.json 的 version，同时把 index.html 页脚里那个数字改掉；
 测试会核对这两处，改漏了会直接报错。
 
+版本号右边还有一个「★ 给我 Star」小按钮，点了会在新窗口打开 GitHub 仓库，
+想收藏或提 issue 都从那里去。二维码、微信群之类要加也可以，说一声就行。
+
 六、数据存在哪
 ------------------------------------------------
 服务端：./data/ 目录下三个 JSON 文件
@@ -160,7 +163,7 @@ test/        测试脚本
 ------------------------------------------------
     node test/api.test.js       后端接口 56 项（含 /api/version）
     node test/browser.test.js   前端全流程 63 项（需要 happy-dom）
-    node test/core.test.js      核心引擎回归 68 项（含页脚版本号）
+    node test/core.test.js      核心引擎回归 75 项（含页脚版本号与 Star 链接）
     node test/bank.test.js      题库还原 22 项（样本内联，不依赖外部文件）
     node test/plaza.test.js     题集广场 64 项（接口 + 前端）
     node test/bold.test.js      加粗标记与「识别不出转填空」49 项

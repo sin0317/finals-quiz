@@ -315,6 +315,19 @@ const NOTE = [
   });
   ok(a.$('.app-footer') === foot, '切完六个页面还是同一个页脚节点（没被重建或丢掉）');
 
+  console.log('\n[12] 页脚 Star 链接');
+  const star = a.$('#starLink');
+  ok(!!star, '页脚有一个 Star 链接');
+  ok(star.tagName === 'A' && star.getAttribute('href') === 'https://github.com/sin0317/finals-quiz',
+    '指向仓库地址', star && star.getAttribute('href'));
+  ok(star.getAttribute('target') === '_blank', '新窗口打开，不把正在刷的题顶掉');
+  ok(/noopener/.test(star.getAttribute('rel') || ''), '带 rel=noopener，避免被新窗口反向控制');
+  ok(/star/i.test(a.text('#starLink') || ''), '链接文字能看出是求 Star', a.text('#starLink'));
+  ok(a.$('#starLink svg') !== null, '带一枚星形图标（不依赖图标字体）');
+  ok(a.$$('a[href^="http"]').every(function (el) {
+    return /noopener/.test(el.getAttribute('rel') || '');
+  }), '页面上所有外链都带 noopener');
+
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
   process.exit(fail ? 1 : 0);
 })().catch(function (e) {
