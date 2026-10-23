@@ -200,6 +200,16 @@ const NOTE = [
   await sleep(150);
   ok(/对|✓|正确/.test(a.text('#reciteBody')), '回答正确时给出正面判定');
 
+  // 真凶回归：这里以前挂着一个 2.8 秒（答对）/ 4.5 秒（答错）的 setTimeout，
+  // 而「判定后自动下一问」还默认勾着 —— 答案刚显示就被下一问顶掉，用户看到的就是
+  // 「提交后没显示答案，直接进了下一题」。现在一律停住，等用户自己点。
+  const metaBefore = (a.text('#reciteBody .q-meta') || '').trim();
+  ok(a.$('#rAutoNext') === null, '「判定后自动下一问」开关已经去掉');
+  await sleep(5200);                      // 比原来 4.5 秒的跳转时间还长
+  ok(a.$('#reciteInput') === null, '过了 5 秒也没翻到下一问（没有新输入框）');
+  ok((a.text('#reciteBody .q-meta') || '').trim() === metaBefore, '仍然停在同一问', metaBefore);
+  ok(!!a.$('#reciteBody .verdict'), '答案卡片还在，没有被下一问顶掉');
+
   /* ---------- 4. 错题本 ---------- */
   console.log('\n[4] 错题本');
   a.click('.tab[data-view="wrong"]');

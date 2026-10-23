@@ -113,13 +113,11 @@ async function intoQuiz(a, form) {
   await sleep(150);
   await intoQuiz(a, 'fill');
   ok(!!a.$('#fillInput'), '填空题给了输入框');
-  ok(a.$('#qAutoNext') && !a.$('#qAutoNext').checked,
-    '「答完自动下一题」默认是关的，不会自己把答案顶掉');
+  ok(a.$('#qAutoNext') === null && a.$('#rAutoNext') === null,
+    '两个「自动下一题」开关都已经去掉，不会再自己翻页');
   ok(a.$('#prevQBtn') === null, '第 1 题没有「上一题」按钮（前面没题）');
 
   a.setVal('#fillInput', '随便乱写一个');
-  // 手打题永远不自动跳：就算勾上「答完自动下一题」，也该停在答案上等人看完
-  a.$('#qAutoNext').checked = true;
   a.click('#fillSubmit');
   await sleep(150);
   const fb1 = a.text('#quizFb') || '';
@@ -131,11 +129,10 @@ async function intoQuiz(a, form) {
   ok(!!a.$('#quizBody .stem .blank-mark.filled'), '填入的答案有高亮标记');
   ok(/手打题不会自动跳/.test(fb1), '明确告诉用户手打题不会自己跳走', fb1.slice(-60));
   ok(!/秒后自动下一题/.test(fb1), '填空不再出现「几秒后自动跳」，省得以为答案会消失');
-  await sleep(6500);                       // 勾着也得停住
+  await sleep(6500);                       // 以前答对 6 秒就跳，现在多久都不跳
   ok(/第\s*1\s*\//.test(a.text('#quizBody .q-meta') || ''),
-    '勾了「答完自动下一题」，填空题也停在第 1 题不跳', a.text('#quizBody .q-meta'));
+    '等 6.5 秒仍停在第 1 题，答案没被顶掉', a.text('#quizBody .q-meta'));
   ok(!!a.$('#quizFb .verdict'), '答案卡片还在，没有被下一题顶掉');
-  a.$('#qAutoNext').checked = false;   // 后面的用例回到默认状态
 
   /* ---------- 2. 中文输入法：选词那一下 Enter 不能当提交 ---------- */
   console.log('\n[2] 输入法状态下的 Enter');
@@ -153,22 +150,21 @@ async function intoQuiz(a, form) {
   ok(/正确/.test(b.text('#quizFb') || ''), '正常 Enter 会提交并判定', (b.text('#quizFb') || '').slice(0, 30));
 
   /* ---------- 3. 手打中的题不能被自动跳转冲掉 ---------- */
-  console.log('\n[3] 自动下一题不能打断正在作答的题');
+  console.log('\n[3] 只有点了「下一题」才翻页');
   const c = bootApp();
   await sleep(150);
   await intoQuiz(c, 'fill');
   c.setVal('#fillInput', '副作用、毒性反应、变态反应三种');
   c.click('#fillSubmit');
   await sleep(100);
-  c.click('#nextQBtn');          // 手动翻页，抢在定时器前面
+  ok(/第\s*1\s*\//.test(c.text('#quizBody .q-meta') || ''), '提交后仍停在第 1 题', c.text('#quizBody .q-meta'));
+  c.click('#nextQBtn');          // 只有这一下才该翻页
   await sleep(100);
-  ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '手动翻到第 2 题', c.text('#quizBody .q-meta'));
+  ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '手动点「下一题」才翻到第 2 题', c.text('#quizBody .q-meta'));
   c.setVal('#fillInput', '恒比');
-  await sleep(2000);
-  ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '第 1 题遗留的定时器没有把第 2 题切走');
+  await sleep(6000);
+  ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '第 1 题没有遗留定时器把第 2 题切走');
   ok(c.$('#fillInput') && c.$('#fillInput').value === '恒比', '打了一半的内容还在，没被清掉');
-  await sleep(4800);              // 累计 6.8s，超过答对时 6 秒的自动跳转时间
-  ok(/第\s*2\s*\//.test(c.text('#quizBody .q-meta') || ''), '过了跳转时间仍停在第 2 题（正在打字就不动）');
 
   /* ---------- 4. 回看上一题 ---------- */
   console.log('\n[4] 回看上一题');
@@ -292,11 +288,11 @@ async function intoQuiz(a, form) {
   }
 
   /* ---------- 8. 答对也要给出正确答案；中途取消自动跳要生效 ---------- */
-  console.log('\n[8] 答对时的答案展示，以及取消自动下一题');
+  console.log('\n[8] 答对时的答案展示，以及不会自己跳走');
   const g = bootApp();
   await sleep(150);
   await intoQuiz(g, 'fill');
-  ok(!g.$('#qAutoNext').checked, '新的一轮开始，自动下一题仍然是关的');
+  ok(g.$('#qAutoNext') === null, '新的一轮里也没有「自动下一题」这个开关了');
 
   const banks = JSON.parse(g.store.getItem('fq_banks_v1') || '[]');
   const curId = g.store.getItem('fq_current_v1');
@@ -306,7 +302,6 @@ async function intoQuiz(a, form) {
   ok(g.text('#quizBody .stem').indexOf(q0.stem.replace('____', '').slice(0, 6)) >= 0,
     '第一道题就是题库第一题（顺序跟着笔记走）', g.text('#quizBody .stem').slice(0, 30));
 
-  g.$('#qAutoNext').checked = true;
   g.setVal('#fillInput', ans0);
   g.click('#fillSubmit');
   await sleep(150);
@@ -316,10 +311,10 @@ async function intoQuiz(a, form) {
   ok(fbOk.indexOf(ans0) >= 0, '写出来的就是那个标准答案', ans0);
   ok(fbOk.indexOf('手打题不会自动跳') >= 0, '答对时也说明这题不会自己跳走');
 
-  // 勾着也不跳：等够 9 秒以上，仍然停在第 1 题
+  // 等够 9 秒以上，仍然停在第 1 题
   await sleep(9500);
   ok(/第\s*1\s*\//.test(g.text('#quizBody .q-meta') || ''),
-    '全程勾选自动下一题，填空题也一直停在这一题', g.text('#quizBody .q-meta'));
+    '过了 9 秒仍停在答对这一题，答案没被顶掉', g.text('#quizBody .q-meta'));
   ok(!!g.$('#quizFb .verdict'), '反馈卡片没有被下一题顶掉');
 
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');

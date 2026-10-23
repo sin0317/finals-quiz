@@ -12,6 +12,12 @@
   var LS_CUR = 'fq_current_v1';
   var LS_THEME = 'fq_theme_v1';
 
+  /* 版本号：和 package.json、页脚三处保持一致。
+     页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
+     「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
+     用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
+  var FQ_VERSION = '1.4.1';
+
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
@@ -1992,11 +1998,8 @@
   /* =========================================================
      ② 刷题
      ========================================================= */
-  // 答题途中把「自动下一题」取消掉，已经排好的那一次跳转也得跟着作废，
-  // 否则用户明明取消了，答案还是会在几秒后被新题顶掉。
-  $('#qAutoNext').addEventListener('change', function () {
-    if (S.quiz && !this.checked) quizTimerStop(S.quiz);
-  });
+  // 「答完自动下一题」这个开关已经去掉了：答案至少要看一眼原文，
+  // 自动翻页只会把答案顶走。翻页统一由用户点「下一题」。
 
   $('#quizStartBtn').addEventListener('click', function () {
     var list = pickQuestions({
@@ -2037,7 +2040,10 @@
     if (st.results[st.idx]) return renderQuizReview();
     var q = st.list[st.idx];
     var typed = isTypedQ(q);                        // 简答 / 名词解释：整段自己打
-    var isFill = st.forms[st.idx] === 'fill';
+    // 填空题类型的题，不管「形式」怎么排都得自己打字。以前只看 forms，
+    // 一旦 forms 和题目错位，它会渲染成一堆选项 —— 而且只有「答案」这一个选项，
+    // 点一下就判对、紧接着自动跳到下一题，看着就是「填空提交后没显示答案」
+    var isFill = st.forms[st.idx] === 'fill' || q.type === 'fill';
     var isMulti = q.type === 'multi' && !isFill && !typed;
     var opts = (isFill || typed) ? [] : shuffle((isMulti ? q.answer.slice() : [q.answer]).concat(q.opts || []));
 
@@ -2153,23 +2159,10 @@
     scrollToFb($('#quizFb'));
   }
 
-  // 自动下一题：只管当前这一题，用户翻页了 / 正在打字就都不插手
+  // 清掉可能残留的定时器。自动翻页已经取消了，这里留着是为了让
+  // 翻页 / 回看 / 重开一轮时不会有一个旧的计时器突然把页面顶走。
   function quizTimerStop(st) {
-    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
-  }
-
-  function quizAutoNext(st, q, delay) {
-    if (!$('#qAutoNext').checked) return;
-    st.timer = setTimeout(function () {
-      st.timer = null;
-      // 用户已经自己翻页或回看过，就别再动它
-      if (S.quiz !== st || st.list[st.idx] !== q) return;
-      var inp = $('#fillInput');
-      // 人家正打着字呢，不能给冲掉
-      if (inp && !inp.disabled && inp.value.trim()) return;
-      st.idx++;
-      renderQuiz();
-    }, delay);
+    if (st && st.timer) { clearTimeout(st.timer); st.timer = null; }
   }
 
   // 回看已经答过的题：只看不答，不重复统计
@@ -2271,9 +2264,9 @@
     $('#quizFb').innerHTML =
       '<div class="verdict ' + (right ? 'ok' : 'bad') + '" style="margin-top:14px">' +
       '<div class="verdict-title">' + (right ? '✅ 答对了' : '❌ 答错了') + '</div>' +
-      '<div class="verdict-body">' +
-      (right ? '你选：<strong>' + esc(pickedText) + '</strong>' : '你选：<strong>' + esc(pickedText) + '</strong>　正确答案：<strong>' + esc(corrects.join('、')) + '</strong>') +
-      '</div>' +
+      '<div class="verdict-body">你选：<strong>' + esc(pickedText) + '</strong></div>' +
+      // 答对也把「正确答案」摆出来：只写「你选」时，答对的题看着就像没给答案
+      '<div class="answer-line ans-key">正确答案：<strong>' + esc(corrects.join('、')) + '</strong></div>' +
       (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       '</div>' +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
@@ -2283,8 +2276,10 @@
       st.idx++;
       renderQuiz();
     });
+    // 以前这里会 setTimeout 1.5 秒（答对）/ 2.5 秒（答错）自动翻页。
+    // 1.5 秒连「你选了什么」都来不及看，更别说原文，于是看起来就是
+    // 「没显示答案就跳了」。现在一律停住，等用户自己点「下一题」。
     scrollToFb($('#quizFb'));
-    quizAutoNext(st, q, right ? 1500 : 2500);
   }
 
   function renderQuizResult() {
@@ -2374,9 +2369,9 @@
     return filled();
   }
 
-  // 卡片阶段「判定后自动下一问」「给首字提示」都没有意义，先藏起来，免得看着奇怪
+  // 卡片阶段「给首字提示」没有意义，先藏起来，免得看着奇怪
   function recitePhaseUI(phase) {
-    [$('#rAutoNext'), $('#rHint')].forEach(function (el) {
+    [$('#rHint')].forEach(function (el) {
       if (!el || !el.closest) return;
       var lab = el.closest('label');
       if (lab) lab.hidden = (phase === 'cards');
@@ -2560,9 +2555,9 @@
 
     $('#reciteVb').innerHTML = verdictHtml(q, input, g) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="reciteNext">' +
-      (st.idx + 1 >= st.list.length ? '这一轮结束' : '下一问 → （Enter）') + '</button></div>';
+      (st.idx + 1 >= st.list.length ? '这一轮结束' : '下一问 →') + '</button>' +
+      '<span class="muted">手打题不会自动跳，看完答案再点</span></div>';
     $('.recite-input-row').remove();
-    $('#reciteNext').focus();
     scrollToFb($('#reciteVb'));
 
     var prevNote = '上一问：' + esc(q.stem) + '　你答「' + esc(input) + '」 → ' +
@@ -2578,10 +2573,10 @@
       e.preventDefault();
       goNext();
     });
-    // 手打完要看答案，自动跳得比选择题慢
-    if ($('#rAutoNext').checked) {
-      setTimeout(function () { if (S.recite === st && st.list[st.idx] === q) goNext(); }, g.level === 'wrong' ? 4500 : 2800);
-    }
+    // 这里以前挂着一个 2.8 秒 / 4.5 秒的 setTimeout，配合默认勾着的
+    // 「判定后自动下一问」——答案刚显示出来就被下一问顶掉，看着就是
+    // 「提交后没显示答案直接跳了」。背知识点全是手打题，答案长、要慢慢看，
+    // 一律停住等用户自己点。不自动聚焦「下一问」按钮，免得回车误触跳走。
   }
 
   function renderReciteEnd() {
@@ -3636,6 +3631,13 @@
   });
 
   /* 供自动化测试调用（不参与界面逻辑） */
+  /* 页脚版本号：改用脚本里的常量覆盖一遍。
+     HTML 里那行字有可能是缓存下来的旧值，这里写的才是真正在跑的 JS 版本。 */
+  (function stampVersion() {
+    var el = document.getElementById('appVer');
+    if (el) el.textContent = '期末刷题站 v' + FQ_VERSION;
+  })();
+
   window.FQInternals = {
     buildFromNote: buildFromNote,
     parseBankQuestions: parseBankQuestions,
