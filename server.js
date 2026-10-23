@@ -28,6 +28,15 @@ const SESSION_DAYS = 30;
 const MAX_BODY = 8 * 1024 * 1024; // 题集可能不小，给到 8MB
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || '').trim().toLowerCase();
 
+/* 版本号：从 package.json 读，页脚显示的是同一个数，测试会校验两处一致 */
+const PKG_VERSION = (function () {
+  try {
+    return String(require(path.join(ROOT, 'package.json')).version || '0.0.0');
+  } catch (e) {
+    return '0.0.0';
+  }
+})();
+
 /* ========================= 存储层 ========================= */
 
 const store = {
@@ -386,6 +395,11 @@ function tagRank(map) {
 /* ========================= 接口 ========================= */
 
 const routes = {
+  /* 当前版本：页脚显示同一个号，用来一眼确认线上是哪一版 */
+  'GET /api/version': function (req, res) {
+    ok(res, { name: 'finals-quiz', version: PKG_VERSION });
+  },
+
   /* 探测后端是否可用 + 当前身份 */
   'GET /api/ping': function (req, res) {
     const u = userFromReq(req);

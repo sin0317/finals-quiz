@@ -299,6 +299,22 @@ const NOTE = [
   ok(b.$$('.view:not([hidden])').length === 1, '任何时刻只有一个视图是显示的',
     b.$$('.view:not([hidden])').length);
 
+  console.log('\n[11] 页脚版本号');
+  const pkgVer = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  const foot = a.$('.app-footer');
+  ok(!!foot, '页面底部有页脚');
+  const verText = a.text('.app-footer') || '';
+  ok(/v\d+\.\d+\.\d+/.test(verText), '页脚显示了版本号', verText);
+  // 版本号写死在 index.html（app.js 挂了也看得到是哪一版），这里逼着它跟 package.json 同步
+  ok(verText.indexOf('v' + pkgVer) >= 0, '页脚版本号与 package.json 一致（' + pkgVer + '）', verText);
+  ok(foot.parentElement.tagName === 'MAIN', '页脚挂在 main 下，六个视图共用一条');
+  ok(a.$('main').lastElementChild === foot, '页脚是 main 的最后一个元素，永远在内容下方');
+  ['import', 'quiz', 'recite', 'wrong', 'stats', 'plaza'].forEach(function (name) {
+    a.click('.tab[data-view="' + name + '"]');
+    ok(a.visible('.app-footer'), '在「' + name + '」页也看得见版本号');
+  });
+  ok(a.$('.app-footer') === foot, '切完六个页面还是同一个页脚节点（没被重建或丢掉）');
+
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
   process.exit(fail ? 1 : 0);
 })().catch(function (e) {

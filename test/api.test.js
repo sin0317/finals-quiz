@@ -76,6 +76,15 @@ function cookieFrom(res) {
   // 1. 静态资源
   const home = await req('GET', '/');
   ok(home.status === 200 && home.raw.indexOf('期末刷题') >= 0, 'GET / 返回首页 HTML');
+
+  // 版本号：页脚、接口、package.json 三处必须是同一个数
+  const pkgVer = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  const verApi = await req('GET', '/api/version');
+  ok(verApi.status === 200, 'GET /api/version 正常', verApi.status);
+  ok(verApi.json && verApi.json.version === pkgVer, '/api/version 与 package.json 一致', verApi.json && verApi.json.version);
+  ok(home.raw.indexOf('v' + pkgVer) >= 0, '首页页脚显示的版本号与 package.json 一致', pkgVer);
+  ok(/<footer class="app-footer"/.test(home.raw), '首页带有页脚元素');
+
   const css = await req('GET', '/styles.css');
   ok(css.status === 200 && css.headers['content-type'].indexOf('text/css') >= 0, 'GET /styles.css 正常');
   const secret = await req('GET', '/data/users.json');

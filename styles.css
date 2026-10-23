@@ -126,6 +126,18 @@ body {
 /* ============ 布局 ============ */
 .wrap { max-width: 1040px; margin: 0 auto; padding: 22px 20px 60px; }
 
+/* 页脚：版本号，6 个页面共用一条，永远在最下面 */
+.app-footer {
+  margin-top: 10px;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  letter-spacing: .2px;
+}
+.app-footer #appVer { font-variant-numeric: tabular-nums; }
+
 .view { display: none; animation: fade .22s ease; }
 .view.active { display: block; }
 
