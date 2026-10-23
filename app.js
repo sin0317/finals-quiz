@@ -16,7 +16,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.5.0';
+  var FQ_VERSION = '1.6.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1316,6 +1316,9 @@
   /* ---------------- 视图切换 ---------------- */
   function switchView(name) {
     S.view = name;
+    // 换页时把改题面板收起来：面板是挂在这一页里的，留着会跟着切回来一起出现，
+    // 里面还停在上一页那道题上，容易被当成新题的改法
+    closeFixPanel();
     $$('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.view === name); });
     // 光加 .active 不够：styles.css 里有 [hidden]{display:none !important} 兜底，
     // 属性不摘掉的话整页永远是导入页，其他几个视图看着就是一片空白。
@@ -2195,16 +2198,29 @@
     short: '一条要点一行（也可以用分号隔开），按要点给分'
   };
 
-  function closeFixPanel() {
-    var box = $('#fixPanel');
+  /* 面板有两个落点：#fixPanel 在刷题页、#fixPanelRecite 在背知识点页。
+     背知识点正是「看到这句话觉得挖错了」的地方，非要切回刷题页才能改太绕。
+     两个落点是同一套表单，同一时刻只留一个在页面上，免得 #fixType 撞 id。 */
+  function fixPanelOf(view) {
+    return view === 'recite' ? $('#fixPanelRecite') : $('#fixPanel');
+  }
+
+  function emptyPanel(box) {
     if (!box) return;
     box.hidden = true;
     box.innerHTML = '';
   }
 
+  function closeFixPanel() {
+    emptyPanel($('#fixPanel'));
+    emptyPanel($('#fixPanelRecite'));
+  }
+
   function openFixPanel(q) {
-    var box = $('#fixPanel');
+    var box = fixPanelOf(S.view);
     if (!box || !q) return;
+    // 先把另一页那个表单清空，保证页面上只有这一份 #fixType / #fixStem
+    emptyPanel(box === $('#fixPanel') ? $('#fixPanelRecite') : $('#fixPanel'));
     var type = (q.fix && q.fix.type) || q.type || 'fill';
     var ans = q.fix ? q.fix.answer : q.answer;
     var ansText = Array.isArray(ans) ? ans.join('、') : (ans == null ? '' : ans);
@@ -2336,38 +2352,54 @@
 
       saveFix(q, fix);
       // 这题的呈现形式跟着改：本来决定给选项的，现在要按新题型来
-      if (S.quiz && S.quiz.forms) {
-        var i = S.quiz.list.indexOf(q);
-        if (i >= 0) S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
-      }
+      syncFormsAfterFix(q);
       closeFixPanel();
       toast('记住了：以后这题按「' + typeLabel(q) + '」出');
-      if (S.recite) renderRecite(); else if (S.quiz) renderQuiz();
+      refreshAfterFix();
     });
 
     if ($('#fixUndo')) {
       $('#fixUndo').addEventListener('click', function () {
         clearFix(q);
-        if (S.quiz && S.quiz.forms) {
-          var i = S.quiz.list.indexOf(q);
-          if (i >= 0) S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
-        }
+        syncFormsAfterFix(q);
         closeFixPanel();
         toast('已恢复成系统原来的出法');
-        if (S.recite) renderRecite(); else if (S.quiz) renderQuiz();
+        refreshAfterFix();
       });
     }
   }
 
-  /* 每张卡片右上角的入口。刷题和回顾态都要有 —— 答完看到答案才最想改。 */
+  /* 改完之后两个页面都得跟着变：在背知识点里改的，切回刷题也得是新版本。
+     刷题会话已经开着的话，它的 forms（给选项还是手填）要按新题型重算一次，
+     否则「本来按混合模式派成填空的题」改成单选后还挂着填空的壳。 */
+  function syncFormsAfterFix(q) {
+    if (!S.quiz || !S.quiz.forms || !S.quiz.list) return;
+    var i = S.quiz.list.indexOf(q);
+    if (i < 0) return;
+    S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
+  }
+
+  function refreshAfterFix() {
+    if (S.recite) renderRecite();
+    if (S.quiz) renderQuiz();
+    bindFixButtons();
+  }
+
+  /* 每张卡片右上角的入口。刷题、回顾、背知识点都要有 —— 答完看到答案才最想改。 */
   function bindFixButtons() {
-    $$('#quizBody [data-fix]').forEach(function (b) {
+    $$('#quizBody [data-fix], #reciteBody [data-fix]').forEach(function (b) {
       if (b.dataset.fixBound) return;   // 答完后会再调一次，别重复绑
       b.dataset.fixBound = '1';
       b.addEventListener('click', function () {
+        // 背知识点和刷题拿的是同一批题目对象，改一边两边一起变；
+        // 两个会话里都可能拿着这道题，先按会话找，找不到再回题库找
+        var id = b.dataset.fix;
         var q = null;
-        if (S.quiz) q = S.quiz.list.filter(function (x) { return x.id === b.dataset.fix; })[0] || null;
-        if (!q) q = getQ(b.dataset.fix);
+        [S.quiz, S.recite].forEach(function (st) {
+          if (q || !st || !st.list) return;
+          q = st.list.filter(function (x) { return x.id === id; })[0] || null;
+        });
+        if (!q) q = getQ(id);
         if (q) openFixPanel(q); else toast('找不到这道题，刷新一下试试');
       });
     });
@@ -2702,11 +2734,15 @@
   function knText(q) {
     var stem = cleanMark(q.stem || '');
     var ans = answerText(q);
-    var at = stem.indexOf('____');
-    // 有空的句子，把答案填进去并高亮
+    // 有空的句子，把答案填进去并高亮。
+    // 用户把题改成单选以后，空会被写成「（　）」—— 知识卡片上也得把答案填回去，
+    // 不然这张卡就只剩一个括号，等于没背。
     function filled() {
+      var at = stem.indexOf('____');
+      var len = 4;
+      if (at < 0) { at = stem.indexOf('（　）'); len = 3; }
       if (at < 0) return esc(stem);
-      return esc(stem.slice(0, at)) + '<mark class="kn-mark">' + esc(ans) + '</mark>' + esc(stem.slice(at + 4));
+      return esc(stem.slice(0, at)) + '<mark class="kn-mark">' + esc(ans) + '</mark>' + esc(stem.slice(at + len));
     }
     if (q.type === 'short') {
       var pts = (q.answer || []).map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('');
@@ -2750,7 +2786,10 @@
       '<div class="progress"><i style="width:' + pct + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + total + ' 张</span>' +
       '<span class="pill">' + (q.type === 'fill' || q.type === 'single' ? '知识点' : typeLabel(q)) + '</span>' +
-      '<span>已看 ' + Math.min(seen, goal) + ' / ' + goal + ' 张</span></div>' +
+      '<span>已看 ' + Math.min(seen, goal) + ' / ' + goal + ' 张</span>' +
+      '<span class="grow"></span>' +
+      fixBtnHtml(q) +
+      '</div>' +
       '<div class="kn-card" id="knCard">' + knText(q) + '</div>' +
       '<div class="kn-foot">' +
       (i > 0 ? '<button class="btn ghost" id="knPrev">← 上一张</button>' : '') +
@@ -2775,6 +2814,7 @@
         renderRecite();
       });
     }
+    bindFixButtons();
   }
 
   function renderRecite() {
@@ -2806,7 +2846,10 @@
       (st.prev ? '<div class="prev-note">' + st.prev + '</div>' : '') +
       '<div class="q-meta"><span>第 ' + (st.idx + 1) + ' / ' + st.list.length + ' 问</span>' +
       '<span class="pill">' + (typed ? typeLabel(q) : isMulti ? '列举题' : '填空') + '</span>' +
-      '<span>掌握度 ' + masteryPct(q) + '%</span></div>' +
+      '<span>掌握度 ' + masteryPct(q) + '%</span>' +
+      '<span class="grow"></span>' +
+      fixBtnHtml(q) +
+      '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
       inputHtml +
       (hint ? '<div class="muted" style="margin-top:8px">' + hint + '</div>' : '') +
@@ -2824,6 +2867,7 @@
       submitRecite();
     });
     $('#reciteSubmit').addEventListener('click', submitRecite);
+    bindFixButtons();
   }
 
   // 简答：把要点一条条列出来，答到的打勾，漏掉的空着 —— 比只给一段话有用
@@ -2910,9 +2954,11 @@
     $('#reciteVb').innerHTML = verdictHtml(q, input, g) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="reciteNext">' +
       (st.idx + 1 >= st.list.length ? '这一轮结束' : '下一问 →') + '</button>' +
+      fixBtnHtml(q, '✎ 这题出得不对？') +
       '<span class="muted">手打题不会自动跳，看完答案再点</span></div>';
     $('.recite-input-row').remove();
     scrollToFb($('#reciteVb'));
+    bindFixButtons();
 
     var prevNote = '上一问：' + esc(q.stem) + '　你答「' + esc(input) + '」 → ' +
       (g.level === 'right' ? '<span style="color:var(--ok)">正确</span>'

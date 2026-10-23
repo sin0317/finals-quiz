@@ -213,5 +213,68 @@ console.log('\n六、背知识点卡片也用用户的版本');
   ok(txt.indexOf('____') < 0, '选择题的卡片不会留一条空让人以为要手写');
 }
 
+/* ---------------- 七、背知识点页也能改，改完刷题跟着变 ---------------- */
+console.log('\n七、背知识点页的「改题」：改完刷题那边同步');
+{
+  const { win } = boot(BANK);
+  const d = win.document;
+
+  // 先把刷题开起来：这样两边的会话同时存在，才能验证「改一处两边都对」
+  d.querySelector('.tab[data-view="quiz"]').click();
+  d.querySelector('#qType').value = 'all';
+  d.querySelector('#qCount').value = '20';
+  d.querySelector('#qOrder').value = 'seq';
+  d.querySelector('#quizStartBtn').click();
+  ok(d.querySelector('#quizBody').textContent.indexOf('最常用标本') >= 0, '刷题页停在第一题');
+
+  d.querySelector('.tab[data-view="recite"]').click();
+  d.querySelector('#reciteStartBtn').click();
+  const btn = d.querySelector('#reciteBody [data-fix]');
+  ok(!!btn, '知识卡片上也有「改题」按钮');
+
+  btn.click();
+  const rp = d.querySelector('#fixPanelRecite');
+  ok(rp && !rp.hidden, '面板开在背知识点这一页（不用切回刷题页）');
+  ok(d.querySelector('#fixPanel').hidden && d.querySelector('#fixPanel').innerHTML === '',
+    '刷题页那块面板同时被清空，不会两份表单抢同一个 id');
+  ok(d.querySelector('#fixStem').value.indexOf('最常用标本') >= 0, '预填的仍是刚看的这张卡片');
+
+  d.querySelector('#fixType').value = 'single';
+  d.querySelector('#fixStem').value = '治疗药物监测最常用的标本是____，结果决定给药方案';
+  d.querySelector('#fixAns').value = '血浆';
+  d.querySelector('#fixSave').click();
+
+  ok(d.querySelector('#fixPanelRecite').hidden, '保存后面板收起');
+  const card = d.querySelector('#reciteBody').textContent || '';
+  ok(card.indexOf('结果决定给药方案') >= 0, '这张知识卡片立刻换成新表述');
+  ok(card.indexOf('血浆') >= 0, '选择题的卡片把答案填回括号里（不是只剩一个空括号）');
+
+  // 切回刷题页：同步的关键在这儿
+  d.querySelector('.tab[data-view="quiz"]').click();
+  const quiz = d.querySelector('#quizBody').textContent || '';
+  ok(quiz.indexOf('结果决定给药方案') >= 0, '切回刷题页，那道题也是新版本（同步到刷题）');
+  ok(!!d.querySelector('#optsBox'), '而且按新题型给选项');
+
+  const saved = JSON.parse(win.localStorage.getItem('fq_banks_v1'));
+  const q = saved[0].questions.filter(function (x) { return x.id === 'q1'; })[0];
+  ok(q.fix && q.fix.type === 'single' && q.fix.answer === '血浆', '改法存进题集，刷新后仍然有效');
+}
+
+/* ---------------- 八、两个页面各改各的，互不串味 ---------------- */
+console.log('\n八、面板不串题：在背知识点改的那道题，不会影响别的题');
+{
+  const { win } = boot(BANK);
+  const d = win.document;
+  d.querySelector('.tab[data-view="recite"]').click();
+  d.querySelector('#reciteStartBtn').click();
+  d.querySelector('#reciteBody [data-fix]').click();
+  d.querySelector('#fixAns').value = '血浆';
+  d.querySelector('#fixSave').click();
+
+  const saved = JSON.parse(win.localStorage.getItem('fq_banks_v1'));
+  ok(!!saved[0].questions[0].fix, '只有当前这张卡片的题被改了');
+  ok(!saved[0].questions[1].fix && !saved[0].questions[2].fix, '其它题保持原样');
+}
+
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
 process.exit(fail ? 1 : 0);
