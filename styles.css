@@ -498,6 +498,93 @@ tbody tr.off { opacity: .45; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
 }
 
+/* ============ 手打题：名词解释 / 简答（大段文字输入） ============ */
+.typed-row { margin-top: 4px; }
+
+.typed-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 15px;
+  line-height: 1.85;
+  padding: 12px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.typed-input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+.typed-input:disabled { opacity: .75; }
+
+.tag.typed { background: var(--ok-soft); color: var(--ok); }
+
+/* 简答的要点清单：答到的打勾高亮，漏掉的留空 */
+.pt-list {
+  margin: 10px 0 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.pt-list li { padding: 4px 0 4px 0; border-bottom: 1px dashed var(--line); color: var(--ink-2); }
+.pt-list li:last-child { border-bottom: none; }
+.pt-list li.hit { color: var(--ok); }
+.pt-list li.miss { color: var(--muted); }
+
+/* 知识卡片里的简答/名词解释：标题在上、答案在下，一起背 */
+.kn-term {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.6;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  width: 100%;
+}
+
+.kn-q {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.75;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  width: 100%;
+}
+
+.kn-def {
+  font-size: 16.5px;
+  line-height: 1.95;
+  color: var(--ink-2);
+  margin-top: 10px;
+  width: 100%;
+}
+
+.kn-points {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--ink-2);
+  width: 100%;
+}
+
+.kn-points li { margin-bottom: 4px; }
+
+/* 简答/名词解释的卡片比填空卡片高，顶部对齐更好读 */
+.kn-card:has(.kn-term), .kn-card:has(.kn-q) { align-items: flex-start; flex-direction: column; padding: 26px 28px; }
+
+
 /* 滚动到反馈时留出顶栏高度，别被 sticky 顶栏压住 */
 #quizFb, #reciteVb { scroll-margin-top: 72px; }
 

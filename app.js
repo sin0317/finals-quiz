@@ -137,7 +137,65 @@
     return { level: level, hits: hits, miss: miss, ratio: ratio, sim: sim };
   }
 
-  /* ---------------- 笔记 → 知识点 ---------------- */
+  /* 简答题：一条要点算一分。
+     用户按句/顿号写，句子和哪条要点对得上就算命中 —— 简答不是默写，
+     意思到了就行，所以用二元组相似度，不要求字字一致。 */
+  function gradeShort(input, points) {
+    var pts = (points || []).filter(function (p) { return normalize(p); });
+    var I = normalize(input || '');
+    if (!I) return { level: 'empty', hits: [], miss: [], ratio: 0, sim: 0, kind: 'short' };
+    var sents = String(input).split(/[。；;，,、\n\r]+/).map(normalize).filter(Boolean);
+    if (!sents.length) sents = [I];
+
+    var hits = [], miss = [];
+    pts.forEach(function (p) {
+      var kp = normalize(p);
+      if (!kp) return;
+      var best = 0;
+      sents.forEach(function (u) {
+        var s = dice(u, kp);
+        if (u.indexOf(kp) >= 0 || kp.indexOf(u) >= 0) {
+          s = Math.max(s, Math.min(u.length, kp.length) / Math.max(u.length, kp.length));
+        }
+        if (s > best) best = s;
+      });
+      if (I.indexOf(kp) >= 0) best = 1;            // 整段里就写着
+      if (best >= 0.45) hits.push({ raw: p }); else miss.push({ raw: p });
+    });
+    var ratio = pts.length ? hits.length / pts.length : 0;
+    var level = ratio >= 0.85 ? 'right' : ratio >= 0.5 ? 'mid' : 'wrong';
+    return { level: level, hits: hits, miss: miss, ratio: ratio, sim: dice(I, normalize(pts.join(''))), kind: 'short' };
+  }
+
+  /* 名词解释：默写整段解释。整段一字不差不现实，按关键短语命中的比例给分。 */
+  function gradeTerm(input, def) {
+    var I = normalize(input || ''), D = normalize(def || '');
+    if (!I) return { level: 'empty', hits: [], miss: [], ratio: 0, sim: 0, kind: 'term' };
+    if (I === D || (D.indexOf(I) >= 0 && I.length / D.length >= 0.6)) {
+      return { level: 'right', hits: [{ raw: def }], miss: [], ratio: 1, sim: 1, kind: 'term' };
+    }
+    var keys = String(def).split(/[、，,；;。：:（）()\s]+/)
+      .map(function (x) { return normalize(x); })
+      .filter(function (x) { return x.length >= 2; });
+    var hit = [], miss = [];
+    keys.forEach(function (k) { (I.indexOf(k) >= 0 ? hit : miss).push(k); });
+    var ratio = keys.length ? hit.length / keys.length : 0;
+    var sim = dice(I, D);
+    var level = (ratio >= 0.7 || sim >= 0.65) ? 'right' : (ratio >= 0.35 || sim >= 0.4) ? 'mid' : 'wrong';
+    return {
+      level: level, ratio: ratio, sim: sim, kind: 'term',
+      hits: hit.map(function (k) { return { raw: k }; }),
+      miss: miss.map(function (k) { return { raw: k }; })
+    };
+  }
+
+  function gradeTyped(q, input) {
+    if (q.type === 'short') return gradeShort(input, q.answer);
+    if (q.type === 'term') return gradeTerm(input, q.answer);
+    return gradeAnswer(input, q.answer);
+  }
+
+
   // 「是」单独放一类：先找实词触发词，找不到才退回「是」
   var TRIGGERS = ['指的是', '标志着', '意味着', '发生于', '爆发于', '提出了', '创办了', '被称为', '被誉为', '主要有', '包括', '分为'];
   var TRIGGER_SHI = '是';
@@ -592,6 +650,308 @@
      这种内容再"提炼"会把原题打散，所以先按原样解析出来；
      散文部分仍交给 extractPoints，两部分按原文顺序拼接。
      ========================================================= */
+  /* =========================================================
+     带分区标题的原卷 → 题目
+     ---------------------------------------------------------
+     资料长这样，是卷子不是散文：
+         一、单选题（58 题）   二、多选题（46 题）
+         填空题   名词解释   简答题
+     这种内容逐句提炼只会出一堆残句，得按分区定题型。
+     规则（用户拍板的）：
+       ① 题型由所在分区决定，单选题区里绝不冒多选题
+       ② 多选题没写正确项字母 = 全选（笔记没标答案，就是列出的都对）
+       ③ 名词解释：题干只留冒号前的名词，答案是整段解释，自己默写
+       ④ 简答题：题干就是那个标题，答案是下面那串要点，自己打字答要点
+     ========================================================= */
+  var PAPER_HEAD = /^[\s\u3000]*[一二三四五六七八九十\d]*\s*[、.．]?\s*(单项选择题|多项选择题|单选题|多选题|填空题|名词解释|问答题|简答题?|判断题|病例分析|案例分析)[\s\u3000]*([（(][^）)]*[）)])?[\s\u3000]*$/;
+
+  function paperKind(line) {
+    var s = String(line == null ? '' : line).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+    if (!s || s.length > 26) return null;
+    if (/^[AB]\s*卷$/.test(s)) return 'skip';         // A卷 / B卷 只是分隔，不是正文
+    var m = s.match(PAPER_HEAD);
+    if (!m) return null;
+    var h = m[1];
+    if (/^多项选择|^多选/.test(h)) return 'multi';
+    if (/^单项选择|^单选/.test(h)) return 'single';
+    if (/^填空/.test(h)) return 'fill';
+    if (/^名词解释/.test(h)) return 'term';
+    if (/^(简答|问答)/.test(h)) return 'short';
+    return 'skip';
+  }
+
+  function paperSections(text) {
+    var out = [], cur = { kind: null, lines: [] };
+    String(text || '').replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+      var k = paperKind(line);
+      // 「A卷 / B卷」只是一条分隔线，不是新题型：跳过它，但别把这一节切断
+      if (k === 'skip') return;
+      if (k) { out.push(cur); cur = { kind: k, lines: [] }; return; }
+      cur.lines.push(line);
+    });
+    out.push(cur);
+    return out;
+  }
+
+  /* 一行里可能挤着好几个选项（「A.减轻恐惧　B.消除反射　C.提高耐受」），
+     也可能一行一个。字母必须从 A 起连续，认不出来就返回空 ——
+     宁可少切，也不把「D 型不良反应」当成选项 D。 */
+  function splitOpts(line, start) {
+    var s = String(line == null ? '' : line), hits = [], want = (start || 'A').charCodeAt(0);
+    for (var i = 0; i < s.length; i++) {
+      if (s.charCodeAt(i) !== want) continue;
+      var next = s.charAt(i + 1);
+      // 选项标记：字母后面跟着「.、．:：)」或空白/行尾
+      if (next && !/[.．、:：)）\s\u3000]/.test(next)) continue;
+      hits.push(i);
+      want++;
+    }
+    if (!hits.length) return [];
+    return hits.map(function (at, k) {
+      var end = k + 1 < hits.length ? hits[k + 1] : s.length;
+      var seg = s.slice(at + 1, end)
+        .replace(/^[\s\u3000]+/, '')
+        .replace(/^[.．、:：)）]\s*/, '')
+        .replace(/[\s\u3000]+$/, '');
+      return { letter: String.fromCharCode(65 + k), text: seg.trim(), at: at };
+    });
+  }
+
+  function isOptLine(line) {
+    return /^[A-E][.．、:：\s\u3000]/.test(String(line || '').trim());
+  }
+
+  /* 多选题区：题干行 + 紧跟的选项行 → 一道多选题。
+     没标正确项就是全选；万一笔记里写了「答案：ABD」，就按标的来。 */
+  function parseChoiceSection(lines, kind) {
+    var qs = [], rest = [], i = 0;
+    while (i < lines.length) {
+      var line = String(lines[i] == null ? '' : lines[i]).trim();
+      // 空行也要原样还回去：题与题之间的空行是题库解析的分隔依据，吞掉就串题了
+      if (!line) { rest.push(lines[i]); i++; continue; }
+      // 「题干（ ）答案 A.选项 B.选项」是标准题库格式，parseBankQuestions 认得
+      // 答案字母、能保留干扰项，这里别抢它的活
+      if (/[（(][\s\u3000]*[）)]/.test(line)) {
+        // 题与题之间补一个空行：题库解析靠空行分题，卷子挤成一坨也要能认
+        if (rest.length && String(rest[rest.length - 1] || '').trim()) rest.push('');
+        rest.push(lines[i]); i++; continue;
+      }
+      if (isOptLine(line)) { rest.push(lines[i]); i++; continue; }   // 落单的选项行，留给下面兜着
+
+      var stem = line, opts = [];
+      var inline = splitOpts(line, 'A');
+      if (inline.length >= 2) {
+        // 选项挤在题干同一行：「下列属于…的包括A OCT1　B NTCP　C OAT2」
+        stem = line.slice(0, inline[0].at).replace(/[：:，,、\s]+$/, '').trim();
+        opts = inline;
+      }
+      var j = i + 1;
+      while (opts.length < 8 && j < lines.length) {
+        var l2 = String(lines[j] == null ? '' : lines[j]).trim();
+        if (!l2) break;
+        // 这一行自己就带着题干和选项（「药品不良事件包括A…B…」）：
+        // 它是下一题，不是本题漏出来的续行，别把它的选项抢过来
+        var own = splitOpts(l2, 'A');
+        if (own.length >= 2 && hanLen(l2.slice(0, own[0].at)) >= 4) break;
+        var more = splitOpts(l2, String.fromCharCode(65 + opts.length));
+        if (!more.length) break;                     // 字母接不上，说明已经出了本题
+        opts = opts.concat(more);
+        j++;
+      }
+
+      var mark = stem.match(/(?:答案|正确答案)\s*[：:]\s*([A-E]{1,6})/);
+      var picked = mark ? mark[1].split('') : null;
+      if (mark) stem = stem.replace(/(?:答案|正确答案)\s*[：:]\s*[A-E]{1,6}/, '').trim();
+
+      var good = opts.length >= 3 && opts.length <= 8 && hanLen(stem) >= 4 &&
+        opts.every(function (o) { return o.text && o.text.length <= 200; });
+      // 单选题区不在这里硬猜答案：猜错的题比没题更糟，交给后面按句子提炼
+      if (!good || kind === 'single') { rest.push(lines[i]); i++; continue; }
+
+      var all = opts.map(function (o) { return cleanMark(o.text).replace(/[；;，,。.、]+$/, ''); });
+      var ans = picked ? all.filter(function (t, k) { return picked.indexOf(opts[k].letter) >= 0; }) : all.slice();
+      if (!ans.length) { rest.push(lines[i]); i++; continue; }
+
+      qs.push({
+        id: qidOf(cleanMark(stem) + '|' + ans.join('|')),
+        type: 'multi',
+        stem: cleanMark(stem),
+        answer: ans,
+        opts: [],
+        source: [stem].concat(opts.map(function (o) { return o.letter + '. ' + o.text; })).join('\n'),
+        order: 0
+      });
+      i = j;
+    }
+    return { qs: qs, rest: rest };
+  }
+
+  // 去掉行首的星号/题号、行尾的「（4分）」
+  function stripScore(s) {
+    return String(s == null ? '' : s)
+      .replace(/[（(]\s*\d+(?:\.\d+)?\s*分\s*[)）]/g, '')
+      .trim();
+  }
+  function stripLead(s) {
+    return String(s == null ? '' : s)
+      .replace(/^[★☆▲●◆■\s\u3000]+/, '')
+      .replace(/^\d{1,2}\s*[、.．]\s*/, '')
+      .replace(/^[（(]\s*[一二三四五六七八九十]{1,3}\s*[）)]\s*/, '')
+      .trim();
+  }
+  var PT_PREFIX = /^[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s*|^\d{1,2}\s*[）)]\s*|^[（(]\s*\d{1,2}\s*[）)]\s*|^\d{1,2}\s*[、.．]\s*|^[（(]\s*[一二三四五六七八九十]{1,3}\s*[）)]\s*|^[-—·•]\s*/;
+
+  /* 名词解释 / 填空题：「术语：解释」。
+     解释短（≤18 字、没有逗号）挖空考；解释长就当名词解释默写。
+     解释里又把术语念一遍（「药物警戒就是研究…」）的，剥掉，只留解释本身。 */
+  function parseDefSection(lines, kind) {
+    var out = [], rest = [];
+    lines.forEach(function (raw) {
+      var s = stripScore(stripLead(raw));
+      var m = s.length >= 6 ? s.match(/^(.{2,40}?)\s*[：:]\s*(.+)$/) : null;
+      // 不是「名词：解释」的句子别扔，原样还回去继续提炼
+      if (!m) { if (String(raw || '').trim()) rest.push(raw); return; }
+      var termRaw = m[1].trim();
+      var def = m[2].trim();
+      if (def.indexOf(termRaw) === 0) def = def.slice(termRaw.length).replace(/^(就是|是指|即是|指的是|也就是)/, '是').trim();
+      var term = termRaw.replace(/[（(][^）)]*[）)]/g, '').trim() || termRaw;
+      if (hanLen(term) < 2 || hanLen(def) < 3) { rest.push(raw); return; }
+      // 名词解释区一律默写（题干给名词，自己写出解释）；
+      // 填空题区里答案短、没有句内标点的才挖空，长解释同样按默写考
+      var brief = kind !== 'term' && hanLen(def) <= 18 && !/[，,。；;]/.test(def);
+      out.push({
+        id: qidOf(term + '|' + def),
+        type: brief ? 'fill' : 'term',
+        stem: brief ? term + '：____' : term,
+        answer: def,
+        opts: [],
+        source: stripScore(String(raw)).replace(/^[★☆\s\u3000]+/, ''),
+        order: 0
+      });
+    });
+    return { qs: out, rest: rest };
+  }
+
+  // 这些词当名词解释的题干毫无意义（它们是简答要点的小标题）
+  var VAGUE_TERM = /^(原因|特点|目的|最终目的|主要目的|范围|意义|方法|分类|原则|作用|步骤|内容|表现|危害|处理|治疗|预防|机制|概念|定义|要点|注意事项|基本原则)$/;
+
+  /* 「名词：解释」里的解释得真像一段定义。
+     简答题的要点常写成「子标题：a；b；c」的样子（「主观性资料：主诉；病史；…」），
+     那不是名词解释，别把要点偷出来当名词解释考。 */
+  function defLooksLikeDef(def) {
+    if (/[。.]\s*$/.test(def)) return true;
+    return /^(指|是|由|通过|以|在|用于|对|表示|又称|即|研究|临床|凡|合格|能够|可以)/.test(def);
+  }
+
+  var SHORT_Q_HINT = /(简述|试述|论述|叙述|阐述|哪些|什么|如何|为什么|原则|意义|措施|方法|包括|区别|联系|分类|要点|作用|指征|因素|步骤)/;
+
+  function isShortStem(s) {
+    var t = stripScore(stripLead(s));
+    if (/^[★☆]/.test(s)) return true;
+    // 「…有哪些？」「…包括哪些?」这类直接就是题干
+    if (/[？?]\s*$/.test(t) && hanLen(t) >= 4) return true;
+    if (/^(简述|试述|论述|叙述|阐述)\S/.test(t) && hanLen(t) >= 5) return true;
+    if (/^\d{1,2}\s*[、.．]/.test(s) && SHORT_Q_HINT.test(t)) return true;
+    return false;
+  }
+
+  /* 简答题区：★标题（或「1、简述…」）+ 下面一串要点。
+     题干只留标题，要点逐条收进来 —— 用户手打答要点，按命中几条判分。 */
+  function parseShortSection(lines) {
+    var qs = [], cur = null, buf = [], terms = [];
+
+    function flush() {
+      if (!cur) return;
+      var pts = [];
+      buf.forEach(function (p) {
+        var t = stripScore(stripLead(p)).replace(PT_PREFIX, '').replace(/[；;，,。.、]+$/, '').trim();
+        if (!t || hanLen(t) < 2) return;
+        // 「范围：」「（一）药物相关因素」这种半截小标题，并到上一条里，别单独成要点
+        if (pts.length && hanLen(t) < 4) { pts[pts.length - 1] += '；' + t; return; }
+        pts.push(t);
+      });
+      if (pts.length >= 2 && hanLen(cur.stem) >= 4) {
+        qs.push({
+          id: qidOf('S' + cur.stem),
+          type: 'short',
+          stem: cur.stem,
+          answer: pts.slice(0, 14),
+          opts: [],
+          source: [cur.stem].concat(pts).join('\n'),
+          order: 0
+        });
+      }
+      cur = null; buf = [];
+    }
+
+    lines.forEach(function (raw) {
+      var s = String(raw == null ? '' : raw).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+      if (!s) return;                                  // 空行不切题：简答之间常有空行
+      // B 卷常常不再写「名词解释」标题，直接接着写「1、处方：是指…」。
+      // 「短术语 + 长解释」这种行还是名词解释 —— 必须在题干判断之前拦下来，
+      // 否则「姑息疗法：…治疗方法」会因为句子里有「方法」被当成简答题干。
+      var mm = s.replace(/^\d{1,2}\s*[、.．]\s*/, '').match(/^(.{2,14}?)\s*[：:]\s*(.{24,})$/);
+      if (mm && !/[①②③④⑤⑥⑦⑧⑨⑩]/.test(s) && hanLen(mm[1]) >= 2 &&
+          !VAGUE_TERM.test(mm[1]) && defLooksLikeDef(mm[2])) {
+        terms.push({ term: mm[1].replace(/[（(][^）)]*[）)]/g, '').trim(), def: stripScore(mm[2]).trim() });
+        return;
+      }
+      if (isShortStem(s)) {
+        flush();
+        cur = { stem: stripScore(stripLead(s)).replace(/[：:]\s*$/, '').trim() };
+        return;
+      }
+      if (cur) buf.push(s);
+    });
+    flush();
+    return { qs: qs, terms: terms };
+  }
+
+  /* 整份原卷：按分区解析，没认出来的行原样还回去（后面还有老的提炼流程兜着） */
+  function parsePaper(text) {
+    var secs = paperSections(text);
+    var all = [], rest = [], seen = {};
+
+    function push(qs) {
+      qs.forEach(function (q) {
+        var k = normalize(q.stem) + '|' + normalize(answerText(q));
+        if (seen[k]) return;                            // 名词解释和填空题区常重复同一条
+        seen[k] = 1;
+        q.order = all.length;
+        all.push(q);
+      });
+    }
+
+    secs.forEach(function (sec) {
+      var k = sec.kind;
+      if (k === 'multi') {
+        var r = parseChoiceSection(sec.lines, 'multi');
+        push(r.qs);
+        // 区名留在正文里，提炼时才知道「这一段是多选题区」。
+        // 用【】包住是故意的：parseBankQuestions 认不出它，就不会在这里截断；
+        // 出了它那道门再翻译成标准区名交给 extractPoints。
+        rest = rest.concat(['【多选】'], r.rest);
+      } else if (k === 'term' || k === 'fill') {
+        var rd = parseDefSection(sec.lines, k);
+        push(rd.qs);
+        if (rd.rest.length) rest = rest.concat([k === 'term' ? '【名词解释】' : '【填空】'], rd.rest);
+      } else if (k === 'short') {
+        var rs = parseShortSection(sec.lines);
+        push(rs.qs);
+        push(rs.terms.map(function (t) {
+          return {
+            id: qidOf(t.term + '|' + t.def), type: 'term', stem: t.term,
+            answer: t.def, opts: [], source: t.term + '：' + t.def, order: 0
+          };
+        }));
+      } else {
+        rest = rest.concat(sec.lines);
+      }
+    });
+
+    return { questions: all, rest: rest.join('\n') };
+  }
+
   var BANK_BLANK = /[（(][\s\u3000]*[）)]/;
   var BANK_SECTION = /(单选题|多选题|名词解释|简答题|填空题|判断题)/g;
 
@@ -741,18 +1101,37 @@
     return out;
   }
 
-  /* 提炼入口：题库部分直接还原，散文部分照旧提炼 */
+  /* 提炼入口，三层依次兜底：
+     ① 标准题库（题干（ ）答案 A.选项…）→ 原样还原，干扰项都留着
+     ② 原卷分区（多选全选 / 名词解释默写 / 简答答要点）→ 按分区出题
+     ③ 剩下的散文 → 逐句提炼填空
+     顺序不能反：先还原的能保住干扰项，让 ② 先跑会把 ① 的题抢走。 */
   function buildFromNote(text) {
-    var parsed = parseBankQuestions(text);
-    var qs = parsed.questions.slice();
-    var rest = parsed.rest;
+    var paper = parsePaper(text);
+    var qs = paper.questions.slice();
+
+    var parsed = parseBankQuestions(paper.rest);
+    parsed.questions.forEach(function (q) { q.order = qs.length; qs.push(q); });
+
+    // 【多选】这类标记是给 parsePaper 内部用的，到了提炼引擎门口要换成它认的区名
+    var rest = parsed.rest.replace(/【(多选|名词解释|简答|填空|单选)】/g, function (m, k) {
+      return k === '多选' ? '多选题' : k === '单选' ? '单选题' : k === '填空' ? '填空题' : k;
+    });
     if (rest.trim()) {
       var pts = extractPoints(rest);
       var extra = buildQuestions(pts);
       extra.forEach(function (q, i) { q.order = qs.length + i; });
       qs = qs.concat(extra);
     }
-    return qs;
+
+    // 同一道题被两个流程各出一遍（原卷里「名词解释」和「填空题」内容一样很常见）
+    var seen = {};
+    return qs.filter(function (q) {
+      var k = normalize(q.stem) + '|' + normalize(answerText(q));
+      if (seen[k]) return false;
+      seen[k] = 1;
+      return true;
+    }).map(function (q, i) { q.order = i; return q; });
   }
 
   /* ---------------- 状态 ---------------- */
@@ -839,13 +1218,24 @@
     if (name === 'recite' && !S.recite) renderReciteEmpty();
   }
 
-  function stemHtml(stem) {
+  // 题干：有空就把空画成下划线；没有空（简答/名词解释）就原样显示。
+  // 以前对谁都补一个空，结果这两类题的题干后面被填上答案，看着像题干的一部分。
+  function stemHtml(q) {
+    var stem = typeof q === 'string' ? q : (q && q.stem) || '';
     var s = esc(stem);
+    // 简答/名词解释本来就没有空；多选题的题干是个问句，也不该拖一条下划线
+    if (typeof q !== 'string' && (isTypedQ(q) || (q.type === 'multi' && s.indexOf('____') < 0))) return s;
     if (s.indexOf('____') < 0) s += '<span class="blank-mark">____</span>';
     else s = s.replace(/____/g, '<span class="blank-mark">________</span>');
     return s;
   }
   function answerText(q) { return Array.isArray(q.answer) ? q.answer.join('、') : q.answer; }
+
+  // 题型标签：简答和名词解释是手打题，界面上要让人一眼知道这题怎么答
+  var TYPE_LABEL = { single: '单选', multi: '多选', fill: '填空', term: '名词解释', short: '简答' };
+  function typeLabel(q) { return TYPE_LABEL[(q && q.type) || ''] || '选择'; }
+  function isTypedQ(q) { return !!q && (q.type === 'term' || q.type === 'short'); }
+
 
   /* =========================================================
      题集选择下拉
@@ -1369,8 +1759,8 @@
       tr.dataset.i = i;
       tr.innerHTML =
         '<td class="c-chk"><input type="checkbox" class="p-chk" checked></td>' +
-        '<td class="c-type"><span class="tag' + (q.type === 'multi' ? ' multi' : '') + '">' +
-        (q.type === 'multi' ? '多选' : q.type === 'fill' ? '填空' : '选择') + '</span></td>' +
+        '<td class="c-type"><span class="tag' + (q.type === 'multi' ? ' multi' : (q.type === 'short' || q.type === 'term') ? ' typed' : '') + '">' +
+        typeLabel(q) + '</span></td>' +
         '<td><input class="cell-input p-stem" value="' + esc(q.stem) + '"></td>' +
         '<td class="c-ans"><input class="cell-input p-ans" value="' + esc(answerText(q)) + '"></td>' +
         '<td class="c-op">' +
@@ -1503,7 +1893,7 @@
     var L = ['# ' + b.course + ' · 期末刷题清单', '', '> 共 ' + qs.length + ' 题，按笔记原文顺序排列', ''];
     L.push('## 一、自测题（先盖住答案做一遍）', '');
     qs.forEach(function (q, i) {
-      L.push((i + 1) + '. ' + q.stem + '　【' + (q.type === 'multi' ? '多选' : '填空') + '】');
+      L.push((i + 1) + '. ' + q.stem + '　【' + typeLabel(q) + '】');
     });
     L.push('', '## 二、答案速查', '');
     qs.forEach(function (q, i) {
@@ -1558,7 +1948,7 @@
     var seed = (q.stem || '') + '|' + (Array.isArray(answer) ? answer.join('') : answer);
     return {
       id: q.id || qidOf(seed),
-      type: q.type === 'multi' ? 'multi' : (q.type === 'fill' ? 'fill' : 'single'),
+      type: TYPE_LABEL[q.type] ? q.type : 'single',
       stem: String(q.stem || ''),
       answer: answer,
       opts: Array.isArray(q.opts) ? q.opts : [],
@@ -1623,6 +2013,8 @@
   // 刷题时每道题怎么考：给选项，还是自己填
   function decideForms(list, mode) {
     return list.map(function (q) {
+      // 简答 / 名词解释天生就是手打，给不了选项
+      if (isTypedQ(q)) return 'fill';
       if (mode === 'fill') return 'fill';
       if (mode === 'choice') return q.type === 'fill' ? 'fill' : 'choice';
       // 混合：已经练熟的改成填空考（更难），还生疏的先给选项
@@ -1644,11 +2036,18 @@
     // 这道题已经答过了（从后面的题回看过来的），直接显示当时的结果，不让人重复作答
     if (st.results[st.idx]) return renderQuizReview();
     var q = st.list[st.idx];
-    var isMulti = q.type === 'multi' && st.forms[st.idx] !== 'fill';
+    var typed = isTypedQ(q);                        // 简答 / 名词解释：整段自己打
     var isFill = st.forms[st.idx] === 'fill';
-    var opts = isFill ? [] : shuffle((isMulti ? q.answer.slice() : [q.answer]).concat(q.opts || []));
+    var isMulti = q.type === 'multi' && !isFill && !typed;
+    var opts = (isFill || typed) ? [] : shuffle((isMulti ? q.answer.slice() : [q.answer]).concat(q.opts || []));
 
-    var bodyHtml = isFill
+    var bodyHtml = typed
+      ? '<div class="typed-row">' +
+        '<textarea class="typed-input" id="fillInput" rows="' + (q.type === 'short' ? 6 : 4) + '" placeholder="' +
+        (q.type === 'short' ? '一条一条写要点，能写几条写几条' : '把解释写下来，记得多少写多少') + '"></textarea>' +
+        '<div class="row" style="margin-top:10px"><button class="btn primary" id="fillSubmit">提交（Ctrl+Enter）</button>' +
+        '<span class="muted">' + (q.type === 'short' ? '答中几条要点算几条' : '按关键内容给分，不用一字不差') + '</span></div></div>'
+      : isFill
       ? '<div class="recite-input-row">' +
         '<input class="recite-input" id="fillInput" autocomplete="off" placeholder="把空填上，Enter 提交">' +
         '<button class="btn primary" id="fillSubmit">作答</button></div>'
@@ -1662,11 +2061,11 @@
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + (st.idx / st.list.length * 100) + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (st.idx + 1) + ' / ' + st.list.length + ' 题</span>' +
-      '<span class="pill">' + (isFill ? '填空' : isMulti ? '多选' : '单选') + '</span>' +
+      '<span class="pill">' + (typed ? typeLabel(q) : isFill ? '填空' : isMulti ? '多选' : '单选') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
       (st.idx > 0 ? '<button class="btn ghost tiny" id="prevQBtn">← 上一题</button>' : '') +
       '</div>' +
-      '<div class="stem">' + stemHtml(q.stem) + '</div>' +
+      '<div class="stem">' + stemHtml(q) + '</div>' +
       bodyHtml +
       '<div id="quizFb"></div>' +
       '</div>';
@@ -1681,7 +2080,17 @@
       });
     }
 
-    if (isFill) {
+    if (typed) {
+      $('#fillInput').focus();
+      $('#fillInput').addEventListener('keydown', function (e) {
+        // 手打大段文字时 Enter 是换行，只有 Ctrl/⌘+Enter 才提交
+        if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+        if (e.isComposing || e.keyCode === 229) return;
+        e.preventDefault();
+        submitFill();
+      });
+      $('#fillSubmit').addEventListener('click', submitFill);
+    } else if (isFill) {
       $('#fillInput').focus();
       $('#fillInput').addEventListener('keydown', function (e) {
         // 中文输入法打字时按 Enter 是在选候选词，那一下不能当提交，
@@ -1708,14 +2117,15 @@
     }
   }
 
-  // 刷题里碰到填空题：自己打字，判分方式和背诵模式一样
+  // 刷题里碰到手打题（填空 / 名词解释 / 简答）：自己写，判分方式和背诵模式一样
   function submitFill() {
     var st = S.quiz;
     var q = st.list[st.idx];
     if (!$('#fillInput')) return;
     var v = $('#fillInput').value.trim();
     if (!v) { toast('先写个答案，哪怕只记得一半'); return; }
-    var g = gradeAnswer(v, q.answer);
+    var typed = isTypedQ(q);
+    var g = typed ? gradeTyped(q, v) : gradeAnswer(v, q.answer);
     recordAnswer(q.id, g.level);
     st.results.push({ q: q, ok: g.level === 'right', partial: g.level === 'mid', input: v });
 
@@ -1723,16 +2133,16 @@
     var fb = $('#fillSubmit');
     if (fb) fb.remove();
 
-    // 把答案直接补进题干那个空里，一眼就能看到正确答案
+    // 把答案直接补进题干那个空里，一眼就能看到正确答案（简答/名词解释没有空，跳过）
     fillStemBlank($('#quizBody'), q, g.level === 'right');
 
-    // 填空题是手打的，答案还带解析和原文，读一遍至少十来秒 —— 不管有没有勾
+    // 手打题（含填空）答案长，读一遍至少十来秒 —— 不管有没有勾
     // 「答完自动下一题」，这一题都停住不动，等你自己点「下一题」。
     // 勾选只对选择题生效，免得答案还没看清就被下一题顶掉。
     $('#quizFb').innerHTML = verdictHtml(q, v, g) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
       (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
-      '<span class="muted">手打题不会自动跳，看完答案再点</span>' +
+      '<span class="muted">' + (typed ? '自己写的题不会自动跳，看完答案再点' : '手打题不会自动跳，看完答案再点') + '</span>' +
       '</div>';
     $('#nextQBtn').addEventListener('click', function () {
       quizTimerStop(st);
@@ -1775,13 +2185,15 @@
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + (i / st.list.length * 100) + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + st.list.length + ' 题 · 回顾</span>' +
-      '<span class="pill">' + (isFill ? '填空' : r.multi ? '多选' : '单选') + '</span></div>' +
-      '<div class="stem">' + stemHtml(q.stem) + '</div>' +
+      '<span class="pill">' + (isTypedQ(q) ? typeLabel(q) : isFill ? '填空' : r.multi ? '多选' : '单选') + '</span></div>' +
+      '<div class="stem">' + stemHtml(q) + '</div>' +
       '<div class="verdict ' + cls + '" style="margin-top:12px">' +
       '<div class="verdict-title">' + title + '</div>' +
       '<div class="verdict-body">' +
       (isFill ? '你写的是：' : '你选的是：') + '<strong>' + esc(your) + '</strong><br>' +
-      '正确答案：<strong>' + esc(answerText(q)) + '</strong>' +
+      (q.type === 'short' ? '要点：<strong>' + (q.answer || []).length + ' 条</strong>'
+        : q.type === 'term' ? '参考答案：<strong>' + esc(q.answer) + '</strong>'
+        : '正确答案：<strong>' + esc(answerText(q)) + '</strong>') +
       '</div>' +
       (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       '</div>' +
@@ -1891,7 +2303,7 @@
     if (wrongs.length) {
       html += '<h3 style="margin:18px 0 8px">这一组的错题</h3><div class="list">' +
         wrongs.map(function (r) {
-          return '<div class="item"><div class="item-main"><div class="item-stem">' + stemHtml(r.q.stem) + '</div>' +
+          return '<div class="item"><div class="item-main"><div class="item-stem">' + stemHtml(r.q) + '</div>' +
             '<div class="item-sub">正确答案：<strong>' + esc(answerText(r.q)) + '</strong></div></div>' +
             '<span class="pill err">错了</span></div>';
         }).join('') + '</div>' +
@@ -1937,12 +2349,29 @@
   function knGoal(total) { return Math.max(1, Math.min(KN_GOAL, total)); }
 
   // 卡片正文：题干里的空用答案填上并高亮 —— 这才叫「知识点」，不是「题目」
+  // 简答/名词解释的卡片是「标题 + 答案一起背」：标题在上，答案整段在下
   function knText(q) {
     var stem = cleanMark(q.stem || '');
     var ans = answerText(q);
-    var i = stem.indexOf('____');
-    if (i < 0) return esc(stem);
-    return esc(stem.slice(0, i)) + '<mark class="kn-mark">' + esc(ans) + '</mark>' + esc(stem.slice(i + 4));
+    var at = stem.indexOf('____');
+    // 有空的句子，把答案填进去并高亮
+    function filled() {
+      if (at < 0) return esc(stem);
+      return esc(stem.slice(0, at)) + '<mark class="kn-mark">' + esc(ans) + '</mark>' + esc(stem.slice(at + 4));
+    }
+    if (q.type === 'short') {
+      var pts = (q.answer || []).map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('');
+      return '<div class="kn-term">' + esc(stem) + '</div><ol class="kn-points">' + pts + '</ol>';
+    }
+    if (q.type === 'term') {
+      return '<div class="kn-term">' + esc(stem) + '</div><div class="kn-def">' + esc(q.answer) + '</div>';
+    }
+    if (q.type === 'multi') {
+      // 多选题的卡片：题干 + 所有正确项（没标答案的卷子就是全选）
+      var items = (q.answer || []).map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('');
+      return '<div class="kn-q">' + filled() + '</div><ol class="kn-points">' + items + '</ol>';
+    }
+    return filled();
   }
 
   // 卡片阶段「判定后自动下一问」「给首字提示」都没有意义，先藏起来，免得看着奇怪
@@ -1971,7 +2400,7 @@
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + pct + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + total + ' 张</span>' +
-      '<span class="pill">知识点</span>' +
+      '<span class="pill">' + (q.type === 'fill' || q.type === 'single' ? '知识点' : typeLabel(q)) + '</span>' +
       '<span>已看 ' + Math.min(seen, goal) + ' / ' + goal + ' 张</span></div>' +
       '<div class="kn-card" id="knCard">' + knText(q) + '</div>' +
       '<div class="kn-foot">' +
@@ -2007,40 +2436,86 @@
     if (st.idx >= st.list.length) return renderReciteEnd();
     var q = st.list[st.idx];
     var isMulti = q.type === 'multi';
+    var typed = isTypedQ(q);
     var full = answerText(q);
     var hint = '';
     if (st.hint) {
       var first = full.charAt(0);
-      hint = '（提示：' + esc(first) + '…… 共 ' + full.length + ' 字' + (isMulti ? '，含 ' + q.answer.length + ' 项' : '') + '）';
+      hint = '（提示：' + esc(first) + '…… 共 ' + full.length + ' 字' +
+        (isMulti ? '，含 ' + q.answer.length + ' 项' : q.type === 'short' ? '，共 ' + q.answer.length + ' 条要点' : '') + '）';
     }
+    var inputHtml = typed
+      ? '<div class="typed-row"><textarea class="typed-input" id="reciteInput" rows="' + (q.type === 'short' ? 6 : 4) + '" placeholder="' +
+        (q.type === 'short' ? '一条一条写要点，Ctrl+Enter 提交' : '把解释写下来，Ctrl+Enter 提交') + '"></textarea>' +
+        '<div class="row" style="margin-top:10px"><button class="btn primary" id="reciteSubmit">作答（Ctrl+Enter）</button></div></div>'
+      : '<div class="recite-input-row">' +
+        '<input class="recite-input" id="reciteInput" autocomplete="off" placeholder="' + (isMulti ? '多项之间用顿号或空格隔开' : '把空填上，Enter 提交') + '">' +
+        '<button class="btn primary" id="reciteSubmit">作答</button>' +
+        '</div>';
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + (st.idx / st.list.length * 100) + '%"></i></div>' +
       (st.prev ? '<div class="prev-note">' + st.prev + '</div>' : '') +
       '<div class="q-meta"><span>第 ' + (st.idx + 1) + ' / ' + st.list.length + ' 问</span>' +
-      '<span class="pill">' + (isMulti ? '列举题' : '填空') + '</span>' +
+      '<span class="pill">' + (typed ? typeLabel(q) : isMulti ? '列举题' : '填空') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span></div>' +
-      '<div class="stem">' + stemHtml(q.stem) + '</div>' +
-      '<div class="recite-input-row">' +
-      '<input class="recite-input" id="reciteInput" autocomplete="off" placeholder="' + (isMulti ? '多项之间用顿号或空格隔开' : '把空填上，Enter 提交') + '">' +
-      '<button class="btn primary" id="reciteSubmit">作答</button>' +
-      '</div>' +
+      '<div class="stem">' + stemHtml(q) + '</div>' +
+      inputHtml +
       (hint ? '<div class="muted" style="margin-top:8px">' + hint + '</div>' : '') +
       '<div id="reciteVb"></div>' +
       '</div>';
     $('#reciteBody').innerHTML = html;
     $('#reciteInput').focus();
     $('#reciteInput').addEventListener('keydown', function (e) {
-      // 同刷题页：输入法还在组合状态时，Enter 是选词，不当提交
+      // 同刷题页：输入法还在组合状态时，Enter 是选词，不当提交；
+      // 大段手写时 Enter 是换行，只有 Ctrl/⌘+Enter 才交卷
       if (e.key !== 'Enter') return;
       if (e.isComposing || e.keyCode === 229) return;
+      if (typed && !(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
       submitRecite();
     });
     $('#reciteSubmit').addEventListener('click', submitRecite);
   }
 
+  // 简答：把要点一条条列出来，答到的打勾，漏掉的空着 —— 比只给一段话有用
+  function shortVerdict(q, input, g) {
+    var pts = (q.answer || []).slice();
+    var hit = {};
+    (g.hits || []).forEach(function (h) { hit[h.raw] = 1; });
+    var cls = g.level === 'right' ? 'ok' : g.level === 'mid' ? 'mid' : 'bad';
+    var title = g.level === 'right' ? '✅ 要点都答到了'
+      : g.level === 'mid' ? '🟡 答到 ' + g.hits.length + ' / ' + pts.length + ' 条'
+      : '❌ 只答到 ' + g.hits.length + ' / ' + pts.length + ' 条';
+    var list = pts.map(function (p) {
+      return '<li class="' + (hit[p] ? 'hit' : 'miss') + '">' + (hit[p] ? '✅ ' : '⬜ ') + esc(p) + '</li>';
+    }).join('');
+    return '<div class="verdict ' + cls + '">' +
+      '<div class="verdict-title">' + title + '</div>' +
+      '<div class="verdict-body">标准答案的要点共 ' + pts.length + ' 条，你答到 ' + g.hits.length + ' 条。</div>' +
+      '<ol class="pt-list">' + list + '</ol>' +
+      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      '</div>';
+  }
+
+  // 名词解释：整段解释摆出来，再点出漏掉的关键词
+  function termVerdict(q, input, g) {
+    var cls = g.level === 'right' ? 'ok' : g.level === 'mid' ? 'mid' : 'bad';
+    var title = g.level === 'right' ? '✅ 解释基本对上了'
+      : g.level === 'mid' ? '🟡 关键内容对了一半，照着补' : '❌ 这解释还差得多';
+    var miss = (g.miss || []).slice(0, 8).map(function (m) { return m.raw; }).join('、');
+    return '<div class="verdict ' + cls + '">' +
+      '<div class="verdict-title">' + title + '</div>' +
+      '<div class="verdict-body">你写的是：' + esc(input) + '</div>' +
+      '<div class="answer-line ans-key">参考答案：<strong>' + esc(q.answer) + '</strong></div>' +
+      (miss ? '<div class="answer-line">漏掉的关键内容：<strong>' + esc(miss) + '</strong></div>' : '') +
+      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      '</div>';
+  }
+
   // 判分后的反馈卡片（刷题的填空题和背诵模式共用）
   function verdictHtml(q, input, g) {
+    if (q.type === 'short') return shortVerdict(q, input, g);
+    if (q.type === 'term') return termVerdict(q, input, g);
     var title, cls, body;
     if (g.level === 'right') {
       title = '✅ 正确';
@@ -2074,7 +2549,7 @@
     var input = $('#reciteInput').value.trim();
     if (!input) { toast('先写出你的答案，哪怕只记得一半'); return; }
     var q = st.list[st.idx];
-    var g = gradeAnswer(input, q.answer);
+    var g = gradeTyped(q, input);
     if (g.level === 'right') st.ok++;
     else if (g.level === 'mid') st.mid++;
     else st.bad++;
@@ -2091,7 +2566,9 @@
     scrollToFb($('#reciteVb'));
 
     var prevNote = '上一问：' + esc(q.stem) + '　你答「' + esc(input) + '」 → ' +
-      (g.level === 'right' ? '<span style="color:var(--ok)">正确</span>' : g.level === 'mid' ? '<span style="color:var(--warn)">部分正确</span>' : '<span style="color:var(--err)">记错了，答案是 <strong>' + esc(answerText(q)) + '</strong></span>');
+      (g.level === 'right' ? '<span style="color:var(--ok)">正确</span>'
+        : g.level === 'mid' ? '<span style="color:var(--warn)">部分正确' + (q.type === 'short' ? '（' + g.hits.length + '/' + (q.answer || []).length + ' 条）' : '') + '</span>'
+        : '<span style="color:var(--err)">记错了，答案是 <strong>' + esc(q.type === 'short' ? (q.answer || []).join('；') : answerText(q)) + '</strong></span>');
 
     function goNext() { st.prev = prevNote; st.idx++; renderRecite(); }
     $('#reciteNext').addEventListener('click', goNext);
@@ -2164,7 +2641,7 @@
       var s = getStat(q.id);
       return '<div class="item">' +
         '<div class="item-main">' +
-        '<div class="item-stem">' + stemHtml(q.stem) + '</div>' +
+        '<div class="item-stem">' + stemHtml(q) + '</div>' +
         '<div class="item-sub">正确答案：<strong>' + esc(answerText(q)) + '</strong>　·　练 ' + (s.ok + s.bad) + ' 次，错 ' + s.bad + ' 次</div>' +
         '</div>' +
         '<div class="bar" title="掌握度"><i style="width:' + Math.round(s.mastery * 100) + '%"></i></div>' +
@@ -2256,7 +2733,7 @@
     }).slice(0, 10);
     $('#weakList').innerHTML = sorted.length ? sorted.map(function (q) {
       var s = getStat(q.id);
-      return '<div class="item"><div class="item-main"><div class="item-stem">' + stemHtml(q.stem) + '</div>' +
+      return '<div class="item"><div class="item-main"><div class="item-stem">' + stemHtml(q) + '</div>' +
         '<div class="item-sub">正确答案：<strong>' + esc(answerText(q)) + '</strong></div></div>' +
         '<div class="bar"><i style="width:' + Math.round(s.mastery * 100) + '%"></i></div>' +
         '<span class="pill ' + (s.mastery < 0.4 ? 'err' : s.mastery < 0.8 ? 'warn' : 'ok') + '">' + Math.round(s.mastery * 100) + '%</span>' +
@@ -3162,6 +3639,11 @@
   window.FQInternals = {
     buildFromNote: buildFromNote,
     parseBankQuestions: parseBankQuestions,
+    parsePaper: parsePaper,
+    gradeTyped: gradeTyped,
+    gradeAnswer: gradeAnswer,
+    decideForms: decideForms,
+    stemHtml: stemHtml,
     extractPoints: extractPoints,
     buildQuestions: buildQuestions,
     splitSentences: splitSentences,
