@@ -522,6 +522,9 @@ tbody tr.off { opacity: .45; }
 .verdict-body strong { color: var(--ink); font-weight: 800; }
 .source { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
 .answer-line { margin-top: 6px; font-size: 14.5px; }
+/* 「正确答案」单独一行：答对时也要明确摆出来，否则容易被当成没给答案 */
+.answer-line.ans-key { margin-top: 9px; font-weight: 600; }
+.answer-line.ans-key strong { color: var(--ok); }
 
 .blank-mark { color: var(--brand); }
 /* 作答后把正确答案直接补进题干的空格里 */

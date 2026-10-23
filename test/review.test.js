@@ -113,18 +113,24 @@ async function intoQuiz(a, form) {
   await sleep(150);
   await intoQuiz(a, 'fill');
   ok(!!a.$('#fillInput'), '填空题给了输入框');
+  ok(a.$('#qAutoNext') && !a.$('#qAutoNext').checked,
+    '「答完自动下一题」默认是关的，不会自己把答案顶掉');
   ok(a.$('#prevQBtn') === null, '第 1 题没有「上一题」按钮（前面没题）');
 
   a.setVal('#fillInput', '随便乱写一个');
+  // 「自动下一题」默认是关的，这一条要验证勾上之后有没有写明倒计时
+  a.$('#qAutoNext').checked = true;
   a.click('#fillSubmit');
   await sleep(150);
   const fb1 = a.text('#quizFb') || '';
   ok(/记错了|记住了大半|正确/.test(fb1), '提交后给出了判定结果', fb1.slice(0, 40));
-  ok(/正确说法是|完整表述/.test(fb1), '判定里带有正确答案', fb1.slice(0, 60));
+  ok(/正确答案/.test(fb1), '判定里明确写了「正确答案」', fb1.slice(0, 80));
+  ok(/完整表述/.test(fb1), '还给了整句的完整表述', fb1.slice(0, 80));
   const stem1 = a.text('#quizBody .stem') || '';
   ok(stem1.indexOf('____') < 0 && stem1.indexOf('________') < 0, '题干那个空已经被答案填上', stem1.slice(0, 40));
   ok(!!a.$('#quizBody .stem .blank-mark.filled'), '填入的答案有高亮标记');
   ok(/秒后自动下一题/.test(fb1), '反馈里写明了多久后自动跳，不用猜', fb1.slice(-50));
+  a.$('#qAutoNext').checked = false;   // 后面的用例回到默认状态
 
   /* ---------- 2. 中文输入法：选词那一下 Enter 不能当提交 ---------- */
   console.log('\n[2] 输入法状态下的 Enter');
@@ -279,6 +285,39 @@ async function intoQuiz(a, form) {
       ok(scrolls.length === 0, '反馈本来就在视口里时不乱滚', scrolls);
     }
   }
+
+  /* ---------- 8. 答对也要给出正确答案；中途取消自动跳要生效 ---------- */
+  console.log('\n[8] 答对时的答案展示，以及取消自动下一题');
+  const g = bootApp();
+  await sleep(150);
+  await intoQuiz(g, 'fill');
+  ok(!g.$('#qAutoNext').checked, '新的一轮开始，自动下一题仍然是关的');
+
+  const banks = JSON.parse(g.store.getItem('fq_banks_v1') || '[]');
+  const curId = g.store.getItem('fq_current_v1');
+  const bank = banks.filter(function (b) { return b.id === curId; })[0] || banks[banks.length - 1];
+  const q0 = bank.questions[0];
+  const ans0 = Array.isArray(q0.answer) ? q0.answer[0] : q0.answer;
+  ok(g.text('#quizBody .stem').indexOf(q0.stem.replace('____', '').slice(0, 6)) >= 0,
+    '第一道题就是题库第一题（顺序跟着笔记走）', g.text('#quizBody .stem').slice(0, 30));
+
+  g.$('#qAutoNext').checked = true;
+  g.setVal('#fillInput', ans0);
+  g.click('#fillSubmit');
+  await sleep(150);
+  const fbOk = g.text('#quizFb') || '';
+  ok(/正确/.test(fbOk), '答对了有判定', fbOk.slice(0, 40));
+  ok(/正确答案/.test(fbOk), '答对时也明确写出「正确答案」', fbOk.slice(0, 80));
+  ok(fbOk.indexOf(ans0) >= 0, '写出来的就是那个标准答案', ans0);
+  ok(/秒后自动下一题/.test(fbOk), '勾选时写明了几秒后跳');
+
+  // 中途反悔：取消勾选，已经排好的那一次跳转必须作废
+  g.$('#qAutoNext').checked = false;
+  g.$('#qAutoNext').dispatchEvent(new g.win.Event('change', { bubbles: true }));
+  await sleep(6300);            // 答对是 6 秒后跳，等够
+  ok(/第\s*1\s*\//.test(g.text('#quizBody .q-meta') || ''),
+    '取消勾选后，已排好的自动跳转被撤销，答案还留在这一题', g.text('#quizBody .q-meta'));
+  ok(!!g.$('#quizFb .verdict'), '反馈卡片没有被下一题顶掉');
 
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
   process.exit(fail ? 1 : 0);

@@ -1430,6 +1430,12 @@
   /* =========================================================
      ② 刷题
      ========================================================= */
+  // 答题途中把「自动下一题」取消掉，已经排好的那一次跳转也得跟着作废，
+  // 否则用户明明取消了，答案还是会在几秒后被新题顶掉。
+  $('#qAutoNext').addEventListener('change', function () {
+    if (S.quiz && !this.checked) quizTimerStop(S.quiz);
+  });
+
   $('#quizStartBtn').addEventListener('click', function () {
     var list = pickQuestions({
       range: $('#qRange').value,
@@ -1869,7 +1875,7 @@
     if (g.level === 'right') {
       title = '✅ 正确';
       cls = 'ok';
-      body = '你说的是：' + esc(input) + '　—— 记住了。';
+      body = '你写的是：' + esc(input);
     } else if (g.level === 'mid') {
       var missTxt = g.miss.map(function (m) { return m.raw; }).join('、');
       title = '🟡 记住了大半，还差一点';
@@ -1880,11 +1886,14 @@
     } else {
       title = '❌ 记错了，跟我再念一遍';
       cls = 'bad';
-      body = '你答的是：' + esc(input) + '<br>正确说法是：<strong>' + esc(answerText(q)) + '</strong>';
+      body = '你写的是：' + esc(input);
     }
+    // 不管答对答错，都把「正确答案」单独摆一行。
+    // 答对时只写"完整表述"会让人以为没给答案——尤其会自动跳下一题的时候。
     return '<div class="verdict ' + cls + '">' +
       '<div class="verdict-title">' + title + '</div>' +
       '<div class="verdict-body">' + body + '</div>' +
+      '<div class="answer-line ans-key">正确答案：<strong>' + esc(answerText(q)) + '</strong></div>' +
       '<div class="answer-line">完整表述：<strong>' + esc(q.stem.replace('____', answerText(q))) + '</strong></div>' +
       (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       '</div>';
