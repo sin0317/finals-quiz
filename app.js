@@ -8,6 +8,7 @@
   /* ---------------- 存储键 ---------------- */
   var LS_BANKS = 'fq_banks_v1';
   var LS_STATS = 'fq_stats_v1';
+  var LS_SR = 'fq_sr_v1';   // 间隔复习的排期：每组抽题都用它算「该不该来」
   var LS_LOG = 'fq_log_v1';
   var LS_CUR = 'fq_current_v1';
   var LS_THEME = 'fq_theme_v1';
@@ -16,7 +17,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.6.0';
+  var FQ_VERSION = '1.7.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1247,6 +1248,10 @@
   }
 
   /* ---------------- 状态 ---------------- */
+  /* 间隔复习的排期。round 是「第几组」，items 里每道题记连对次数和到期组号。
+     存在 localStorage 里：关掉页面明天再来，做对的题也不会立刻又冒出来。 */
+  var SR = { round: 0, items: {} };
+
   var S = {
     banks: [],
     stats: {},
@@ -1264,6 +1269,7 @@
       localStorage.setItem(LS_BANKS, JSON.stringify(S.banks));
       localStorage.setItem(LS_STATS, JSON.stringify(S.stats));
       localStorage.setItem(LS_LOG, JSON.stringify(S.log));
+      localStorage.setItem(LS_SR, JSON.stringify(SR));
       localStorage.setItem(LS_CUR, S.cur || '');
     } catch (e) {
       toast('本地存储写入失败，可能是空间已满');
@@ -1275,6 +1281,8 @@
       S.banks = JSON.parse(localStorage.getItem(LS_BANKS) || '[]') || [];
       S.stats = JSON.parse(localStorage.getItem(LS_STATS) || '{}') || {};
       S.log = JSON.parse(localStorage.getItem(LS_LOG) || '[]') || [];
+      var sr = JSON.parse(localStorage.getItem(LS_SR) || 'null');
+      if (sr && typeof sr === 'object') SR = { round: sr.round || 0, items: sr.items || {} };
       S.cur = localStorage.getItem(LS_CUR) || '';
       var th = localStorage.getItem(LS_THEME);
       if (th) document.documentElement.setAttribute('data-theme', th);
@@ -1296,7 +1304,32 @@
     var acc = tot ? st.ok / tot : 0;
     return Math.min(1, acc * 0.6 + Math.min(st.streak, 3) / 3 * 0.4);
   }
-  function recordAnswer(qid, level) {
+  /* 间隔复习的间隔：答对一次隔 1 组再来，连对 2 次隔 3 组，连对 3 次隔 7 组
+     （这场基本就不见了）。「隔 N 组」= 中间空过 N 组，所以到期组号是 rn + N + 1。 */
+  function srGap(streak) {
+    if (streak <= 0) return 0;
+    if (streak === 1) return 2;
+    if (streak === 2) return 4;
+    return 8;
+  }
+
+  /* 按这次作答重排「这题下次什么时候来」。答错的、只答对一半的，下一组必来。 */
+  function srApply(qid, level) {
+    var it = SR.items[qid] || { streak: 0, due: 0, seen: 0 };
+    it.seen = (it.seen || 0) + 1;
+    it.last = Date.now();
+    if (level === 'right') {
+      it.streak = (it.streak || 0) + 1;
+      // 已经算「已掌握」的题，这轮就别再塞回来了
+      it.due = SR.round + (getStat(qid).mastered ? 99 : srGap(it.streak));
+    } else {
+      it.streak = 0;
+      it.due = SR.round + 1;
+    }
+    SR.items[qid] = it;
+  }
+
+  function recordAnswer(qid, level, opts) {
     var st = getStat(qid);
     if (level === 'right') { st.ok++; st.streak++; }
     else if (level === 'mid') { st.ok++; }
@@ -1310,6 +1343,11 @@
     if (!row) { row = { d: d, n: 0 }; S.log.push(row); }
     row.n++;
     if (S.log.length > 60) S.log = S.log.slice(-60);
+    // 答对了就记进这场刷题的「过关名单」，后面的组里不再重复抽它（「一路推新题」模式用）。
+    // 只认 right：简答「部分正确」还得再看一遍，不能算过。
+    if (level === 'right') DRILL.done[qid] = 1;
+    // 间隔复习的排期要用刚更新过的掌握度，所以放在这里；背知识点不参与排期
+    if (opts && opts.sr) srApply(qid, level);
     save();
   }
 
@@ -2120,15 +2158,119 @@
     return oa - ob;
   }
 
+  /* 按工具栏的「范围 / 题型」先过一遍，抽题和背知识点共用 */
+  function filterPool(qs, range, type) {
+    if (type && type !== 'all') qs = qs.filter(function (q) { return q.type === type; });
+    if (range === 'new') qs = qs.filter(function (q) { return !S.stats[q.id] || !(S.stats[q.id].ok + S.stats[q.id].bad); });
+    else if (range === 'wrong') qs = qs.filter(function (q) { var s = S.stats[q.id]; return s && s.bad > 0 && !s.mastered; });
+    else if (range === 'weak') qs = qs.filter(function (q) { var s = S.stats[q.id]; return !s || !s.mastered; });
+    return qs;
+  }
+
   function pickQuestions(opt) {
-    var qs = getQs().slice().sort(byOrder);
-    if (opt.type && opt.type !== 'all') qs = qs.filter(function (q) { return q.type === opt.type; });
-    if (opt.range === 'new') qs = qs.filter(function (q) { return !S.stats[q.id] || !(S.stats[q.id].ok + S.stats[q.id].bad); });
-    else if (opt.range === 'wrong') qs = qs.filter(function (q) { var s = S.stats[q.id]; return s && s.bad > 0 && !s.mastered; });
-    else if (opt.range === 'weak') qs = qs.filter(function (q) { var s = S.stats[q.id]; return !s || !s.mastered; });
+    var qs = filterPool(getQs().slice().sort(byOrder), opt.range, opt.type);
     if (opt.shuffle) qs = shuffle(qs);
     if (opt.count > 0) qs = qs.slice(0, opt.count);
     return qs;
+  }
+
+  /* 一场刷题的进度：这场里已经答对的题（done）和已经出现过的题（served）。
+     点「开始刷题」是新开一场，清空；点「再来一组」接着用。 */
+  var DRILL = { done: {}, served: {} };
+  var MASTER_PCT = 90;   // 「已掌握」的门槛，跟 mastered 的算法同一个口径
+
+  /* 下一组抽哪几道。以前「再来一组」只是重新点了一次「开始刷题」，
+     而抽题是「按笔记顺序取前 N 道」，所以永远回到第 1 题 —— 它压根不知道
+     自己刷到哪儿了。现在按两种模式往下推：
+       new    ：先推没出现过的题，做对的这场不再出现；新题推完了再回头刷没答对的
+       master ：只抽掌握度不到 90% 的，最生的排前面，全达标了才放新题 */
+  function pickBatch(opt) {
+    var pool = filterPool(getQs().slice().sort(byOrder), opt.range, opt.type);
+    var done = opt.done || {}, served = opt.served || {};
+    var cands;
+
+    if (opt.mode === 'srs') {
+      // 间隔复习：到期的复习题先来（拖得最久的排最前），不够再补没见过的题。
+      // 这样「做对的短时间不用再做」和「一直有新题」同时成立。
+      var rn = opt.round == null ? SR.round : opt.round;
+      var due = [], fresh = [], later = [];
+      pool.forEach(function (q) {
+        var it = SR.items[q.id];
+        if (!it) fresh.push(q);
+        else if ((it.due || 0) <= rn) due.push(q);
+        else later.push(q);
+      });
+      due.sort(function (a, b) {
+        return (SR.items[a.id].due || 0) - (SR.items[b.id].due || 0) || byOrder(a, b);
+      });
+      if (opt.shuffle) fresh = shuffle(fresh);
+      cands = due.concat(fresh);
+      if (!cands.length) {
+        // 全在冷却里：别让人卡在「没题可刷」，把最早到期的捞出来过一遍
+        later.sort(function (a, b) { return (SR.items[a.id].due || 0) - (SR.items[b.id].due || 0); });
+        if (!later.length) return { list: [], remain: 0, why: 'done' };
+        var early = opt.count > 0 ? later.slice(0, opt.count) : later;
+        return { list: early, remain: later.length, why: '', early: true };
+      }
+    } else if (opt.mode === 'master') {
+      cands = pool.filter(function (q) { return masteryPct(q) < MASTER_PCT; });
+      if (opt.shuffle) cands = shuffle(cands);
+      // 最生的先来（shuffle 之后再按掌握度排，等于同分之间随机）
+      cands.sort(function (a, b) { return masteryPct(a) - masteryPct(b); });
+      if (!cands.length) return { list: [], remain: 0, why: 'mastered' };
+    } else {
+      cands = pool.filter(function (q) { return !done[q.id]; });
+      // 没出现过的排前面，出现过的（上几组答错的）排在后面等回头刷
+      var fresh = [], back = [];
+      cands.forEach(function (q) { (served[q.id] ? back : fresh).push(q); });
+      if (opt.shuffle) { fresh = shuffle(fresh); back = shuffle(back); }
+      cands = fresh.concat(back);
+      if (!cands.length) return { list: [], remain: 0, why: 'done' };
+    }
+    var remain = cands.length;
+    var list = opt.count > 0 ? cands.slice(0, opt.count) : cands;
+    return { list: list, remain: remain, why: '' };
+  }
+
+  function quizMode() {
+    var el = $('#qMode');
+    return el && el.value ? el.value : 'srs';
+  }
+
+  function batchOpt(extra) {
+    var o = {
+      range: $('#qRange').value,
+      type: $('#qType').value,
+      count: +$('#qCount').value,
+      shuffle: $('#qOrder').value === 'rand',
+      mode: quizMode(),
+      done: DRILL.done,
+      served: DRILL.served
+    };
+    for (var k in extra) if (extra.hasOwnProperty(k)) o[k] = extra[k];
+    return o;
+  }
+
+  function startQuiz(next) {
+    if (!next) DRILL = { done: {}, served: {} };   // 新开一场：这场答对的记录归零
+    var round = next && S.quiz ? (S.quiz.round || 1) + 1 : 1;
+    // 组号也是复习排期的时钟：这一组算第 SR.round+1 组
+    var rn = (SR.round || 0) + 1;
+    var got = pickBatch(batchOpt({ round: rn }));
+    if (!got.list.length) {
+      toast(got.why === 'mastered'
+        ? '这个范围里的题都到 ' + MASTER_PCT + '% 了，取消勾选「刷到 90% 才换新题」就能继续刷'
+        : '这个范围里的题这场都刷完且答对过了，换个范围（比如「未掌握」）再刷');
+      return;
+    }
+    SR.round = rn;                                  // 真开工了才推进时钟
+    got.list.forEach(function (q) { DRILL.served[q.id] = 1; });
+    S.quiz = {
+      list: got.list, idx: 0, results: [], timer: null, round: round,
+      mode: quizMode(), remain: got.remain,
+      forms: decideForms(got.list, $('#qForm').value)
+    };
+    renderQuiz();
   }
 
   function masteryPct(q) { return Math.round(getStat(q.id).mastery * 100); }
@@ -2139,17 +2281,7 @@
   // 「答完自动下一题」这个开关已经去掉了：答案至少要看一眼原文，
   // 自动翻页只会把答案顶走。翻页统一由用户点「下一题」。
 
-  $('#quizStartBtn').addEventListener('click', function () {
-    var list = pickQuestions({
-      range: $('#qRange').value,
-      type: $('#qType').value,
-      count: +$('#qCount').value,
-      shuffle: $('#qOrder').value === 'rand'
-    });
-    if (!list.length) { toast('这个范围里没有题，换个筛选条件'); return; }
-    S.quiz = { list: list, idx: 0, results: [], timer: null, forms: decideForms(list, $('#qForm').value) };
-    renderQuiz();
-  });
+  $('#quizStartBtn').addEventListener('click', function () { startQuiz(false); });
 
   // 刷题时每道题怎么考：给选项，还是自己填
   function decideForms(list, mode) {
@@ -2444,7 +2576,8 @@
 
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + (st.idx / st.list.length * 100) + '%"></i></div>' +
-      '<div class="q-meta"><span>第 ' + (st.idx + 1) + ' / ' + st.list.length + ' 题</span>' +
+      '<div class="q-meta"><span>第 ' + (st.round > 1 ? st.round + ' 组 · ' : '') +
+      (st.idx + 1) + ' / ' + st.list.length + ' 题</span>' +
       '<span class="pill">' + (typed ? typeLabel(q) : isFill ? '填空' : isMulti ? '多选' : '单选') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
       '<span class="grow"></span>' +
@@ -2513,7 +2646,7 @@
     if (!v) { toast('先写个答案，哪怕只记得一半'); return; }
     var typed = isTypedQ(q);
     var g = typed ? gradeTyped(q, v) : gradeAnswer(v, q.answer);
-    recordAnswer(q.id, g.level);
+    recordAnswer(q.id, g.level, { sr: true });
     st.results.push({ q: q, ok: g.level === 'right', partial: g.level === 'mid', input: v });
 
     $('#fillInput').disabled = true;
@@ -2628,7 +2761,7 @@
     var right = isMulti
       ? (picked.length === q.answer.length && q.answer.every(function (a) { return picked.indexOf(a) >= 0; }))
       : (picked === q.answer);
-    recordAnswer(q.id, right ? 'right' : 'wrong');
+    recordAnswer(q.id, right ? 'right' : 'wrong', { sr: true });
     st.results.push({ q: q, ok: right, multi: isMulti, picked: picked });
 
     var corrects = isMulti ? q.answer.slice() : [q.answer];
@@ -2676,9 +2809,24 @@
     var total = st.results.length;
     var pct = total ? Math.round(ok / total * 100) : 0;
     var wrongs = st.results.filter(function (r) { return !r.ok; });
+    // 下一组还剩多少可刷：这里只是预估（不落状态），让人知道「再来一组」不会从头再来
+    var next = pickBatch(batchOpt({ round: (SR.round || 0) + 1 }));
+    var nextTip = next.why === 'mastered'
+      ? '这个范围里的题都到 ' + MASTER_PCT + '% 了，把抽题方式换成「一路推新题」就能继续'
+      : next.why === 'done'
+      ? '这个范围里的题这场都刷完并答对过了，换个范围还能继续'
+      : st.mode === 'master'
+      ? '下一组还有 ' + next.remain + ' 道没到 ' + MASTER_PCT + '% 的，接着刷'
+      : st.mode === 'srs'
+      ? (next.early
+        ? '都还没到期，下一组先把最早到期的 ' + next.remain + ' 道捞回来复习'
+        : '下一组从 ' + next.remain + ' 道里抽' +
+          (+$('#qCount').value > 0 ? ' ' + $('#qCount').value + ' 道' : '') +
+          '：到期的复习题先来，不够再补新题')
+      : '下一组还有 ' + next.remain + ' 道可刷（这场答对的题不再出现）';
     var html = '<div class="quiz-card"><div class="result-card">' +
       '<div class="score">' + pct + '<span style="font-size:18px">%</span></div>' +
-      '<div class="result-sub">' + total + ' 题：完全正确 ' + ok + ' · 部分正确 ' + mid + ' · 答错 ' + (total - ok - mid) +
+      '<div class="result-sub">第 ' + (st.round || 1) + ' 组 · ' + total + ' 题：完全正确 ' + ok + ' · 部分正确 ' + mid + ' · 答错 ' + (total - ok - mid) +
       '　' + (pct >= 90 ? '稳了，继续保持' : pct >= 60 ? '还行，错题再背两遍' : '别慌，先把下面的错题啃下来') + '</div>' +
       '</div>';
     if (wrongs.length) {
@@ -2691,10 +2839,11 @@
         '<div class="row" style="margin-top:14px"><button class="btn primary" id="drillWrong">马上背这些错题</button>' +
         '<button class="btn ghost" id="toWrongView">打开错题本</button></div>';
     }
-    html += '<div class="row" style="margin-top:14px"><button class="btn" id="againBtn">再来一组</button></div></div>';
+    html += '<div class="row" style="margin-top:14px"><button class="btn primary" id="againBtn">再来一组</button>' +
+      '<span class="muted">' + esc(nextTip) + '</span></div></div>';
     $('#quizBody').innerHTML = html;
 
-    $('#againBtn').addEventListener('click', function () { $('#quizStartBtn').click(); });
+    $('#againBtn').addEventListener('click', function () { startQuiz(true); });
     if ($('#drillWrong')) $('#drillWrong').addEventListener('click', function () {
       $('#rRange').value = 'wrong';
       switchView('recite');
@@ -4042,6 +4191,12 @@
     buildFromNote: buildFromNote,
     parseBankQuestions: parseBankQuestions,
     parsePaper: parsePaper,
+    pickBatch: pickBatch,
+    pickQuestions: pickQuestions,
+    srGap: srGap,
+    srApply: srApply,
+    getSR: function () { return SR; },
+    setSR: function (v) { SR = v || { round: 0, items: {} }; },
     applyFix: applyFix,
     clearFix: clearFix,
     fixAnswerOf: fixAnswerOf,
