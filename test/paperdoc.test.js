@@ -146,6 +146,75 @@ console.log('\n二·二、答案印在括号里（（A））也认得');
     '两道题的答案各自正确', mixed.map((x) => x.answer));
 }
 
+/* ---------------- 二·三、答案印的是词：按填空题收 ---------------- */
+console.log('\n二·三、括号里印的是词，就当填空题收');
+{
+  const { api } = boot(null);
+  const mk = (lines, sec) => api.parsePaperDoc([sec || '单选题（每题2分）'].concat(lines).join('\n')).questions;
+
+  let q = mk(['1. 药物治疗的核心问题是（合理用药）'])[0];
+  ok(q && q.type === 'fill', '括号里是词 → 出成填空题（不是选择题）', q && q.type);
+  ok(q && q.answer === '合理用药', '答案就是括号里那个词', q && q.answer);
+  ok(q && q.stem === '药物治疗的核心问题是（　）', '题干把答案换成空括号、题号去掉', q && q.stem);
+  ok(q && q.opts.length === 0, '不给选项（没有原卷选项可抄）', q && q.opts);
+  ok(q && q.optsSrc === 'paper', '仍标成来自原卷', q && q.optsSrc);
+
+  q = mk(['2. 药物不良反应包括（副作用、毒性反应、变态反应）'])[0];
+  ok(q && q.type === 'fill' && q.answer === '副作用、毒性反应、变态反应',
+    '括号里顿号并列的多个词整串当答案', q && q.answer);
+
+  q = mk(['3. 恒比消除是指血药浓度（半衰期）不随浓度变化'])[0];
+  ok(q && q.stem === '恒比消除是指血药浓度（　）不随浓度变化', '括号在句子中间也能挖', q && q.stem);
+
+  // 括号里的词不是答案的几种情形，都不能误判
+  const junk = mk([
+    '4. 下列关于不良反应（ADR）的说法正确的是（　）A',
+    'A、与剂量相关   B、与剂量无关',
+    '5. 药品（包括中药）的说明书应注明【（　）】B',
+    'A、成分   B、用法用量',
+    '6. 药物代谢的主要器官是肝脏（见第三章）（　）A',
+    'A、肝脏   B、肾脏'
+  ]);
+  ok(junk.length === 3, '缩写/补充说明/交叉引用都不当答案，题仍在', junk.length);
+  ok(junk.every((x) => x.type === 'single'), '这三道仍是单选题', junk.map((x) => x.type));
+  ok(junk[0] && junk[0].answer === '与剂量相关', '（ADR）没抢走答案', junk[0] && junk[0].answer);
+  ok(junk[1] && junk[1].answer === '用法用量', '（包括中药）没抢走答案', junk[1] && junk[1].answer);
+
+  // 纯字母、带数字、编号、分值这类括号都不算答案
+  ok(mk(['7. 血浆半衰期（t1/2）（　）A', 'A、甲   B、乙'])[0].answer === '甲', '（t1/2）不当答案');
+  ok(api.parsePaperDoc('单选题（每题2分）\n8. 首过效应（4分）（　）A\nA、甲   B、乙').questions[0].answer === '甲',
+    '（4分）不当答案');
+
+  // 括号里的词后面跟着 A/B/C/D：那些选项没有归属，不能污染下一题
+  const orphan = mk([
+    '9. 药物治疗的核心问题是（合理用药）',
+    'A、甲   B、乙   C、丙   D、丁',
+    '10. 治疗药物监测最常用的标本是（　）B',
+    'A、尿液   B、血浆   C、唾液   D、粪便'
+  ]);
+  ok(orphan.length === 2, '填空 + 单选各一道', orphan.length);
+  ok(orphan[0] && orphan[0].type === 'fill' && orphan[1] && orphan[1].type === 'single',
+    '题型各归各的', orphan.map((x) => x.type + ':' + x.answer));
+  ok(orphan[1] && orphan[1].answer === '血浆' && orphan[1].opts.length === 4,
+    '下一题的选项和答案都没被上一题的选项污染', orphan[1] && { a: orphan[1].answer, o: orphan[1].opts });
+
+  // 填空题区整段也能收
+  const sec = api.parsePaperDoc([
+    '填空题（每空1分）',
+    '1. 药物治疗学是研究（药物治疗规律）的一门学科',
+    '2. 首过效应最明显的给药途径是口服',   // 括号外没写答案 → 抄不了，跳过
+    '3. 血浆半衰期是指（血药浓度下降一半所需的时间）'
+  ].join('\n'));
+  ok(sec.questions.length === 2, '填空题区只收括号里印了答案的', sec.questions.length);
+  ok(sec.stats.fill === 2, '统计里记成填空', sec.stats);
+  ok(sec.questions[1] && sec.questions[1].answer === '血药浓度下降一半所需的时间',
+    '第二道填空答案正确', sec.questions[1] && sec.questions[1].answer);
+
+  // 存进题库后刷题时也必须是填空形态
+  ok(api.decideForms([{ type: 'fill', opts: [] }], 'choice')[0] === 'fill',
+    '「全部给选项」也不会把填空掰成选择题', api.decideForms([{ type: 'fill', opts: [] }], 'choice')[0]);
+}
+
 /* ---------------- 三、选项排版的各种花活 ---------------- */
 console.log('\n三、选项：一行两个 / 缺标号 / 跨行 / 整段不标号');
 {
