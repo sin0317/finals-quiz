@@ -1089,6 +1089,16 @@ strong, b { font-weight: 800; }
   color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px;
 }
 .file-row .f-del:hover { color: var(--err); }
+/* 老版 .doc 转出来的 .docx：让用户能把转换结果存下来 */
+.file-row .f-dl {
+  flex: 0 0 auto;
+  border: 1px solid var(--line); background: none; cursor: pointer;
+  color: var(--brand); font-size: 12px; line-height: 1; padding: 3px 6px; border-radius: 6px;
+}
+.file-row .f-dl:hover { background: var(--brand-soft); }
+/* 收藏按钮：收藏后变成实心星，一眼能看出状态 */
+.fav-toggle.on { color: #d98a00; border-color: #e8b64a; background: #fff7e6; }
+[data-theme="dark"] .fav-toggle.on { color: #ffcf66; border-color: #7a5a1a; background: #3a2c10; }
 .file-list .f-sum {
   margin-top: 2px; padding-top: 8px;
   border-top: 1px dashed var(--line);

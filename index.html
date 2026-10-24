@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.13.1" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.14.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -17,8 +17,9 @@
     <button class="tab" data-view="quiz" data-page-node-id="yRTfBVuG8tFuKhu56isBvF">② 刷题</button>
     <button class="tab" data-view="recite" data-page-node-id="KKYhACmzkDuQpNNfzdbYl0">③ 背知识点</button>
     <button class="tab" data-view="wrong" data-page-node-id="J4oyPeG9TXPrmhvoA8gdkq">④ 错题本</button>
-    <button class="tab" data-view="stats" data-page-node-id="1o8Ffh3dtIcMucePEy1mHg">⑤ 数据统计</button>
-    <button class="tab" data-view="plaza">⑥ 题集广场</button>
+    <button class="tab" data-view="fav" id="favTab">⑤ 收藏夹</button>
+    <button class="tab" data-view="stats" data-page-node-id="1o8Ffh3dtIcMucePEy1mHg">⑥ 数据统计</button>
+    <button class="tab" data-view="plaza">⑦ 题集广场</button>
   </nav>
   <div class="topbar-right" data-page-node-id="47nPBZ8RLH3nwh00L3NbRx">
     <button id="acctBtn" class="acct-btn" title="账号与同步">
@@ -122,10 +123,31 @@ A.安全  B.有效  C.经济  D.适当
       </div>
     </div>
 
+    <!-- ========== 补导入：题集已经建好，后来又拿到卷子 / 笔记 ========== -->
+    <div class="card step" id="stepSup">
+      <div class="card-head">
+        <h2>补充导入 <span class="badge opt">随时可用</span></h2>
+        <span class="hint">题集建好之后又拿到新卷子、新笔记？在这里补进去。文件可以多选，卷子和笔记混着选也行：像试卷的按原样照抄，像笔记的按挖空出填空</span>
+      </div>
+      <div class="row">
+        <button class="btn" id="supPickBtn" type="button">选择文件（可多选）</button>
+        <input type="file" id="supInput" accept=".txt,.md,.markdown,.docx,.doc,.pdf,.csv" multiple hidden>
+        <span class="muted" id="supStat"></span>
+        <div class="grow"></div>
+        <button class="btn ghost" id="supClearBtn" type="button">清空</button>
+        <button class="btn primary" id="supParseBtn" type="button">解析并预览</button>
+      </div>
+      <div id="supFiles" class="file-list" hidden></div>
+      <div class="textarea">
+        <textarea id="supText" class="textarea-inner" rows="5" placeholder="也可以把新的一段笔记或试卷粘进来（同样是按试卷照抄、按笔记挖空）"></textarea>
+      </div>
+      <div class="step-note" id="supHint">解析结果会进下面那张预览表，标「已有」的是这个题集里本来就有的，不会重复加 —— 勾好点「追加到当前题集」</div>
+    </div>
+
     <div class="card" id="previewCard" hidden="" data-page-node-id="EMuEPNkastADHWqyICIDA0">
       <div class="card-head" data-page-node-id="hobyNoFzplqTPDPMNFkqaB">
         <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C" id="previewTitle">核对题目，确认后保存</h2>
-        <span class="hint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选</span>
+        <span class="hint" id="previewHint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选</span>
       </div>
       <div class="table-wrap" data-page-node-id="oFailoM5P4xZr4yu9TZlsh">
         <table id="previewTable" data-page-node-id="G3a2FyDWBPFFm95OSTHn7V">
@@ -190,6 +212,7 @@ A.安全  B.有效  C.经济  D.适当
         <option value="weak" data-page-node-id="c07Gk1LapsnucyIVB3D0yF">范围：未掌握</option>
         <option value="wrong" data-page-node-id="5d3XtZdpDDWkEsAnL6OPRr">范围：错题</option>
         <option value="new" data-page-node-id="H7S5Cr0QpjxyWOZFYgTHhL">范围：没练过</option>
+        <option value="fav">范围：只刷收藏</option>
       </select>
       <select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
         <option value="all" data-page-node-id="1uhgWD82ochYF4fWtegfZL">题型：全部（选择+填空）</option>
@@ -236,6 +259,7 @@ A.安全  B.有效  C.经济  D.适当
         <option value="weak" data-page-node-id="V11EyBMF4ilL02fzlHxvOu">范围：未掌握</option>
         <option value="wrong" data-page-node-id="DQBMbevSWZVduyrRUtGAYp">范围：错题</option>
         <option value="new" data-page-node-id="64ZpGOh1QcXUjHERTc4wfB">范围：没练过</option>
+        <option value="fav">范围：只看收藏</option>
       </select>
       <select id="rOrder" class="select" data-page-node-id="zrB5IjzhwgjgVnPkJK6W0g">
         <option value="seq" data-page-node-id="NQCBGAuCHmYrTzI9mgkRos">顺序：跟着笔记走</option>
@@ -263,6 +287,24 @@ A.安全  B.有效  C.经济  D.适当
       <button class="btn ghost" id="clearWrongBtn" data-page-node-id="4Ceahh5vRAOmzQBNHUarue">清空错题记录</button>
     </div>
     <div id="wrongList" class="list" data-page-node-id="vskMqGB8GitCPOPKC0LjCP"></div>
+  </section>
+
+  <!-- ============ 收藏夹 ============ -->
+  <section class="view" id="view-fav" hidden>
+    <div class="toolbar">
+      <select id="favScope" class="select" title="题目收藏在各自的题集里；想看所有题集的收藏就切「全部题集」">
+        <option value="bank">范围：当前题集</option>
+        <option value="all">范围：全部题集</option>
+      </select>
+      <select id="favSort" class="select">
+        <option value="new">排序：收藏时间（新→旧）</option>
+        <option value="mastery">排序：掌握度低的在前</option>
+      </select>
+      <div class="grow"></div>
+      <button class="btn primary" id="favDrillBtn">刷收藏的题</button>
+      <button class="btn ghost" id="favClearBtn">清空收藏</button>
+    </div>
+    <div id="favList" class="list"></div>
   </section>
 
   <!-- ============ 数据统计 ============ -->
@@ -355,7 +397,7 @@ A.安全  B.有效  C.经济  D.适当
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.13.1</span>
+    <span id="appVer">期末刷题站 v1.14.0</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -457,10 +499,10 @@ A.安全  B.有效  C.经济  D.适当
 <datalist id="majorList"></datalist>
 <datalist id="subjectList"></datalist>
 
-<div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5">示例笔记已载入，点「一键提炼知识点」试试</div>
+<div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.13.1" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="app.js?v=1.14.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

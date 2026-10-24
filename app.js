@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.13.1';
+  var FQ_VERSION = '1.14.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1738,6 +1738,9 @@
     recite: null,
     noteFiles: [],            // 第二步读进来的文件：{name, text, chars}
     paperFiles: [],           // 第一步读进来的原卷：{name, text, chars}
+    supFiles: [],             // 题集生成之后补导入的文件（卷子/笔记混着选，自动判别）
+    previewMode: 'main',      // 预览表这次是给谁用的：main = 新建/重做笔记，sup = 补导入到已有题集
+    supTarget: null,          // 补导入的目标题集 id
     paperInfo: null,          // 上一次原卷解析的统计（跳过了几道、为什么）
     paperPool: null,          // 真题库现状：{count, chapters, files}
     paperMatch: null,         // 上一次笔记解析里对上了几道卷子原题
@@ -1845,6 +1848,7 @@
       v.hidden = !on;
     });
     if (name === 'wrong') renderWrong();
+    if (name === 'fav') renderFav();
     if (name === 'stats') { renderStats(); loadAdmin(); }
     if (name === 'plaza') { renderPlazaList(); loadPlaza(); }
     if (name === 'quiz' && !S.quiz) renderQuizEmpty();
@@ -1927,6 +1931,7 @@
     if (S.view === 'quiz') renderQuizEmpty();
     if (S.view === 'recite') renderReciteEmpty();
     if (S.view === 'wrong') renderWrong();
+    if (S.view === 'fav') renderFav();
     if (S.view === 'stats') renderStats();
   }
 
@@ -2112,10 +2117,29 @@
     renderFileList('paper');
     updatePaperStat();
   });
-  ['note', 'paper'].forEach(function (kind) {
-    var box = kind === 'paper' ? $('#paperFiles') : $('#noteFiles');
+  var FILE_BOX = { paper: '#paperFiles', note: '#noteFiles', sup: '#supFiles' };
+  var FILE_SUM = {
+    paper: ' · 每份按它自己的章节记，合成一个真题库',
+    note: ' · 按文件顺序合成一份笔记',
+    sup: ' · 解析时自动分辨：像试卷的照抄原题，像笔记的挖空出填空'
+  };
+
+  ['note', 'paper', 'sup'].forEach(function (kind) {
+    var box = $(FILE_BOX[kind]);
+    if (!box) return;
     box.addEventListener('click', function (e) {
-      var b = e.target && e.target.closest ? e.target.closest('.f-del') : null;
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var dl = t.closest('.f-dl');
+      if (dl) {
+        var item = fileStore(kind)[+dl.dataset.i];
+        if (!item || !item.docx) return;
+        downloadBlob(item.name.replace(/\.[^.]+$/, '') + '.docx',
+          new Blob([item.docx], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+        toast('已存为 .docx：' + item.name.replace(/\.[^.]+$/, '') + '.docx');
+        return;
+      }
+      var b = t.closest('.f-del');
       if (!b) return;
       fileStore(kind).splice(+b.dataset.i, 1);
       renderFileList(kind);
@@ -2250,6 +2274,315 @@
     return docxViaLib(buf);
   }
 
+  /* =========================================================
+     老版 .doc（Word 97-2003）—— 先转成 .docx，再走同一条解析链
+     ---------------------------------------------------------
+     .doc 不是 zip，是 OLE 复合文档（CFB）；正文在 WordDocument 流里，
+     每个字符在哪由 Table 流里的 piece table（CLX）说了算，中文那段是 UTF-16LE。
+     做法：
+       ① 按 CFB 结构把 WordDocument / 0Table|1Table 流取出来；
+       ② 按 FIB 里的 fcClx 找到 piece table，逐片拼出正文；
+       ③ 把正文包成一个最小但完整的 .docx（zip，STORE 不压缩），
+          再交给 docxToText —— 这样 .doc 和 .docx 走的是同一套段落解析，
+          转出来的 .docx 也是个真文件，用户想留就点「存为 .docx」。
+     纯前端做不了格式级还原（样式、图片、表格一律不带），只保证正文文字与段落。
+     ========================================================= */
+  var CFB_MAGIC = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+
+  function isCfb(buf) {
+    var u8 = new Uint8Array(buf);
+    if (u8.length < 512) return false;
+    for (var i = 0; i < 8; i++) if (u8[i] !== CFB_MAGIC[i]) return false;
+    return true;
+  }
+
+  /* 读 CFB：FAT / 目录 / mini 流，最后返回 { 流名: 字节 } */
+  function cfbRead(buf) {
+    var u8 = new Uint8Array(buf);
+    var dv = new DataView(buf);
+    var secSize = 1 << dv.getUint16(0x1E, true);
+    var miniSize = 1 << dv.getUint16(0x20, true);
+    var dirStart = dv.getUint32(0x30, true);
+    var miniCut = dv.getUint32(0x38, true);
+    var miniFatStart = dv.getUint32(0x3C, true);
+    var nMiniFat = dv.getUint32(0x40, true);
+    var difatStart = dv.getUint32(0x44, true);
+    var nDifat = dv.getUint32(0x48, true);
+    function secOff(id) { return (id + 1) * secSize; }
+
+    // DIFAT：头部 109 项 + 后续 DIFAT 扇区，凑齐 FAT 扇区号
+    var fatSecs = [];
+    for (var k = 0; k < 109; k++) {
+      var s0 = dv.getUint32(0x4C + k * 4, true);
+      if (s0 === 0xFFFFFFFF) break;
+      fatSecs.push(s0);
+    }
+    var dsec = difatStart, dn = 0;
+    while (dsec !== 0xFFFFFFFF && dsec !== 0xFFFFFFFE && dn < nDifat && dn < 4096) {
+      var base = secOff(dsec);
+      if (base + secSize > u8.length) break;
+      var per = secSize / 4 - 1;
+      for (var q = 0; q < per; q++) {
+        var sv = dv.getUint32(base + q * 4, true);
+        if (sv !== 0xFFFFFFFF && sv !== 0xFFFFFFFE) fatSecs.push(sv);
+      }
+      dsec = dv.getUint32(base + secSize - 4, true);
+      dn++;
+    }
+
+    var fat = [];
+    fatSecs.forEach(function (sid) {
+      var b = secOff(sid);
+      if (b + secSize > u8.length) return;
+      for (var q = 0; q < secSize; q += 4) fat.push(dv.getUint32(b + q, true));
+    });
+
+    function chain(start, table) {
+      var out = [], id = start, hops = 0;
+      while (id !== 0xFFFFFFFE && id !== 0xFFFFFFFF && id !== undefined && hops++ < 65536) {
+        out.push(id);
+        id = table[id];
+      }
+      return out;
+    }
+    function readChain(start, size) {
+      var parts = [], got = 0;
+      chain(start, fat).forEach(function (sid) {
+        var off = secOff(sid);
+        if (off >= u8.length) return;
+        var end = Math.min(off + secSize, u8.length);
+        parts.push(u8.subarray(off, end));
+        got += end - off;
+      });
+      var all = new Uint8Array(got), p = 0;
+      parts.forEach(function (x) { all.set(x, p); p += x.length; });
+      return (size != null && size < all.length) ? all.subarray(0, size) : all;
+    }
+
+    var dirBytes = readChain(dirStart);
+    var ddv = new DataView(dirBytes.buffer, dirBytes.byteOffset, dirBytes.byteLength);
+    var entries = [];
+    for (var o = 0; o + 128 <= dirBytes.length; o += 128) {
+      var nameLen = ddv.getUint16(o + 0x40, true);
+      var nm = '';
+      for (var c = 0; c + 2 <= nameLen && c < 64; c += 2) {
+        var cu = ddv.getUint16(o + c, true);
+        if (cu) nm += String.fromCharCode(cu);
+      }
+      entries.push({
+        name: nm,
+        type: ddv.getUint8(o + 0x42),
+        start: ddv.getUint32(o + 0x74, true),
+        size: ddv.getUint32(o + 0x78, true)      // 低 32 位足够（Word 文档不会到 4G）
+      });
+    }
+
+    // 小于 cutOff 的流存在 mini 流里（小文件常见），得单独走一遍 miniFAT
+    var root = null;
+    entries.forEach(function (e) { if (!root && e.type === 5) root = e; });
+    var miniStream = root ? readChain(root.start) : new Uint8Array(0);
+    var miniFat = [];
+    if (miniFatStart !== 0xFFFFFFFE && miniFatStart !== 0xFFFFFFFF) {
+      var mf = readChain(miniFatStart, nMiniFat * secSize);
+      var mfdt = new DataView(mf.buffer, mf.byteOffset, mf.byteLength);
+      for (var q2 = 0; q2 + 4 <= mf.length; q2 += 4) miniFat.push(mfdt.getUint32(q2, true));
+    }
+    function readMini(start, size) {
+      var parts = [], got = 0;
+      chain(start, miniFat).forEach(function (sid) {
+        var off = sid * miniSize;
+        if (off + miniSize > miniStream.length) return;
+        parts.push(miniStream.subarray(off, off + miniSize));
+        got += miniSize;
+      });
+      var all = new Uint8Array(got), p = 0;
+      parts.forEach(function (x) { all.set(x, p); p += x.length; });
+      return (size < all.length) ? all.subarray(0, size) : all;
+    }
+
+    var streams = {};
+    entries.forEach(function (e) {
+      if (e.type !== 2) return;                  // 2 = stream，1 = storage
+      try {
+        streams[e.name] = (e.size < miniCut && miniFat.length)
+          ? readMini(e.start, e.size)
+          : readChain(e.start, e.size);
+      } catch (err) { /* 单个流坏了不影响别的 */ }
+    });
+    return { streams: streams };
+  }
+
+  /* 从 .doc 里把正文抠出来（按 piece table，逐片解码） */
+  function docText(buf) {
+    if (!isCfb(buf)) throw new Error('不是 Word 97-2003 文档（可能只是把别的文件改了后缀）');
+    var cfb = cfbRead(buf);
+    var wd = cfb.streams.WordDocument;
+    if (!wd || !wd.length) throw new Error('Word 文档里没有正文');
+    var wdv = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
+    var nFib = wdv.getUint16(2, true);
+
+    // Word 6 / 95（非 97 格式）：没有 piece table，正文就是 fcMin..fcMac
+    if (nFib < 0x00C1) {
+      var fcMin = wdv.getUint32(0x18, true), fcMac = wdv.getUint32(0x1C, true);
+      var seg0 = wd.subarray(Math.min(fcMin, wd.length), Math.min(fcMac, wd.length));
+      return tidyDocText(new TextDecoder('windows-1252').decode(seg0));
+    }
+
+    var flags = wdv.getUint16(0x0A, true);
+    var tbl = cfb.streams[(flags & 0x0200) ? '1Table' : '0Table'] ||
+      cfb.streams['1Table'] || cfb.streams['0Table'];
+    if (!tbl || !tbl.length) throw new Error('Word 文档缺少字符表');
+    var fcClx = wdv.getUint32(0x01A2, true);
+    var lcbClx = wdv.getUint32(0x01A6, true);
+    if (!lcbClx || fcClx + lcbClx > tbl.length) throw new Error('Word 文档的字符表坏了');
+    var clx = tbl.subarray(fcClx, fcClx + lcbClx);
+
+    var i = 0;
+    while (i < clx.length && clx[i] === 0x01) {         // 跳过 Prc 块，找 Pcdt
+      i += 3 + (clx[i + 1] | (clx[i + 2] << 8));
+    }
+    if (clx[i] !== 0x02) throw new Error('Word 文档的字符表坏了');
+    var lcb = clx[i + 1] | (clx[i + 2] << 8) | (clx[i + 3] << 16) | (clx[i + 4] << 24);
+    var plc = clx.subarray(i + 5, i + 5 + lcb);
+    var n = Math.floor((lcb - 4) / 12);
+    if (n <= 0) throw new Error('Word 文档里没读到文字');
+    var pdv = new DataView(plc.buffer, plc.byteOffset, plc.byteLength);
+    var utf16 = new TextDecoder('utf-16le');
+    var ansi = new TextDecoder('windows-1252');       // 压缩片：英文数字按单字节存
+
+    var out = [];
+    for (var p = 0; p < n; p++) {
+      var chars = pdv.getUint32(p * 4 + 4, true) - pdv.getUint32(p * 4, true);
+      if (chars <= 0) continue;
+      var pcd = 4 * (n + 1) + p * 8;
+      var fcRaw = pdv.getUint32(pcd + 2, true);
+      var comp = !!(fcRaw & 0x40000000);              // 这一片是不是压缩成单字节
+      var fc = fcRaw & 0x3FFFFFFF;
+      if (comp) fc = fc >> 1;
+      var bytes = comp ? chars : chars * 2;
+      if (fc >= wd.length) continue;
+      if (fc + bytes > wd.length) bytes = wd.length - fc;
+      out.push(comp ? ansi.decode(wd.subarray(fc, fc + bytes)) : utf16.decode(wd.subarray(fc, fc + bytes)));
+    }
+    return tidyDocText(out.join(''));
+  }
+
+  /* Word 正文里的控制符：\r 是段落、\x07 是单元格、\x0b/\x0c 是换行分页、\x13-\x15 是域代码 */
+  function tidyDocText(s) {
+    return String(s || '')
+      .replace(/\u0013[^\u0014\u0015]*[\u0014\u0015]?/g, '')   // 域代码整段丢掉，只留结果
+      .replace(/\r/g, '\n')
+      .replace(/[\u000B\u000C]/g, '\n')
+      .replace(/\u0007/g, '\t')
+      .replace(/[\u0000-\u0008\u000E-\u001F]/g, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  /* ---- 最小 zip 写入（只做 STORE 不压缩，够 docx 用） ---- */
+  var CRC_TABLE = (function () {
+    var t = new Uint32Array(256);
+    for (var i = 0; i < 256; i++) {
+      var c = i;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(u8) {
+    var c = 0xFFFFFFFF;
+    for (var i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zipStore(files) {
+    var enc = new TextEncoder();
+    var chunks = [], central = [], offset = 0;
+    files.forEach(function (f) {
+      var name = enc.encode(f[0]);
+      var data = typeof f[1] === 'string' ? enc.encode(f[1]) : f[1];
+      var crc = crc32(data);
+      var lh = new Uint8Array(30 + name.length);
+      var lv = new DataView(lh.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);
+      lv.setUint16(6, 0x0800, true);        // 文件名 UTF-8
+      lv.setUint16(8, 0, true);             // 0 = 不压缩
+      lv.setUint16(10, 0, true);
+      lv.setUint16(12, 0x21, true);         // 1980-01-01
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, data.length, true);
+      lv.setUint32(22, data.length, true);
+      lv.setUint16(26, name.length, true);
+      lv.setUint16(28, 0, true);
+      lh.set(name, 30);
+      chunks.push(lh, data);
+
+      var ch = new Uint8Array(46 + name.length);
+      var cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(4, 20, true);
+      cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0x0800, true);
+      cv.setUint16(10, 0, true);
+      cv.setUint16(12, 0, true);
+      cv.setUint16(14, 0x21, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, data.length, true);
+      cv.setUint32(24, data.length, true);
+      cv.setUint16(28, name.length, true);
+      cv.setUint32(42, offset, true);       // 本地头偏移
+      ch.set(name, 46);
+      central.push(ch);
+      offset += lh.length + data.length;
+    });
+    var cdSize = central.reduce(function (a, c) { return a + c.length; }, 0);
+    var eocd = new Uint8Array(22);
+    var ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, offset, true);
+    var out = new Uint8Array(offset + cdSize + 22), p = 0;
+    chunks.concat(central, [eocd]).forEach(function (c) { out.set(c, p); p += c.length; });
+    return out;
+  }
+
+  /* 正文 → .docx 字节 */
+  function textToDocx(text) {
+    var body = String(text || '').split('\n').map(function (line) {
+      return '<w:p><w:r><w:t xml:space="preserve">' +
+        line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+        '</w:t></w:r></w:p>';
+    }).join('');
+    var doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+      body + '<w:sectPr/></w:body></w:document>';
+    var ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+      '</Types>';
+    var rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+      '</Relationships>';
+    return zipStore([
+      ['[Content_Types].xml', ct],
+      ['_rels/.rels', rels],
+      ['word/document.xml', doc]
+    ]);
+  }
+
+  /* .doc → .docx：先抠文字，再包成 docx 字节 */
+  function docToDocx(buf) {
+    var text = docText(buf);
+    if (!text.replace(/\s/g, '')) throw new Error('这个 .doc 里没读出文字（可能整篇是图片或扫描件）');
+    return textToDocx(text);
+  }
+
   function itemsToLines(items) {
     var rows = [];
     items.forEach(function (it) {
@@ -2324,7 +2657,19 @@
   function readOneFile(f) {
     var ext = (f.name.split('.').pop() || '').toLowerCase();
     if (ext === 'doc') {
-      return Promise.reject(new Error('老版 .doc 网页里解析不了，用 Word 另存为 .docx 再来'));
+      // 老版 Word：先转成 .docx，再走和 .docx 一样的解析链
+      return readAsBuf(f).then(function (b) {
+        var docx = docToDocx(b);
+        // 自己转出来的 docx 一定是我们认识的结构，直接用本地解析器，
+        // 不走网络兜底 —— 真出问题要立刻暴露，而不是去下 mammoth
+        return docxLocal(docx.buffer).then(function (t) {
+          // 转出来的 .docx 留着，「存为 .docx」按钮要用
+          DOCX_CONV[f.name] = docx;
+          return t;
+        });
+      }).catch(function (e) {
+        throw new Error('老版 Word 解析失败：' + e.message);
+      });
     }
     if (ext === 'docx') {
       return readAsBuf(f).then(docxToText).catch(function (e) {
@@ -2343,7 +2688,7 @@
     return readAsText(f);
   }
 
-  function fileStore(kind) { return kind === 'paper' ? S.paperFiles : S.noteFiles; }
+  function fileStore(kind) { return kind === 'paper' ? S.paperFiles : (kind === 'sup' ? S.supFiles : S.noteFiles); }
   function joinFiles(store) {
     return store.map(function (f) { return f.text; }).join('\n\n');
   }
@@ -2367,11 +2712,12 @@
   }
 
   /* 按顺序读，边读边报进度。同名文件重读时替换，不叠加。 */
+  var DOCX_CONV = {};         // 老版 .doc 转出来的 .docx 字节：文件名 → Uint8Array
   function importFiles(files, kind) {
     var arr = Array.prototype.slice.call(files || []);
     if (!arr.length) return Promise.resolve();
     var store = fileStore(kind);
-    var btn = kind === 'paper' ? $('#paperPickBtn') : $('#pickFileBtn');
+    var btn = kind === 'paper' ? $('#paperPickBtn') : (kind === 'sup' ? $('#supPickBtn') : $('#pickFileBtn'));
     var label = btn.textContent;
     var okN = 0, bad = [];
     btn.disabled = true;
@@ -2383,6 +2729,7 @@
         var text = String(t || '');
         if (!text.replace(/\s/g, '')) throw new Error('里面没有文字');
         var item = { name: f.name, text: text, chars: text.replace(/\s/g, '').length };
+        if (DOCX_CONV[f.name]) item.docx = DOCX_CONV[f.name];      // 老版 .doc 转出来的 docx
         var at = -1;
         for (var j = 0; j < store.length; j++) if (store[j].name === f.name) { at = j; break; }
         if (at >= 0) store[at] = item; else store.push(item);
@@ -2401,6 +2748,7 @@
       renderFileList(kind);
       updateNoteStat();
       updatePaperStat();
+      updateSupStat();
       var msg = okN ? ('已读入 ' + okN + ' 个文件') : '';
       if (bad.length) {
         msg += (msg ? '；' : '') + bad.length + ' 个没读成（' + bad[0].name + '：' + bad[0].why + '）';
@@ -2412,7 +2760,8 @@
   /* 文件列表：一次十几个文件，得让用户看见都读到了什么、哪个失败了 */
   function renderFileList(kind) {
     var store = fileStore(kind);
-    var box = kind === 'paper' ? $('#paperFiles') : $('#noteFiles');
+    var box = $(FILE_BOX[kind] || FILE_BOX.note);
+    if (!box) return;
     box.innerHTML = '';
     if (!store.length) { box.hidden = true; return; }
     store.forEach(function (f, i) {
@@ -2420,14 +2769,14 @@
       row.className = 'file-row';
       row.innerHTML = '<span class="f-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span>' +
         '<span class="f-meta">' + f.chars.toLocaleString() + ' 字</span>' +
+        (f.docx ? '<button class="f-dl" type="button" title="这份是老版 .doc，已经转成 .docx，点这里存下来" data-i="' + i + '">存 .docx</button>' : '') +
         '<button class="f-del" type="button" title="移除这个文件" data-i="' + i + '">✕</button>';
       box.appendChild(row);
     });
     var total = store.reduce(function (s, f) { return s + f.chars; }, 0);
     var sum = document.createElement('div');
     sum.className = 'f-sum';
-    sum.textContent = '共 ' + store.length + ' 个文件、' + total.toLocaleString() + ' 字' +
-      (kind === 'paper' ? ' · 每份按它自己的章节记，合成一个真题库' : ' · 按文件顺序合成一份笔记');
+    sum.textContent = '共 ' + store.length + ' 个文件、' + total.toLocaleString() + ' 字' + (FILE_SUM[kind] || '');
     box.appendChild(sum);
     box.hidden = false;
   }
@@ -2533,6 +2882,8 @@
       return false;
     }
     S.preview = qs;
+    setPreviewMode('main');
+    S.supTarget = null;
     renderPreview();
     $('#previewCard').hidden = false;
     $('#flowNote').classList.add('done');
@@ -2710,6 +3061,181 @@
   $('#extractBtn').addEventListener('click', function () { doExtractNote(false); });
   $('#paperExtractBtn').addEventListener('click', function () { importPaper(false); });
 
+  /* =========================================================
+     补充导入：题集已经建好，后来又拿到卷子 / 笔记
+     ---------------------------------------------------------
+     用户不想为了几份新材料把整个题集重做一遍，所以单独给一个入口：
+       · 卷子和笔记可以混着选，没人愿意先分类
+       · 每份文件先按「原卷」试着解析：认得出选择题（带选项）就当试卷照抄；
+         认不出就当笔记，走挖空 + 真题优先那条链
+       · 解析完进同一张预览表，跟这个题集重复的题标「已有」并默认不勾
+       · 保存走 saveQuestionsToBank，按题集名归档 —— 已有的题只补讲解，不重复加
+     ========================================================= */
+  $('#supPickBtn').addEventListener('click', function () { $('#supInput').click(); });
+  $('#supInput').addEventListener('change', function () { takePicked(this, 'sup'); });
+  $('#supClearBtn').addEventListener('click', function () {
+    S.supFiles = [];
+    $('#supText').value = '';
+    renderFileList('sup');
+    updateSupStat();
+  });
+  $('#supParseBtn').addEventListener('click', function () { doSupplement(false); });
+  $('#supText').addEventListener('input', updateSupStat);
+
+  function updateSupStat() {
+    var el = $('#supStat');
+    if (!el) return;
+    var n = S.supFiles.length;
+    var chars = S.supFiles.reduce(function (s, f) { return s + f.chars; }, 0);
+    var pasted = $('#supText').value.trim().length;
+    var parts = [];
+    if (n) parts.push(n + ' 个文件、' + chars.toLocaleString() + ' 字');
+    if (pasted) parts.push('粘贴 ' + pasted.toLocaleString() + ' 字');
+    el.textContent = parts.join('　·　');
+  }
+
+  /* 像不像一份试卷：能认出选择题，而且这些选择题真的带选项 */
+  function looksLikePaper(r) {
+    var qs = (r && r.questions) || [];
+    var choice = qs.filter(function (q) { return q.type === 'single' || q.type === 'multi'; });
+    if (!choice.length) return false;
+    var withOpts = choice.filter(function (q) { return (q.opts || []).length >= 2; });
+    return withOpts.length >= Math.ceil(choice.length * 0.6);
+  }
+
+  function parseSupplementRun(run) {
+    var text = String(run.text || '');
+    var pr = null;
+    try { pr = parsePaperDoc(text); } catch (e) { pr = null; }
+    if (looksLikePaper(pr)) {
+      var ch = chapterOf(run.name, pr.chapter);
+      var qs = (pr.questions || []).map(function (q) {
+        q.chapter = q.chapter || ch;
+        q.fromPaper = true;
+        if (!q.id) {
+          q.id = qidOf(String(q.stem || '') + '|' +
+            (Array.isArray(q.answer) ? q.answer.join('') : String(q.answer || '')));
+        }
+        return q;
+      });
+      return { kind: 'paper', questions: qs, warn: pr.warn || [] };
+    }
+    // 不是试卷就按笔记处理；笔记里的判断句卷子考过的，照样出原题
+    var nqs = buildFromNote(text);
+    if (!nqs.length) return { kind: 'empty', questions: [], warn: [] };
+    var ch2 = chapterOf(run.name, '');
+    nqs.forEach(function (q) { if (!q.chapter) q.chapter = ch2; });
+    var m = preferPaper(nqs);
+    m.list.forEach(function (q) { if (!q.chapter) q.chapter = ch2; });
+    return { kind: 'note', questions: m.list, warn: [], match: m };
+  }
+
+  function doSupplement(silent) {
+    var bank = getBank();
+    if (!bank) {
+      toast('还没有题集 —— 先用上面两步建一个（第二步至少要有一份笔记），再回来补导入');
+      return false;
+    }
+    var runs = S.supFiles.slice();
+    var pasted = $('#supText').value.trim();
+    if (pasted) runs.push({ name: '粘贴的内容', text: pasted });
+    if (!runs.length) {
+      toast('先选要补的文件（卷子、笔记都行，可以多选），或者把内容粘进来');
+      return false;
+    }
+
+    var out = [], seen = {}, warn = [], emptyN = 0, paperN = 0, noteN = 0;
+    runs.forEach(function (run) {
+      var r;
+      try {
+        r = parseSupplementRun(run);
+      } catch (e) {
+        warn.push({ file: run.name, why: '解析出错：' + (e && e.message) });
+        return;
+      }
+      if (!r.questions.length) {
+        emptyN++;
+        warn.push({ file: run.name, why: '没认出题目 —— 既不像试卷（没有带选项的选择题），也不像笔记（没有判断句）' });
+        return;
+      }
+      if (r.kind === 'paper') paperN++; else noteN++;
+      (r.warn || []).forEach(function (w) { warn.push({ file: run.name, why: w.why }); });
+      r.questions.forEach(function (q) {
+        if (!q.id) {
+          q.id = qidOf(String(q.stem || '') + '|' +
+            (Array.isArray(q.answer) ? q.answer.join('') : String(q.answer || '')));
+        }
+        if (seen[q.id]) return;               // 同一批文件里重复的题只留一道
+        seen[q.id] = 1;
+        out.push(q);
+      });
+    });
+
+    if (!out.length) {
+      var why = warn.length ? ('；' + warn.slice(0, 2).map(function (w) { return w.file + '：' + w.why; }).join('；')) : '';
+      toast('没解析出题目' + why);
+      return false;
+    }
+
+    /* 跟这个题集里已有的题对一遍。只看 id 不够：同一句话挖在不同的词上，
+       id 就变了，看着像新题，其实是同一道 —— 所以再按「原文句子 / 题干」认一遍。 */
+    var existId = {}, existKey = {};
+    function dupKey(q) {
+      var src = normalize(q.source || '');
+      if (src) return 's:' + src;
+      var stem = normalize(String(q.stem || '').replace(/_{2,}/g, ''));
+      return stem ? 'q:' + stem : '';
+    }
+    bank.questions.forEach(function (q) {
+      existId[q.id] = 1;
+      var k = dupKey(q);
+      if (k) existKey[k] = 1;
+    });
+    var dup = 0;
+    out.forEach(function (q) {
+      var k = dupKey(q);
+      if (existId[q.id] || (k && existKey[k])) {
+        q.already = true;
+        dup++;
+        if (k) existKey[k] = 1;
+      }
+    });
+
+    S.preview = out;
+    setPreviewMode('sup', bank.course);
+    S.supTarget = bank.id;
+    renderPreview();
+    $('#previewCard').hidden = false;
+    if (!silent) {
+      $('#previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var parts = [];
+      var names = [];
+      if (paperN) names.push(paperN + ' 份当试卷照抄');
+      if (noteN) names.push(noteN + ' 份当笔记出题');
+      if (names.length) parts.push(names.join('，'));
+      parts.push('共解析出 ' + out.length + ' 道');
+      if (dup) parts.push(dup + ' 道题集里已有（已标「已有」）');
+      if (warn.length) parts.push(warn.length + ' 条没处理（' + warn[0].why + '）');
+      toast(parts.join('；'));
+    }
+    return true;
+  }
+
+  /* 预览表两套文案：新建题集 / 补导入到已有题集 */
+  function setPreviewMode(mode, course) {
+    S.previewMode = mode;
+    var title = $('#previewTitle'), hint = $('#previewHint'), btn = $('#saveBankBtn');
+    if (mode === 'sup') {
+      if (title) title.textContent = '补导入预览' + (course ? '：' + course : '');
+      if (hint) hint.textContent = '标「已有」的题目这个题集里本来就考过，默认不勾；调好顺序点右边「追加到当前题集」';
+      if (btn) btn.textContent = '追加到当前题集';
+    } else {
+      if (title) title.textContent = '核对题目，确认后保存';
+      if (hint) hint.textContent = '标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选';
+      if (btn) btn.textContent = '保存到题集';
+    }
+  }
+
   /* ---------------- 两步的文案 ---------------- */
   var NOTE_TIP = '从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成';
   var PAPER_TIP = '支持 .docx / .txt，也可以直接把试卷文字粘进来；按原卷的分段照抄，题干、选项、答案都不改写。答案写在括号里（A）、跟在括号后面、或者直接写成词（合理用药）都认得';
@@ -2722,7 +3248,9 @@
     if ($('#paperText') && !$('#paperText').placeholder) $('#paperText').placeholder = PAPER_PH;
     renderFileList('note');
     renderFileList('paper');
+    renderFileList('sup');
     updatePaperStat();
+    updateSupStat();
     updatePoolBar();
   })();
 
@@ -2734,9 +3262,10 @@
       var tr = document.createElement('tr');
       tr.dataset.i = i;
       tr.innerHTML =
-        '<td class="c-chk"><input type="checkbox" class="p-chk" checked></td>' +
+        '<td class="c-chk"><input type="checkbox" class="p-chk"' + (q.already ? '' : ' checked') + '></td>' +
         '<td class="c-type"><span class="tag' + (q.type === 'multi' ? ' multi' : (q.type === 'short' || q.type === 'term') ? ' typed' : '') + '">' +
         typeLabel(q) + '</span>' +
+        (q.already ? '<span class="tag" title="这个题集里已经有这道题，勾上也会跳过不重复加">已有</span>' : '') +
         (q.onlyAttachNote
           ? '<span class="tag paper" title="题库里已经有这道真题，这次只把笔记里的讲解补上去">' +
             (isPaperQ(q) ? '原卷真题·补讲解' : '已有·补讲解') + '</span>'
@@ -2826,7 +3355,7 @@
     $$('#previewBody tr').forEach(function (tr) {
       if (!$('.p-chk', tr).checked) return;
       var q = S.preview[+tr.dataset.i];
-      if (!q || !q.stem) return;
+      if (!q || !q.stem || q.already) return;
       var ans = Array.isArray(q.answer) ? q.answer.filter(Boolean) : q.answer;
       if (!ans || (Array.isArray(ans) && !ans.length)) return;
       list.push({
@@ -2839,8 +3368,22 @@
       });
     });
     if (!list.length) { toast('请先勾选要保存的题目'); return; }
-    var bank = saveQuestionsToBank(list, $('#courseName').value.trim() || '我的题集');
-    if (bank) toast('已保存到「' + bank.course + '」，共 ' + bank.questions.length + ' 道');
+    var target = S.previewMode === 'sup' ? S.banks.filter(function (b) { return b.id === S.supTarget; })[0] : null;
+    var bank = saveQuestionsToBank(list, target ? target.course : ($('#courseName').value.trim() || '我的题集'));
+    if (!bank) return;
+    var added = bank._lastAdded || 0;
+    if (S.previewMode === 'sup') {
+      // 追加完就把补导入的输入清掉，免得下次重复点「解析并预览」又出一遍
+      S.supFiles = [];
+      $('#supText').value = '';
+      renderFileList('sup');
+      updateSupStat();
+      toast('已追加 ' + added + ' 道到「' + bank.course + '」' +
+        (list.length - added > 0 ? '，' + (list.length - added) + ' 道题集里已有，跳过了' : '') +
+        '（现在共 ' + bank.questions.length + ' 道）');
+    } else {
+      toast('已保存到「' + bank.course + '」，共 ' + bank.questions.length + ' 道');
+    }
   });
 
   /* 存题集：第二步的「保存到题集」和第一步的原卷入库都走这里，免得两套逻辑各写一遍 */
@@ -2903,7 +3446,6 @@
     bank.questions.sort(byOrder);
     save();
     renderBankSelect();
-    bindStars();
     bank._lastAdded = add;
     bank._lastNoted = noted;
     return bank;
@@ -2920,6 +3462,7 @@
           optsSrc: q.optsSrc || null,          // 选项来自原卷时带 'paper'
           fromPaper: !!q.fromPaper,            // 来自第一步导入的原卷
           note: q.note || null,                // 笔记里对这道题的讲解
+          fav: q.fav || null,                  // 收藏时间（没收藏就不写）
           // 带上用户教过的改法：换台设备 / 换个人接着用，反馈不丢
           fix: q.fix || null, orig: q.orig || null
         };
@@ -3009,6 +3552,8 @@
     if (q.fromPaper) out.fromPaper = true;
     // 笔记里对这道题的讲解（刷题答完显示「笔记里怎么说」）
     if (q.note) out.note = String(q.note);
+    // 收藏时间戳：导出/导入、云端同步之后收藏依然在
+    if (q.fav) out.fav = q.fav;
     // 导入别人导出的题库时，「教过的改法」也一起接住
     if (q.fix) { out.fix = q.fix; out.orig = q.orig || null; applyFix(out); }
     return out;
@@ -3016,7 +3561,9 @@
 
   function download(name, content) {
     var type = /\.md$/i.test(name) ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8';
-    var blob = new Blob([content], { type: type });
+    downloadBlob(name, new Blob([content], { type: type }));
+  }
+  function downloadBlob(name, blob) {
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -3039,6 +3586,7 @@
     if (range === 'new') qs = qs.filter(function (q) { return !S.stats[q.id] || !(S.stats[q.id].ok + S.stats[q.id].bad); });
     else if (range === 'wrong') qs = qs.filter(function (q) { var s = S.stats[q.id]; return s && s.bad > 0 && !s.mastered; });
     else if (range === 'weak') qs = qs.filter(function (q) { var s = S.stats[q.id]; return !s || !s.mastered; });
+    else if (range === 'fav') qs = qs.filter(function (q) { return !!q.fav; });
     return qs;
   }
 
@@ -3736,6 +4284,7 @@
     if (S.recite) renderRecite();
     if (S.quiz) renderQuiz();
     bindFixButtons();
+    bindFavButtons();
   }
 
   /* 每张卡片右上角的入口。刷题、回顾、背知识点都要有 —— 答完看到答案才最想改。 */
@@ -3761,6 +4310,64 @@
   function fixBtnHtml(q, label) {
     return '<button class="btn ghost tiny fix-open" data-fix="' + esc(q.id) + '" type="button">' +
       (label || '✎ 改题') + '</button>';
+  }
+
+  /* =========================================================
+     收藏
+     ---------------------------------------------------------
+     直接记在题目上：q.fav = 收藏时的时间戳。这样存档、云同步、
+     导出 JSON、换设备全都不用另外写一套同步逻辑 —— 题目在，
+     收藏就在；题目被删了，收藏也跟着没了（符合直觉）。
+     ========================================================= */
+  function findQ(id) {
+    var q = getQ(id);
+    if (q) return q;
+    for (var b = 0; b < S.banks.length; b++) {
+      var arr = S.banks[b].questions || [];
+      for (var j = 0; j < arr.length; j++) if (arr[j].id === id) return arr[j];
+    }
+    return null;
+  }
+
+  function favBtnHtml(q) {
+    var on = !!(q && q.fav);
+    return '<button class="btn ghost tiny fav-toggle' + (on ? ' on' : '') + '" data-fav="' + esc(q.id) + '" type="button" ' +
+      'title="' + (on ? '取消收藏' : '收藏这道题，之后可以在「收藏夹」里单独刷') + '">' +
+      (on ? '★ 已收藏' : '☆ 收藏') + '</button>';
+  }
+
+  function toggleFav(id) {
+    var q = findQ(id);
+    if (!q) { toast('这道题不在题集里，收藏不了'); return false; }
+    var on = !q.fav;
+    if (on) q.fav = Date.now(); else delete q.fav;
+    save();
+    // 就地改按钮：整卡重绘会把写了一半的答案冲掉
+    $$('.fav-toggle[data-fav="' + id + '"]').forEach(function (b) {
+      b.classList.toggle('on', on);
+      b.innerHTML = on ? '★ 已收藏' : '☆ 收藏';
+      b.title = on ? '取消收藏' : '收藏这道题，之后可以在「收藏夹」里单独刷';
+    });
+    toast(on ? '已收藏 —— 去「收藏夹」能找到它' : '已取消收藏');
+    if (S.view === 'fav') renderFav();
+    return on;
+  }
+
+  function bindFavButtons() {
+    $$('#quizBody [data-fav], #reciteBody [data-fav], #favList [data-fav]').forEach(function (b) {
+      if (b.dataset.favBound) return;
+      b.dataset.favBound = '1';
+      b.addEventListener('click', function () { toggleFav(b.dataset.fav); });
+    });
+  }
+
+  function favList(scope) {
+    var banks = scope === 'all' ? S.banks : (getBank() ? [getBank()] : []);
+    var out = [];
+    banks.forEach(function (b) {
+      (b.questions || []).forEach(function (q) { if (q.fav) out.push({ q: q, bank: b }); });
+    });
+    return out;
   }
 
   function renderQuiz() {
@@ -3804,6 +4411,7 @@
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
       (st.resumed ? '<span class="pill ok" title="刷新或重开页面后接着上次的进度">已恢复</span>' : '') +
       '<span class="grow"></span>' +
+      favBtnHtml(q) +
       fixBtnHtml(q) +
       (st.idx > 0 ? '<button class="btn ghost tiny" id="prevQBtn">← 上一题</button>' : '') +
       (st.resumed ? '<button class="btn ghost tiny" id="quizResetBtn" title="扔掉这次进度，从第一组重新抽题">重新开始</button>' : '') +
@@ -3877,6 +4485,7 @@
       });
     }
     bindFixButtons();
+    bindFavButtons();
   }
 
   // 刷题里碰到手打题（填空 / 名词解释 / 简答）：自己写，判分方式和背诵模式一样
@@ -3917,6 +4526,7 @@
       renderQuiz();
     });
     bindFixButtons();
+    bindFavButtons();
     // 反馈在输入框下面，手机上常常在屏幕外，主动滚过去
     scrollToFb($('#quizFb'));
   }
@@ -3945,7 +4555,7 @@
       '<div class="progress"><i style="width:' + (i / st.list.length * 100) + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + st.list.length + ' 题 · 回顾</span>' +
       '<span class="pill">' + (isTypedQ(q) ? typeLabel(q) : isFill ? '填空' : r.multi ? '多选' : '单选') + '</span>' +
-      '<span class="grow"></span>' + fixBtnHtml(q) + '</div>' +
+      '<span class="grow"></span>' + favBtnHtml(q) + fixBtnHtml(q) + '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
       '<div class="verdict ' + cls + '" style="margin-top:12px">' +
       '<div class="verdict-title">' + title + '</div>' +
@@ -3977,6 +4587,9 @@
         renderQuiz();
       });
     }
+    // 回顾态的卡片是整块重画的，按钮得重新绑一次
+    bindFixButtons();
+    bindFavButtons();
   }
 
   // 把正确答案写进题干的空格里（题干有多个空就不猜了，反馈卡片里有完整表述）
@@ -4050,6 +4663,7 @@
       renderQuiz();
     });
     bindFixButtons();
+    bindFavButtons();
     // 以前这里会 setTimeout 1.5 秒（答对）/ 2.5 秒（答错）自动翻页。
     // 1.5 秒连「你选了什么」都来不及看，更别说原文，于是看起来就是
     // 「没显示答案就跳了」。现在一律停住，等用户自己点「下一题」。
@@ -4193,6 +4807,7 @@
       '<span class="pill">' + (q.type === 'fill' || q.type === 'single' ? '知识点' : typeLabel(q)) + '</span>' +
       '<span>已看 ' + Math.min(seen, goal) + ' / ' + goal + ' 张</span>' +
       '<span class="grow"></span>' +
+      favBtnHtml(q) +
       fixBtnHtml(q) +
       '</div>' +
       '<div class="kn-card" id="knCard">' + knText(q) + '</div>' +
@@ -4220,6 +4835,7 @@
       });
     }
     bindFixButtons();
+    bindFavButtons();
   }
 
   function renderRecite() {
@@ -4253,6 +4869,7 @@
       '<span class="pill">' + (typed ? typeLabel(q) : isMulti ? '列举题' : '填空') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
       '<span class="grow"></span>' +
+      favBtnHtml(q) +
       fixBtnHtml(q) +
       '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
@@ -4273,6 +4890,7 @@
     });
     $('#reciteSubmit').addEventListener('click', submitRecite);
     bindFixButtons();
+    bindFavButtons();
   }
 
   // 简答：把要点一条条列出来，答到的打勾，漏掉的空着 —— 比只给一段话有用
@@ -4367,6 +4985,7 @@
     $('.recite-input-row').remove();
     scrollToFb($('#reciteVb'));
     bindFixButtons();
+    bindFavButtons();
 
     var prevNote = '上一问：' + esc(q.stem) + '　你答「' + esc(input) + '」 → ' +
       (g.level === 'right' ? '<span style="color:var(--ok)">正确</span>'
@@ -4475,7 +5094,83 @@
   }
 
   /* =========================================================
-     ⑤ 数据统计
+     ⑤ 收藏夹
+     ---------------------------------------------------------
+     收藏记在题目自己身上（q.fav），所以这里只是把当前题集 / 全部题集
+     里带 fav 的题捞出来列一遍；取消收藏就是删掉那个时间戳。
+     ========================================================= */
+  function renderFav() {
+    var scope = $('#favScope').value;
+    var sort = $('#favSort').value;
+    var rows = favList(scope);
+    rows.sort(function (a, b) {
+      if (sort === 'mastery') return getStat(a.q.id).mastery - getStat(b.q.id).mastery;
+      return (b.q.fav || 0) - (a.q.fav || 0);
+    });
+    if (!rows.length) {
+      $('#favList').innerHTML = '<div class="empty">收藏夹是空的 —— 刷题时遇到值得反复记的题，点卡片右上角的「☆ 收藏」，它就会出现在这里。<br>' +
+        '收藏跟着题目走：换题集、导出再导入、登录后换设备都还在；题目删了收藏才会跟着没。</div>';
+      return;
+    }
+    $('#favList').innerHTML = rows.map(function (r) {
+      var q = r.q, s = getStat(q.id);
+      return '<div class="item">' +
+        '<div class="item-main">' +
+        '<div class="item-stem">' + stemHtml(q) + '</div>' +
+        '<div class="item-sub">正确答案：<strong>' + esc(answerText(q)) + '</strong>　·　' + typeLabel(q) +
+        (q.chapter ? '　·　' + esc(q.chapter) : '') +
+        (scope === 'all' ? '　·　' + esc(r.bank.course) : '') +
+        (q.fav ? '　·　' + fmtDate(q.fav) + ' 收藏' : '') +
+        '　·　练 ' + (s.ok + s.bad) + ' 次，错 ' + s.bad + ' 次</div>' +
+        '</div>' +
+        '<span class="pill ' + (s.bad > 0 ? 'err' : s.mastered ? 'ok' : 'warn') + '">' +
+        (s.bad > 0 ? '错过' : s.mastered ? '已掌握' : '待巩固') + '</span>' +
+        '<button class="btn ghost" data-drill="' + esc(q.id) + '">背它</button>' +
+        '<button class="btn ghost tiny fav-toggle on" data-fav="' + esc(q.id) + '" type="button" title="取消收藏">★ 已收藏</button>' +
+        '</div>';
+    }).join('');
+    bindFavButtons();
+    $$('#favList [data-drill]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var q = findQ(b.dataset.drill);
+        if (!q) return;
+        S.recite = {
+          list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
+          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0
+        };
+        switchView('recite');
+        renderRecite();
+      });
+    });
+  }
+
+  $('#favScope').addEventListener('change', renderFav);
+  $('#favSort').addEventListener('change', renderFav);
+  $('#favDrillBtn').addEventListener('click', function () {
+    // 刷题走的是当前题集的题库，所以这里只认当前题集
+    var n = favList('bank').length;
+    if (!n) {
+      toast($('#favScope').value === 'all'
+        ? '当前题集里没有收藏的题 —— 「全部题集」的收藏要切回对应题集才刷得了'
+        : '当前题集还没有收藏的题，刷题时点「☆ 收藏」试试');
+      return;
+    }
+    $('#qRange').value = 'fav';
+    switchView('quiz');
+    $('#quizStartBtn').click();
+  });
+  $('#favClearBtn').addEventListener('click', function () {
+    var rows = favList($('#favScope').value);
+    if (!rows.length) { toast('收藏夹已经是空的'); return; }
+    if (!confirm('清空 ' + rows.length + ' 道题的收藏？题目本身不会被删，只是不再标星。')) return;
+    rows.forEach(function (r) { delete r.q.fav; });
+    save();
+    renderFav();
+    toast('已清空收藏');
+  });
+
+  /* =========================================================
+     ⑥ 数据统计
      ========================================================= */
   function renderStats() {
     var qs = getQs();
@@ -5172,7 +5867,7 @@
   });
 
   /* =========================================================
-     ⑥ 题集广场：别人分享的题集，按专业 / 科目筛，一键复制成自己的
+     ⑦ 题集广场：别人分享的题集，按专业 / 科目筛，一键复制成自己的
      只有浏览需要联网；本地刷题完全不受影响。
      ========================================================= */
   var Plaza = { items: [], majors: [], subjects: [], loaded: false, loading: false, mine: false, err: null };
@@ -5499,6 +6194,26 @@
     renderFileList: renderFileList,
     importFiles: importFiles,
     takePicked: takePicked,
+    /* 收藏 */
+    save: save,
+    normQ: normQ,
+    filterPool: filterPool,
+    findQ: findQ,
+    favBtnHtml: favBtnHtml,
+    toggleFav: toggleFav,
+    favList: favList,
+    renderFav: renderFav,
+    /* 老版 .doc：先转 docx 再解析 */
+    isCfb: isCfb,
+    cfbRead: cfbRead,
+    docText: docText,
+    docxLocal: docxLocal,
+    docxToText: docxToText,
+    textToDocx: textToDocx,
+    docToDocx: docToDocx,
+    zipStore: zipStore,
+    crc32: crc32,
+    readOneFile: readOneFile,
     chapterOf: chapterOf,
     guessCourse: guessCourse,
     paperPool: paperPool,
