@@ -122,7 +122,7 @@ index.html   页面结构
 styles.css   样式（深浅色）
 app.js       全部前端逻辑：出题、判分、刷题、背诵、统计、云同步、题库还原、原卷照抄
 server.js    后端，只用 Node 自带模块（http / fs / crypto）
-assets/      内置题库（paper_bank.json：临床药物治疗学概论 15 章原卷，224 题）
+assets/      内置题库（paper_bank.json：临床药物治疗学概论 14 章原卷（第一章无卷），224 题）
 vendor/      WorkBuddy 登录 SDK（本地托管，不走外网 CDN）
 data/        运行时生成的数据（users.json / cloud.json / stats.json / plaza.json），不进版本库
 test/        测试脚本

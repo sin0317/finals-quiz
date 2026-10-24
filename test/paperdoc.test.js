@@ -255,7 +255,7 @@ console.log('\n八、切回笔记模式：上一批原卷预览作废');
 }
 
 /* ---------------- 九、内置原卷题库的成品 ---------------- */
-console.log('\n九、内置原卷题库（15 章）结构完整');
+console.log('\n九、内置原卷题库（14 章）结构完整');
 {
   const f = path.join(ROOT, 'assets', 'paper_bank.json');
   ok(fs.existsSync(f), '题库文件在包里（部署后也能读到）');

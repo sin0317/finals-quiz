@@ -2326,7 +2326,7 @@
   });
   setInputMode('note');
 
-  /* 内置原卷题库：把《临床药物治疗学概论》15 章原卷一次装进来。
+  /* 内置原卷题库：把《临床药物治疗学概论》15 章教材里有卷的 14 章原卷一次装进来（第一章没卷）。
      223 道题铺进预览表太长，直接存成题集更实在。 */
   $('#builtinPaperBtn').addEventListener('click', function () {
     var btn = this;
