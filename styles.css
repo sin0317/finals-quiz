@@ -993,6 +993,43 @@ strong, b { font-weight: 800; }
   padding: 4px 9px;
 }
 
+/* ============ 导入来源切换：笔记 / 原卷 ============ */
+.seg {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 2px 0 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--line);
+}
+.seg-btn {
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.seg-btn:hover { color: var(--ink); border-color: var(--brand); }
+.seg-btn.active {
+  color: #fff;
+  background: var(--brand);
+  border-color: var(--brand);
+}
+.seg-hint { font-size: 12.5px; color: var(--muted); flex: 1 1 240px; line-height: 1.6; }
+
+/* 预览表里的选项与章节归属 */
+.p-opts {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.6;
+}
+.p-opt b { color: var(--brand); font-weight: 700; margin-right: 2px; }
+.p-chapter {
+  margin-top: 5px; font-size: 12px; color: var(--muted);
+  opacity: .85;
+}
+.p-chapter::before { content: '章节 · '; opacity: .7; }
+
 /* ============ 用户反馈：教它怎么出这道题 ============ */
 /* 挂在刷题卡片下面，跟着卡片一起卷走；不是全屏弹窗，
    这样还能瞄一眼上面的题干和答案，边看边改 */
@@ -1047,6 +1084,26 @@ strong, b { font-weight: 800; }
 .fix-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; }
 #fixErr { font-size: 12.5px; color: var(--err); }
 .fix-open { margin-left: 0; }
+
+/* 选项编辑：一行 = 勾选 + 字母 + 输入框 + 删除 */
+.fix-opts { margin-bottom: 2px; }
+.fld-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  font-size: 13px; color: var(--muted); margin-bottom: 9px;
+}
+.fld-head span { font-weight: 600; color: var(--ink); font-size: 13.5px; }
+.fix-opt { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.fix-opt-pick {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  cursor: pointer; user-select: none;
+}
+.fix-opt-pick input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+.fix-opt-pick b { min-width: 16px; text-align: center; font-size: 13px; color: var(--muted); }
+.fix-opt-text { flex: 1 1 auto; min-width: 0; font-size: 13.5px; }
+.fix-opt .mini-btn { flex: 0 0 auto; }
+.fix-opt-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.fix-opt-empty { font-size: 12.5px; margin: 0 0 10px; }
+#fixAns[readonly] { background: var(--panel-2); color: var(--muted); cursor: default; }
 .q-meta .grow { flex: 1 1 auto; }
 
 /* 分享弹窗：专业 / 科目并排 */

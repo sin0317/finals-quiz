@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.8.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.9.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -37,13 +37,22 @@
   <section class="view active" id="view-import" data-page-node-id="vnSqztJkPUlV6JB0zUPFVv">
     <div class="card" data-page-node-id="tTD58CHkpHE0gdS2r27Ci0">
       <div class="card-head" data-page-node-id="zvQHGyRmYtUxvtZR6BZBkF" style="background-color: transparent;">
-        <h2 data-page-node-id="WEoYFQkW8PsYbpwI9y6J3S">① 贴上你的课程笔记</h2>
-        <span class="hint" data-page-node-id="YtjZQf2LRcrvgzIHjDHwdh">从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成</span>
+        <h2 data-page-node-id="WEoYFQkW8PsYbpwI9y6J3S" id="importTitle">① 贴上你的课程笔记</h2>
+        <span class="hint" data-page-node-id="YtjZQf2LRcrvgzIHjDHwdh" id="importHint">从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成</span>
       </div>
+
+      <!-- 两种来源：笔记要「提炼」，原卷要「照抄」。解析路径完全不同，放在同一个入口切 -->
+      <div class="seg" id="inputSeg" role="tablist">
+        <button class="seg-btn active" data-mode="note" type="button" role="tab">导入笔记</button>
+        <button class="seg-btn" data-mode="paper" type="button" role="tab">导入原卷</button>
+        <span class="seg-hint" id="segHint">原卷 = 老师发的试卷：单选题（每题2分）/ 多选题 / 名词解释 / 简答题，答案字母通常跟在括号后面</span>
+      </div>
+
       <div class="row" data-page-node-id="T4qF8VHTmuvmvlI7YBOIo6">
         <input id="courseName" class="input" placeholder="课程名称，例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
         <button class="btn ghost" id="loadSampleBtn" data-page-node-id="HcRsxvWmAtqshJZQSfEeJ9">载入示例笔记</button>
         <button class="btn ghost" id="pickFileBtn" data-page-node-id="0hdABGznxMehC7ioqxEA8x">选择笔记文件</button>
+        <button class="btn ghost" id="builtinPaperBtn" type="button" hidden>载入《临床药物治疗学概论》原卷（15 章）</button>
         <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc" hidden="" data-page-node-id="fDp1g3YhJ24sqiOwX2Sytg">
       </div>
       <div id="fileChip" class="file-chip" hidden>
@@ -67,7 +76,7 @@
 
     <div class="card" id="previewCard" hidden="" data-page-node-id="EMuEPNkastADHWqyICIDA0">
       <div class="card-head" data-page-node-id="hobyNoFzplqTPDPMNFkqaB">
-        <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C">② 核对题目，可随手改</h2>
+        <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C" id="previewTitle">② 核对题目，可随手改</h2>
         <span class="hint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">按笔记原文顺序生成，可用 ↑ ↓ 调顺序；题干与答案都能直接改，不需要的取消勾选</span>
       </div>
       <div class="table-wrap" data-page-node-id="oFailoM5P4xZr4yu9TZlsh">
@@ -298,7 +307,7 @@
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.8.0</span>
+    <span id="appVer">期末刷题站 v1.9.0</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -403,7 +412,7 @@
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5">示例笔记已载入，点「一键提炼知识点」试试</div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.8.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="app.js?v=1.9.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

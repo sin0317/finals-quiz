@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.8.0';
+  var FQ_VERSION = '1.9.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -960,6 +960,302 @@
     return { questions: all, rest: rest.join('\n') };
   }
 
+  /* =========================================================
+     导入原卷：按试卷格式解析
+     ---------------------------------------------------------
+     原卷不是标准题库格式，长这样：
+
+         单选题（每题2分）
+         药物治疗的核心问题是（     ）A
+         A、合理用药            B、获得最佳疗效
+         2. 新的、严重的ADR应当在（  ）日内报告   D
+         0   B. 1    C. 7   D.15
+
+     特点：答案字母尾随在空括号后面（有时还隔着半句话），选项一行两个、
+     甚至某一项缺标号、长选项还跨行。这一层只做「照着原卷抄」，
+     不改写、不提炼、不猜题意 —— 抄错了用户在「✎ 改题」里还能修。
+     ========================================================= */
+  var PAPER_SEC = [
+    { k: 'single', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*(?:单项?选择|单选题|选择题)/ },
+    { k: 'multi', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*(?:多项?选择|多选题)/ },
+    { k: 'term', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*名词解释/ },
+    { k: 'short', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*(?:简答|问答|论述)/ },
+    { k: 'fill', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*填空题/ },
+    { k: 'judge', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*判断/ }
+  ];
+  var PAPER_BLANK = /[（(][\s\u3000]*[）)]/;
+  var PAPER_NUM = /^\s*\d+\s*[.、．)）]\s*/;
+
+  function paperSecKind(line) {
+    var t = String(line || '').trim();
+    if (!t || t.length > 30) return null;                 // 标题都很短
+    for (var i = 0; i < PAPER_SEC.length; i++) {
+      if (PAPER_SEC[i].re.test(t) && !PAPER_BLANK.test(t)) return PAPER_SEC[i].k;
+    }
+    return null;
+  }
+
+  /* 题干后面那个答案字母。括号后面的正文里也可能有孤立大写字母，
+     所以只在「不是字母也不是汉字」的边界上认，避免把「维生素D」当成 D 项。 */
+  function paperAnswerOf(line) {
+    var m = String(line).match(PAPER_BLANK);
+    if (!m) return '';
+    var rest = String(line).slice(m.index + m[0].length);
+    var re = /(^|[^A-Za-z0-9\u4e00-\u9fa5])([A-E]{1,5})(?![A-Za-z0-9])/;
+    var k = rest.match(re);
+    return k ? k[2] : '';
+  }
+
+  /* 题干去掉题号、去掉答案字母、括号统一成（　） */
+  function paperStemOf(line) {
+    var t = String(line).replace(PAPER_NUM, '').trim();
+    var ans = paperAnswerOf(t);
+    if (ans) {
+      // 右侧连着答案的那一小截切掉（可能是「A」「。C」「 ABC」）
+      var i = t.lastIndexOf(ans);
+      var head = t.slice(0, i).replace(/[\s\u3000]*[。．.、，,;；:：]?[\s\u3000]*$/, '');
+      t = head || t;
+    }
+    t = t.replace(/[（(][\s\u3000]*[）)]/g, '（　）')
+         .replace(/[（(][\s\u3000]+[）)]/g, '（　）')
+         .replace(/[\s\u3000]{2,}/g, ' ')
+         .trim();
+    return t;
+  }
+
+  /* 一行里可能并排好几个选项：A、xx   B、yy。也可能是「0   B. 1  C. 7」——
+     第一项缺标号，得算成 A。 */
+  function paperSplitOpts(line) {
+    var t = String(line);
+    var re = /([A-E])\s*[、.．。\)）]\s*/g;
+    var marks = [], m;
+    while ((m = re.exec(t))) {
+      marks.push({ letter: m[1], at: m.index, textAt: m.index + m[0].length });
+    }
+    if (!marks.length) return [];
+    var out = [];
+    var head = t.slice(0, marks[0].at).trim();
+    if (head) out.push({ letter: '', text: head });
+    marks.forEach(function (mk, i) {
+      var end = i + 1 < marks.length ? marks[i + 1].at : t.length;
+      var txt = t.slice(mk.textAt, end).trim();
+      out.push({ letter: mk.letter, text: txt });
+    });
+    return out.filter(function (o) { return o.text; });
+  }
+
+  /* 选择题块：按题干行切题，题干后面到下一个题干之前都是选项 */
+  function paperChoiceQs(lines, kind) {
+    var qs = [], warn = [];
+    var cur = null;
+
+    function flush() {
+      if (!cur) return;
+      var opts = cur.opts.filter(function (o) { return o.text; });
+      var letters = cur.letters;
+      if (!letters) {
+        warn.push({ why: '缺答案', stem: cur.stem.slice(0, 30) });
+        cur = null; return;
+      }
+      if (opts.length < 2) {
+        warn.push({ why: '选项不足两项', stem: cur.stem.slice(0, 30) });
+        cur = null; return;
+      }
+      var idx = letters.split('').map(function (c) { return c.charCodeAt(0) - 65; });
+      var bad = idx.filter(function (i) { return i >= opts.length; });
+      if (bad.length) {
+        warn.push({ why: '答案字母超出选项', stem: cur.stem.slice(0, 30) });
+        cur = null; return;
+      }
+      var texts = idx.map(function (i) { return opts[i].text; });
+      // 按「答案给了几个字母」判单选多选，比按分段标题判更准 ——
+      // 原卷里多选题区偶尔只有一道正确答案（老师漏标），那时候按单选出更实用
+      var multi = texts.length > 1;
+      if (multi) {
+        qs.push({
+          type: 'multi', stem: cur.stem, answer: texts,
+          opts: opts.map(function (o) { return o.text; }),
+          source: cur.stem, order: qs.length
+        });
+      } else {
+        qs.push({
+          type: 'single', stem: cur.stem, answer: texts[0],
+          opts: opts.map(function (o) { return o.text; }),
+          source: cur.stem, order: qs.length
+        });
+      }
+      cur = null;
+    }
+
+    lines.forEach(function (raw) {
+      var line = String(raw || '').trim();
+      if (!line) return;
+
+      if (PAPER_BLANK.test(line)) {
+        flush();
+        cur = { stem: paperStemOf(line), letters: paperAnswerOf(line), opts: [], rawLines: [] };
+        // 题干和第一个选项挤在同一行的（「…（ ）A  A.xxx」）后面再切
+        var after = line.slice(line.indexOf(')') >= 0 ? 0 : 0);
+        void after;
+        return;
+      }
+      if (!cur) return;
+
+      var segs = paperSplitOpts(line);
+      if (segs.length) {
+        cur.rawLines.push({ line: line, segs: segs });
+        segs.forEach(function (sg) { cur.opts.push(sg); });
+      } else {
+        // 没有任何标号：先记下来，最后再判断是「续行」还是「缺标号的选项」
+        cur.rawLines.push({ line: line, segs: [] });
+        cur.opts.push({ letter: '', text: line, bare: true });
+      }
+    });
+    flush();
+    return { qs: qs, warn: warn };
+  }
+
+  function parsePaperDoc(text) {
+    var lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+    var chapter = '';
+    for (var i = 0; i < Math.min(lines.length, 8); i++) {
+      var t = (lines[i] || '').trim();
+      if (/^第[一二三四五六七八九十百]+章/.test(t) || /^第[一二三四五六七八九十百]+章/.test(t.replace(/\s+/g, ''))) {
+        chapter = t; break;
+      }
+    }
+    if (!chapter) {
+      for (var j = 0; j < Math.min(lines.length, 4); j++) {
+        var v = (lines[j] || '').trim();
+        if (v && v.length < 40) { chapter = v; break; }
+      }
+    }
+
+    // 按题型标题切块
+    var blocks = [], curKind = '', buf = [];
+    lines.forEach(function (raw) {
+      var line = String(raw || '');
+      var k = paperSecKind(line);
+      if (k) {
+        if (curKind && buf.length) blocks.push({ kind: curKind, lines: buf.slice() });
+        else if (!curKind && buf.length) blocks.push({ kind: 'free', lines: buf.slice() });
+        curKind = k; buf = [];
+        return;
+      }
+      buf.push(line);
+    });
+    if (buf.length) blocks.push({ kind: curKind || 'free', lines: buf.slice() });
+
+    var qs = [], warn = [];
+    blocks.forEach(function (b) {
+      if (b.kind === 'single' || b.kind === 'multi') {
+        var r = paperChoiceQs(b.lines, b.kind);
+        r.qs.forEach(function (q) { q.order = qs.length; qs.push(q); });
+        r.warn.forEach(function (w) { warn.push(w); });
+      } else if (b.kind === 'term') {
+        qs = qs.concat(paperTermQs(b.lines)).map(function (q, i) { q.order = i; return q; });
+      } else if (b.kind === 'short') {
+        qs = qs.concat(paperShortQs(b.lines)).map(function (q, i) { q.order = i; return q; });
+      }
+    });
+
+    var stats = { single: 0, multi: 0, term: 0, short: 0, fill: 0 };
+    qs.forEach(function (q) { stats[q.type] = (stats[q.type] || 0) + 1; });
+    return { chapter: chapter, questions: qs, stats: stats, warn: warn };
+  }
+
+  /* 名词解释块：一行一条「术语：解释」。解释里本来就有逗号顿号，只认第一个冒号。
+     没有冒号的行往前一条的解释后面接 —— 原卷排版换行很随意。 */
+  function paperTermQs(lines) {
+    var out = [], cur = null;
+    function flush() {
+      if (!cur) return;
+      var term = cur.term.trim();
+      var def = cur.def.replace(/[（(]\s*\d+\s*分\s*[）)]/g, '').replace(/\s+/g, ' ').trim();
+      if (term && def && term.length <= 30) {
+        out.push({
+          type: 'term', stem: term, answer: def,
+          opts: [], source: term + '：' + def, order: out.length
+        });
+      }
+      cur = null;
+    }
+    lines.forEach(function (raw) {
+      var line = String(raw || '').trim();
+      if (!line) return;
+      var m = line.match(/^([^：:]{2,30})[：:]\s*(.+)$/);
+      if (m) { flush(); cur = { term: m[1], def: m[2] }; }
+      else if (cur) { cur.def += ' ' + line; }
+      else if (line.length > 8) { cur = { term: line.slice(0, 12), def: line }; }
+    });
+    flush();
+    return out;
+  }
+
+  /* 简答的题干长什么样？
+     · 以「（10分）」（8 分以上）结尾，后面可能跟个年份「2025」
+     · 以问号结尾
+     · 以「简述/试述/何谓…」开头且不长
+     要点行同样可能带（1分）（2分），所以分值低于 6 分的一律不当题干 ——
+     不然「病人能自行判断并准确选择（1分）」会被当成下一道题，上一题只剩个「特点」。 */
+  var PAPER_POINT_HEAD = /^\s*(?:\d+\s*[）).、．]|[（(]\s*[一二三四五六七八九十]+\s*[）)]|[①-⑩]|[a-zA-Z][）)])/;
+  var PAPER_ASK = /^\s*(?:简述|试述|论述|说明|试比较|试分析|何谓|什么是|什么|哪些|如何|为什么|请|谈|列举|概括|归纳|比较)/;
+
+  function paperIsShortStem(line) {
+    if (PAPER_POINT_HEAD.test(line)) return false;
+    var m = line.match(/[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]\s*((19|20)\d{2}\s*)?$/);
+    if (m) return parseFloat(m[1]) >= 6;
+    if (/[？?]\s*$/.test(line)) return true;
+    if (PAPER_ASK.test(line) && line.length <= 60) return true;
+    return false;
+  }
+
+  /* 原卷常把好几个要点挤在一行（「1）…（1分）；2）…（1分）」），
+     拆开才数得清答中了几条。行首得是编号才算，正文里出现的「（1）」不动。 */
+  function paperSplitPoints(line) {
+    var re = /(\d+\s*[）).、．]|[①-⑩]|[（(]\s*[一二三四五六七八九十]+\s*[）)])/g;
+    var marks = [], m;
+    while ((m = re.exec(line))) marks.push({ at: m.index });
+    if (marks.length < 2) return [line];
+    if (line.slice(0, marks[0].at).trim()) return [line];
+    var out = [];
+    marks.forEach(function (mk, i) {
+      var end = i + 1 < marks.length ? marks[i + 1].at : line.length;
+      var seg = line.slice(mk.at, end).trim().replace(/[；;、,，]\s*$/, '');
+      if (seg) out.push(seg);
+    });
+    return out.length >= 2 ? out : [line];
+  }
+
+  /* 简答块：题干以「（10分）」或问号结尾；后面的编号句子是要点 */
+  function paperShortQs(lines) {
+    var out = [], cur = null;
+    function flush() {
+      if (!cur) return;
+      var stem = cur.stem.replace(/[（(]\s*\d+\s*分\s*[）)]/g, '')
+        .replace(/\s*\b(19|20)\d{2}\s*$/, '').replace(/\s+/g, ' ').trim();
+      var pts = cur.pts.map(function (x) {
+        return x.replace(/^\s*(?:\d+\s*[）).、．]|\(\s*\d+\s*\)|（\s*[一二三四五六七八九十]+\s*）|[①-⑩])\s*/, '').trim();
+      }).filter(Boolean);
+      if (stem && pts.length) {
+        out.push({
+          type: 'short', stem: stem, answer: pts,
+          opts: [], source: stem + '：' + pts.join('；'), order: out.length
+        });
+      }
+      cur = null;
+    }
+    lines.forEach(function (raw) {
+      var line = String(raw || '').trim();
+      if (!line) return;
+      var isStem = paperIsShortStem(line);
+      if (isStem) { flush(); cur = { stem: line, pts: [] }; return; }
+      if (cur) paperSplitPoints(line).forEach(function (x) { cur.pts.push(x); });
+    });
+    flush();
+    return out;
+  }
+
   var BANK_BLANK = /[（(][\s\u3000]*[）)]/;
   var BANK_SECTION = /(单选题|多选题|名词解释|简答题|填空题|判断题)/g;
 
@@ -1192,6 +1488,56 @@
     return pickDistractors(list, pool, 2).map(cleanMark);
   }
 
+  /* 一道选择题渲染时用的选项（还没打乱）。
+     用户教过的题，fix.opts 就是完整的四（五）个选项，里面本来就含正确答案，
+     再和 answer 拼一次会出现「血浆 / 尿液 / 脑脊液 / 汗液 / 脑脊液」这种重复项；
+     只有系统自己凑的干扰项才是「不含答案」的，才需要拼。 */
+  function choiceOptions(q, isMulti) {
+    var list;
+    if (q.fix && q.fix.opts && q.fix.opts.length) list = q.fix.opts.slice();
+    else list = (isMulti ? (q.answer || []).slice() : [q.answer]).concat(q.opts || []);
+    var ansArr = Array.isArray(q.answer) ? q.answer : [q.answer];
+    ansArr.forEach(function (a) {
+      if (a && !list.some(function (o) { return sameOpt(o, a); })) list.push(a);
+    });
+    var out = [];
+    list.forEach(function (o) {
+      var t = String(o == null ? '' : o).trim();
+      if (t && !out.some(function (x) { return sameOpt(x, t); })) out.push(t);
+    });
+    return out;
+  }
+
+  /* 两个选项算不算同一个：全等，或者一方把另一方整个包住
+     （原卷常见「剂量相关型不良反应」与「剂量相关型不良反应，为药理作用增强所致」） */
+  function sameOpt(a, b) {
+    var x = normalize(cleanMark(a)), y = normalize(cleanMark(b));
+    if (!x || !y) return false;
+    return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+  }
+
+  /* 面板里的选项行。勾上的是正确答案。
+     顺序上优先用「用户上次给的选项」→「题目自带的选项」→「题库凑的干扰项」，
+     所以改过一次之后再打开，看到的还是自己那四个。 */
+  function fixOptRows(q, answer) {
+    var list = [];
+    if (q.fix && q.fix.opts && q.fix.opts.length) list = q.fix.opts.slice();
+    else if (q.opts && q.opts.length >= 2) list = q.opts.slice();
+    var ansArr = (Array.isArray(answer) ? answer : [answer]).map(String).filter(Boolean);
+    // 正确答案必须出现在选项里，否则渲染出来根本勾不到
+    ansArr.forEach(function (a) {
+      if (!list.some(function (o) { return sameOpt(o, a); })) list.push(a);
+    });
+    if (list.length < 2) {
+      fixOpts(ansArr, q).forEach(function (d) {
+        if (!list.some(function (o) { return sameOpt(o, d); })) list.push(d);
+      });
+    }
+    return list.map(function (text) {
+      return { text: String(text), on: ansArr.some(function (a) { return sameOpt(text, a); }) };
+    });
+  }
+
   /* 把 q.fix 落到题上。所有展示、判分都读改后的字段，所以只要在
      加载题库时统一跑一遍，别的地方一行都不用动。 */
   function applyFix(q) {
@@ -1262,7 +1608,9 @@
     view: 'import',
     quiz: null,
     recite: null,
-    noteRaw: null
+    noteRaw: null,
+    inputMode: 'note',        // 'note' 提炼笔记 / 'paper' 照抄原卷
+    paperInfo: null           // 上一次原卷解析的统计（跳过了几道、为什么）
   };
 
   function save() {
@@ -1384,6 +1732,8 @@
     if (typeof q !== 'string' && q.fix && (q.type === 'single' || q.type === 'multi')) {
       return s.replace(/_{2,}/g, '（　）');
     }
+    // 题干里本来就有「（　）」占位的（原卷录进来的选择题都长这样），别再拖一条下划线
+    if (s.indexOf('____') < 0 && /[（(]\s*[）)]/.test(stem)) return s;
     if (s.indexOf('____') < 0) s += '<span class="blank-mark">____</span>';
     else s = s.replace(/____/g, '<span class="blank-mark">________</span>');
     return s;
@@ -1892,6 +2242,7 @@
   function doExtract(silent) {
     var text = activeText();
     if (!text.trim()) { toast('先把笔记粘进来，或选一个笔记文件'); return false; }
+    if (S.inputMode === 'paper') return doExtractPaper(text, silent);
     var qs = buildFromNote(text);
     if (!qs.length) {
       toast('没提炼出判断句，试试用「……是……」「……的标志是……」这样的句式写笔记');
@@ -1908,7 +2259,106 @@
     return true;
   }
 
+  /* 原卷：不提炼、不猜，照着试卷抄。老师给的分值、括号、选项顺序一律不动，
+     只把「答案字母」翻译成「答案原文」，不然判分没法做。 */
+  function doExtractPaper(text, silent) {
+    var r = parsePaperDoc(text);
+    S.paperInfo = r;
+    if (!r.questions.length) {
+      toast('没解析出题目 —— 原卷里要有「单选题 / 多选题 / 名词解释 / 简答题」这样的分段标题');
+      return false;
+    }
+    if (!$('#courseName').value.trim()) {
+      $('#courseName').value = S.paperChapter || r.chapter.replace(/^第.+?章\s*/, '') || '原卷题库';
+    }
+    S.preview = r.questions;
+    renderPreview();
+    $('#previewCard').hidden = false;
+    if (!silent) {
+      $('#previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var sk = r.warn.length ? '，跳过 ' + r.warn.length + ' 道（' + r.warn.map(function (w) { return w.why; }).slice(0, 2).join('、') + '）' : '';
+      toast('照原卷录入 ' + r.questions.length + ' 道题' + sk);
+    }
+    return true;
+  }
+
   $('#extractBtn').addEventListener('click', function () { doExtract(false); });
+
+  /* ---------------- 导入笔记 / 导入原卷 ---------------- */
+  var NOTE_TIP = '从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成';
+  var PAPER_TIP = '支持 .docx / .txt，也可以直接把试卷文字粘进来；按原卷的分段照抄，题干、选项、答案都不改写';
+  var NOTE_PH = '把笔记整段粘进来。写的时候尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。';
+  var PAPER_PH = '把试卷整段粘进来，保留原来的分段标题，例如：\n\n单选题（每题2分）\n药物治疗的核心问题是（     ）A\nA、合理用药        B、获得最佳疗效\n\n多选题（每题2分）\n药物治疗要求（     ）ABCD\nA.安全  B.有效  C.经济  D.适当\n\n名词解释（每题4分）\n处方：是指由注册的执业医师……';
+
+  function setInputMode(mode) {
+    S.inputMode = mode === 'paper' ? 'paper' : 'note';
+    var isPaper = S.inputMode === 'paper';
+    $$('#inputSeg .seg-btn').forEach(function (b) {
+      var on = b.dataset.mode === S.inputMode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $('#importTitle').textContent = isPaper ? '① 把整份原卷贴进来' : '① 贴上你的课程笔记';
+    $('#importHint').textContent = isPaper ? PAPER_TIP : NOTE_TIP;
+    $('#segHint').textContent = isPaper
+      ? '原卷 = 老师发的试卷：单选题（每题2分）/ 多选题 / 名词解释 / 简答题，答案字母通常跟在括号后面'
+      : '笔记 = 课本或讲义正文，系统从判断句里提炼题目；换成「导入原卷」则一条一条照着试卷抄';
+    $('#extractBtn').textContent = isPaper ? '解析原卷' : '一键提炼知识点';
+    $('#pickFileBtn').textContent = isPaper ? '选择原卷文件' : '选择笔记文件';
+    $('#loadSampleBtn').hidden = isPaper;
+    $('#builtinPaperBtn').hidden = !isPaper;
+    var ta = $('#noteText');
+    if (ta) {
+      ta.placeholder = isPaper ? PAPER_PH : NOTE_PH;
+      ta.rows = isPaper ? 10 : 12;
+    }
+    $('#previewTitle').textContent = isPaper ? '② 核对原卷题目，可随手改' : '② 核对题目，可随手改';
+  }
+
+  $('#inputSeg').addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.seg-btn') : null;
+    if (!btn || btn.dataset.mode === S.inputMode) return;
+    setInputMode(btn.dataset.mode);
+    // 换了来源，之前那批预览就作废了，免得把笔记的题混进原卷里
+    S.preview = [];
+    $('#previewCard').hidden = true;
+    updateNoteStat();
+  });
+  setInputMode('note');
+
+  /* 内置原卷题库：把《临床药物治疗学概论》15 章原卷一次装进来。
+     223 道题铺进预览表太长，直接存成题集更实在。 */
+  $('#builtinPaperBtn').addEventListener('click', function () {
+    var btn = this;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '正在载入原卷…';
+    fetch('assets/paper_bank.json', { cache: 'no-cache' }).then(function (r) {
+      if (!r.ok) throw new Error('题库文件没找到（HTTP ' + r.status + '）');
+      return r.json();
+    }).then(function (data) {
+      var list = [];
+      (data.chapters || []).forEach(function (ch) {
+        (ch.questions || []).forEach(function (q) {
+          list.push({
+            type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
+            source: q.source || q.stem, chapter: ch.chapter || '', order: list.length
+          });
+        });
+      });
+      if (!list.length) throw new Error('题库是空的');
+      var bank = saveQuestionsToBank(list, data.course || '原卷题库');
+      if (bank) {
+        toast('已载入 ' + list.length + ' 道原卷题到「' + bank.course + '」，共 ' +
+          (data.chapters || []).length + ' 章');
+      }
+    }).catch(function (e) {
+      toast('载入失败：' + e.message);
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = label;
+    });
+  });
 
   function renderPreview() {
     var tb = $('#previewBody');
@@ -1920,7 +2370,14 @@
         '<td class="c-chk"><input type="checkbox" class="p-chk" checked></td>' +
         '<td class="c-type"><span class="tag' + (q.type === 'multi' ? ' multi' : (q.type === 'short' || q.type === 'term') ? ' typed' : '') + '">' +
         typeLabel(q) + '</span></td>' +
-        '<td><input class="cell-input p-stem" value="' + esc(q.stem) + '"></td>' +
+        '<td><input class="cell-input p-stem" value="' + esc(q.stem) + '">' +
+        ((q.opts && q.opts.length)
+          ? '<div class="p-opts">' + q.opts.map(function (o, k) {
+              return '<span class="p-opt"><b>' + String.fromCharCode(65 + k) + '</b>' + esc(o) + '</span>';
+            }).join('') + '</div>'
+          : '') +
+        (q.chapter ? '<div class="p-chapter">' + esc(q.chapter) + '</div>' : '') +
+        '</td>' +
         '<td class="c-ans"><input class="cell-input p-ans" value="' + esc(answerText(q)) + '"></td>' +
         '<td class="c-op">' +
         '<button class="mini-btn p-up" title="上移">↑</button>' +
@@ -1998,10 +2455,18 @@
       if (!q || !q.stem) return;
       var ans = Array.isArray(q.answer) ? q.answer.filter(Boolean) : q.answer;
       if (!ans || (Array.isArray(ans) && !ans.length)) return;
-      list.push({ id: q.id, type: q.type, stem: q.stem, answer: ans, opts: q.opts || [], source: q.source || '' });
+      list.push({
+        id: q.id, type: q.type, stem: q.stem, answer: ans, opts: q.opts || [],
+        source: q.source || '', chapter: q.chapter || ''
+      });
     });
     if (!list.length) { toast('请先勾选要保存的题目'); return; }
+    var bank = saveQuestionsToBank(list, $('#courseName').value.trim() || '我的题集');
+    if (bank) toast('已保存到「' + bank.course + '」，共 ' + bank.questions.length + ' 道');
+  });
 
+  /* 存题集：预览保存和「一键载入内置原卷」都走这里，免得两套逻辑各写一遍 */
+  function saveQuestionsToBank(list, courseName) {
     // 重新提炼同一份笔记时，之前「教过」的改法要跟着搬过来。
     // 按原文句子认领：解析规则以后变了、题目 id 跟着变，反馈也不会白教。
     var fixBySrc = {};
@@ -2019,7 +2484,6 @@
     });
 
     // 按课程名归题集：同名就往里追加，换了一门课就另起一个，不串味
-    var courseName = $('#courseName').value.trim() || '我的题集';
     var bank = S.banks.filter(function (b) { return b.course === courseName; })[0];
     if (!bank) {
       bank = { id: 'b_' + Date.now().toString(36), course: courseName, questions: [], createdAt: Date.now() };
@@ -2042,8 +2506,9 @@
     bank.questions.sort(byOrder);
     save();
     renderBankSelect();
-    toast('已保存 ' + add + ' 道新题到「' + bank.course + '」，现有 ' + bank.questions.length + ' 道');
-  });
+    bindStars();
+    return bank;
+  }
 
   /* 导出 / 导入题集 */
   function exportBankJson(b) {
@@ -2052,7 +2517,7 @@
       questions: b.questions.map(function (q, i) {
         return {
           type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
-          source: q.source || '', order: q.order == null ? i : q.order,
+          source: q.source || '', chapter: q.chapter || '', order: q.order == null ? i : q.order,
           // 带上用户教过的改法：换台设备 / 换个人接着用，反馈不丢
           fix: q.fix || null, orig: q.orig || null
         };
@@ -2134,6 +2599,7 @@
       answer: answer,
       opts: Array.isArray(q.opts) ? q.opts : [],
       source: q.source || '',
+      chapter: q.chapter || '',
       order: q.order == null ? (idx || 0) : q.order
     };
     // 导入别人导出的题库时，「教过的改法」也一起接住
@@ -2453,6 +2919,72 @@
     short: '一条要点一行（也可以用分号隔开），按要点给分'
   };
 
+  /* 面板里正在编的那几行选项。同一时刻只有一个面板开着，模块级数组够用。 */
+  var FIXROWS = [];
+
+  function loadOptRows(q, type, answer) {
+    FIXROWS = (type === 'single' || type === 'multi') ? fixOptRows(q, answer) : [];
+    renderOptRows();
+    syncAnsFromOpts();
+  }
+
+  function renderOptRows() {
+    var box = $('#fixOptsList');
+    if (!box) return;
+    if (!FIXROWS.length) {
+      box.innerHTML = '<div class="muted fix-opt-empty">这道题还没有选项，点下面「加一个选项」</div>';
+      return;
+    }
+    box.innerHTML = FIXROWS.map(function (r, i) {
+      return '<div class="fix-opt">' +
+        '<label class="fix-opt-pick" title="勾上表示它是正确答案">' +
+        '<input type="checkbox" data-on="' + i + '"' + (r.on ? ' checked' : '') + '>' +
+        '<b>' + String.fromCharCode(65 + i) + '</b></label>' +
+        '<input class="input fix-opt-text" data-ot="' + i + '" autocomplete="off"' +
+        ' value="' + esc(r.text) + '" placeholder="选项文字">' +
+        '<button class="mini-btn" data-odel="' + i + '" type="button" title="删掉这个选项">✕</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  /* 勾了哪个，答案框就写哪个 —— 选择题的答案永远等于勾选，省得两处对不上 */
+  function syncAnsFromOpts() {
+    var el = $('#fixAns');
+    if (!el) return;
+    var type = $('#fixType') ? $('#fixType').value : '';
+    if (type !== 'single' && type !== 'multi') return;
+    var picks = FIXROWS.filter(function (r) { return r.on && String(r.text || '').trim(); });
+    el.value = picks.map(function (r) { return String(r.text).trim(); }).join('、');
+  }
+
+  /* 反过来：用户直接改答案框时，把它落到选项上 ——
+     答案里有的项勾上、没有的加一条、原来勾着但答案里没了的取消。
+     不然「我把答案改成血浆」和上面的选项会各说各话。 */
+  function syncOptsFromAns() {
+    var el = $('#fixAns');
+    if (!el) return;
+    var type = $('#fixType') ? $('#fixType').value : '';
+    if (type !== 'single' && type !== 'multi') return;
+    var txt = String(el.value || '').trim();
+    var arr = txt ? fixAnswerOf(type, txt) : [];
+    var list = (Array.isArray(arr) ? arr : [arr]).map(function (a) { return String(a).trim(); }).filter(Boolean);
+    if (!list.length) { FIXROWS.forEach(function (r) { r.on = false; }); return renderOptRows(); }
+    FIXROWS.forEach(function (r) { r.on = list.some(function (a) { return sameOpt(r.text, a); }); });
+    list.forEach(function (a) {
+      if (!FIXROWS.some(function (r) { return sameOpt(r.text, a); })) FIXROWS.push({ text: a, on: true });
+    });
+    renderOptRows();
+  }
+
+  /* 单选只能有一个勾。keep 指刚才勾的那一行（勾新的就把旧的去掉）；
+     不传就保留原来勾着的第一个（切题型时用）。 */
+  function enforceSingleOpt(keep) {
+    if (!$('#fixType') || $('#fixType').value !== 'single') return;
+    var k = typeof keep === 'number' ? keep : -1;
+    if (k < 0) { FIXROWS.forEach(function (r, i) { if (r.on && k < 0) k = i; }); }
+    FIXROWS.forEach(function (r, i) { r.on = (i === k); });
+  }
+
   /* 面板有两个落点：#fixPanel 在刷题页、#fixPanelRecite 在背知识点页。
      背知识点正是「看到这句话觉得挖错了」的地方，非要切回刷题页才能改太绕。
      两个落点是同一套表单，同一时刻只留一个在页面上，免得 #fixType 撞 id。 */
@@ -2480,6 +3012,7 @@
     var ans = q.fix ? q.fix.answer : q.answer;
     var ansText = Array.isArray(ans) ? ans.join('、') : (ans == null ? '' : ans);
     var note = (q.fix && q.fix.note) || '';
+    var isChoice = type === 'single' || type === 'multi';
 
     box.innerHTML =
       '<div class="fix-head">' +
@@ -2502,10 +3035,19 @@
       '<button class="btn ghost tiny" id="fixBlankBtn" type="button">✂ 把选中的字挖成空</button>' +
       '<span class="muted">在题干里选中要考的那几个字，点一下，答案会自动填到下面</span>' +
       '</div>' +
-      '<label class="fld"><span>③ 答案</span>' +
-      '<input id="fixAns" class="input" autocomplete="off" value="' + esc(ansText) + '"></label>' +
+      '<div class="fix-opts" id="fixOptsWrap"' + (isChoice ? '' : ' hidden') + '>' +
+      '<div class="fld-head"><span>③ 选项</span>' +
+      '<em class="muted" id="fixOptsTip">勾上的是正确答案' + (type === 'single' ? '，单选只能勾一个' : '，多选勾几个都行') + '</em></div>' +
+      '<div id="fixOptsList"></div>' +
+      '<div class="fix-opt-tools">' +
+      '<button class="btn ghost tiny" id="fixOptAdd" type="button">+ 加一个选项</button>' +
+      '<button class="btn ghost tiny" id="fixOptFill" type="button">↻ 从题库再配几个干扰项</button>' +
+      '</div></div>' +
+      '<label class="fld"><span>④ 答案</span>' +
+      '<input id="fixAns" class="input" autocomplete="off" value="' + esc(ansText) + '"' +
+      (isChoice ? ' title="改这里会自动在选项里加一条并勾上"' : '') + '></label>' +
       '<div class="muted fix-hint" id="fixAnsHint">' + esc(FIX_ANS_HINT[type] || '') + '</div>' +
-      '<label class="fld"><span>④ 想补充一句（可留空）</span>' +
+      '<label class="fld"><span>⑤ 想补充一句（可留空）</span>' +
       '<input id="fixNote" class="input" maxlength="120" autocomplete="off" value="' + esc(note) + '"' +
       ' placeholder="例如：这句只该挖「血药浓度」，后面是解释不用挖"></label>' +
       '<div class="fix-foot">' +
@@ -2519,6 +3061,7 @@
     box.hidden = false;
     $('#fixType').value = type;
     bindFixEvents(q);
+    loadOptRows(q, type, ans);
     $('#fixStem').focus();
     try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* 老浏览器 */ }
   }
@@ -2541,7 +3084,102 @@
       if ((t === 'term' || t === 'short') && stem.value.indexOf('____') >= 0) {
         hint.textContent = '这两种题型没有空，记得把题干里的 ____ 换成完整标题';
       }
+      var isChoice = t === 'single' || t === 'multi';
+      var wrap = $('#fixOptsWrap');
+      if (wrap) wrap.hidden = !isChoice;
+      var tip = $('#fixOptsTip');
+      if (tip) tip.textContent = '勾上的是正确答案' + (t === 'single' ? '，单选只能勾一个' : '，多选勾几个都行');
+      var ansEl = $('#fixAns');
+      if (ansEl) {
+        if (isChoice) {
+          ansEl.setAttribute('readonly', 'readonly');
+          ansEl.setAttribute('title', '选择题的答案由上面勾选的选项决定');
+        } else {
+          ansEl.removeAttribute('readonly');
+          ansEl.removeAttribute('title');
+        }
+      }
+      if (isChoice) {
+        // 刚刚才改成选择题的：现在按原答案摊一份选项出来，再让人改
+        if (!FIXROWS.length) {
+          var cur = ansEl ? ansEl.value.trim() : '';
+          FIXROWS = fixOptRows(q, cur ? fixAnswerOf(t, cur) : q.answer);
+        }
+        if (t === 'single') enforceSingleOpt();
+        renderOptRows();
+        syncAnsFromOpts();
+      }
     });
+
+    if ($('#fixAns')) {
+      // 用 change（失焦/回车）而不是 input：边打字边加选项会攒一堆「血」「血浆」的半截词
+      $('#fixAns').addEventListener('change', function () {
+        var type = $('#fixType').value;
+        if (type !== 'single' && type !== 'multi') return;
+        if (String(this.value || '').trim()) syncOptsFromAns();
+      });
+    }
+
+    if ($('#fixOptsList')) {
+      var optBox = $('#fixOptsList');
+      optBox.addEventListener('change', function (e) {
+        var t = e.target;
+        if (!t || !t.dataset || t.dataset.on == null) return;
+        var i = +t.dataset.on;
+        if (!FIXROWS[i]) return;
+        FIXROWS[i].on = !!t.checked;
+        if ($('#fixType').value === 'single') {
+          if (t.checked) enforceSingleOpt(i);   // 勾新的，旧的自动取消
+          renderOptRows();
+        }
+        syncAnsFromOpts();
+      });
+      optBox.addEventListener('input', function (e) {
+        var t = e.target;
+        if (!t || !t.dataset || t.dataset.ot == null) return;
+        if (FIXROWS[+t.dataset.ot]) FIXROWS[+t.dataset.ot].text = t.value;
+        syncAnsFromOpts();
+      });
+      optBox.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-odel]') : null;
+        if (!btn) return;
+        FIXROWS.splice(+btn.dataset.odel, 1);
+        renderOptRows();
+        syncAnsFromOpts();
+      });
+    }
+
+    if ($('#fixOptAdd')) {
+      $('#fixOptAdd').addEventListener('click', function () {
+        if (FIXROWS.length >= 8) { warn('最多 8 个选项，再多就不像选择题了'); return; }
+        FIXROWS.push({ text: '', on: FIXROWS.length === 0 });
+        renderOptRows();
+        var ins = $$('#fixOptsList .fix-opt-text');
+        if (ins.length) ins[ins.length - 1].focus();
+      });
+    }
+
+    if ($('#fixOptFill')) {
+      $('#fixOptFill').addEventListener('click', function () {
+        var picks = FIXROWS.filter(function (r) { return r.on && String(r.text || '').trim(); })
+          .map(function (r) { return String(r.text).trim(); });
+        if (!picks.length) { warn('先勾一个正确答案，才知道该给谁配干扰项'); return; }
+        var fresh = fixOpts(picks, q).filter(function (d) {
+          return !picks.some(function (p) { return sameOpt(p, d); });
+        });
+        // 勾着的原样留着，没勾的全换成题库里新凑的。
+        // 题库小的时候只能凑出两个，那就给三个选项 —— 别把刚换掉的旧项又塞回来
+        var out = FIXROWS.filter(function (r) { return r.on; });
+        fresh.slice(0, Math.max(0, 4 - out.length)).forEach(function (d) {
+          out.push({ text: d, on: false });
+        });
+        if (out.length < 2) { warn('题库里凑不出别的选项，手动加一个吧'); return; }
+        FIXROWS = out;
+        renderOptRows();
+        syncAnsFromOpts();
+        toast('干扰项换了一批');
+      });
+    }
 
     // 选中一段文字 → 变成 ____，同时把这段字填进答案
     $('#fixBlankBtn').addEventListener('click', function () {
@@ -2568,40 +3206,88 @@
     $('#fixSave').addEventListener('click', function () {
       var type = $('#fixType').value;
       var stem = $('#fixStem').value.replace(/\r\n?/g, '\n').trim();
-      var ansRaw = $('#fixAns').value.trim();
       var note = $('#fixNote').value.trim();
       if (!stem) { warn('题干不能空着'); return; }
-      if (!ansRaw) { warn('答案得填一个，不然没法判分'); return; }
 
-      var answer = fixAnswerOf(type, ansRaw);
-      var empty = Array.isArray(answer) ? !answer.length : !String(answer).trim();
-      if (empty) { warn('答案得填一个，不然没法判分'); return; }
+      var answer = null;
+      var choiceOpts = null;
 
-      // 题型和答案形状对齐：单选/名词解释只能是一个整体，简答必须是若干条
-      if (type === 'multi' && (!Array.isArray(answer) || answer.length < 2)) type = 'single';
-      if (type === 'single' && Array.isArray(answer)) answer = answer.join('、');
-      if (type === 'term' && Array.isArray(answer)) answer = answer.join('、');
-      if (type === 'short' && !Array.isArray(answer)) answer = [answer];
-      if (type === 'fill' && stem.indexOf('____') < 0) stem += ' ____';
+      if (type === 'single' || type === 'multi') {
+        // 选项区还没铺开（题型是脚本改的、或从填空题刚切过来）：先按原答案摊一份
+        if (!FIXROWS.length) {
+          var seed = String($('#fixAns').value || '').trim();
+          FIXROWS = fixOptRows(q, seed ? fixAnswerOf(type, seed) : q.answer);
+          renderOptRows();
+        }
+        // 答案框被改过（还没来得及失焦就点了保存）：先把它落到选项上
+        var ansBox = String($('#fixAns').value || '').trim();
+        var picked0 = FIXROWS.filter(function (r) { return r.on; })
+          .map(function (r) { return String(r.text || '').trim(); }).filter(Boolean).join('、');
+        if (ansBox && normalize(ansBox) !== normalize(picked0)) syncOptsFromAns();
+
+        // 选择题：答案和选项都以「勾选 + 编辑框」为准
+        var rows = FIXROWS.map(function (r) {
+          return { text: String(r.text == null ? '' : r.text).trim(), on: !!r.on };
+        }).filter(function (r) { return r.text; });
+
+        var picks = rows.filter(function (r) { return r.on; });
+        if (!picks.length) {
+          // 一个都没勾：把答案框里写的补成选项并勾上，别让人卡在这
+          var arr0 = String($('#fixAns').value || '').trim();
+          if (arr0) {
+            var parts0 = fixAnswerOf(type, arr0);
+            (Array.isArray(parts0) ? parts0 : [parts0]).forEach(function (a) {
+              var hit = rows.filter(function (r) { return sameOpt(r.text, a); })[0];
+              if (hit) hit.on = true;
+              else rows.push({ text: String(a), on: true });
+            });
+          }
+          picks = rows.filter(function (r) { return r.on; });
+        }
+        if (!picks.length) { warn('至少勾一个选项当正确答案'); return; }
+        if (type === 'single' && picks.length > 1) {
+          warn('单选只能勾一个正确答案；要多个就先把题型改成「多选」');
+          return;
+        }
+        if (type === 'multi' && picks.length < 2) {
+          warn('多选至少要勾两个正确答案；只有一个就改成「单选」');
+          return;
+        }
+        answer = type === 'multi'
+          ? picks.map(function (r) { return r.text; })
+          : picks[0].text;
+        choiceOpts = rows.map(function (r) { return r.text; });
+        // 正确答案必须在选项里，否则渲染出来勾不到
+        (Array.isArray(answer) ? answer : [answer]).forEach(function (a) {
+          if (!choiceOpts.some(function (o) { return sameOpt(o, a); })) choiceOpts.push(String(a));
+        });
+      } else {
+        var ansRaw = $('#fixAns').value.trim();
+        if (!ansRaw) { warn('答案得填一个，不然没法判分'); return; }
+        answer = fixAnswerOf(type, ansRaw);
+        var empty = Array.isArray(answer) ? !answer.length : !String(answer).trim();
+        if (empty) { warn('答案得填一个，不然没法判分'); return; }
+        if (type === 'term' && Array.isArray(answer)) answer = answer.join('、');
+        if (type === 'short' && !Array.isArray(answer)) answer = [answer];
+        if (type === 'fill' && stem.indexOf('____') < 0) stem += ' ____';
+      }
+
       // 选择题的答案就在选项里，题干再拖一条下划线只会让人以为还要手写
       if ((type === 'single' || type === 'multi') && stem.indexOf('____') >= 0) {
         stem = stem.replace(/[ \t\u3000]*_{2,}[ \t\u3000]*/g, '（　）');
       }
 
       var fix = { type: type, stem: stem, answer: answer, note: note, at: Date.now() };
-      if (type === 'single' || type === 'multi') {
-        var opts = fixOpts(answer, q);
-        if (opts.length < 2) {
-          // 题库里凑不出干扰项时别硬造选择题：只给正确答案的选项等于送分
+      if (choiceOpts) {
+        if (choiceOpts.length < 2) {
+          // 只剩一个选项（正确答案）时别硬造选择题：等于直接送分
           fix.type = 'fill';
-          if (fix.stem.indexOf('____') < 0) {
-            // 刚才为选择题把空换成了（　），降级回填空时要换回来，别多长一个空
-            if (fix.stem.indexOf('（　）') >= 0) fix.stem = fix.stem.replace('（　）', '____');
-            else fix.stem += ' ____';
-          }
-          toast('题库里凑不出干扰项，这题先按填空出');
+          if (fix.stem.indexOf('（　）') >= 0) fix.stem = fix.stem.replace('（　）', '____');
+          else if (fix.stem.indexOf('____') < 0) fix.stem += ' ____';
+          fix.answer = Array.isArray(answer) ? answer.join('、') : answer;
+          toast('只留了一个选项，这题先按填空出');
         } else {
-          fix.opts = opts;
+          fix.opts = choiceOpts;
         }
       }
 
@@ -2679,7 +3365,7 @@
     // 点一下就判对、紧接着自动跳到下一题，看着就是「填空提交后没显示答案」
     var isFill = st.forms[st.idx] === 'fill' || q.type === 'fill';
     var isMulti = q.type === 'multi' && !isFill && !typed;
-    var opts = (isFill || typed) ? [] : shuffle((isMulti ? q.answer.slice() : [q.answer]).concat(q.opts || []));
+    var opts = (isFill || typed) ? [] : shuffle(choiceOptions(q, isMulti));
 
     var bodyHtml = typed
       ? '<div class="typed-row">' +
@@ -4357,6 +5043,7 @@
     buildFromNote: buildFromNote,
     parseBankQuestions: parseBankQuestions,
     parsePaper: parsePaper,
+    parsePaperDoc: parsePaperDoc,
     pickBatch: pickBatch,
     pickQuestions: pickQuestions,
     persistQuiz: persistQuiz,
@@ -4370,6 +5057,9 @@
     clearFix: clearFix,
     fixAnswerOf: fixAnswerOf,
     fixOpts: fixOpts,
+    fixOptRows: fixOptRows,
+    choiceOptions: choiceOptions,
+    sameOpt: sameOpt,
     applyAllFixes: applyAllFixes,
     openFixPanel: openFixPanel,
     closeFixPanel: closeFixPanel,

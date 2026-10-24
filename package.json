@@ -1,6 +1,6 @@
 {
   "name": "finals-quiz",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "description": "期末刷题站 —— 把课程笔记变成题目，支持游客直接使用，可选登录后多设备同步题集",
   "main": "server.js",
