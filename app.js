@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.13.0';
+  var FQ_VERSION = '1.13.1';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -2083,18 +2083,22 @@
   /* ---------------------------------------------------------
      多文件导入：一次选十几个文件（一章一个），逐个读
      --------------------------------------------------------- */
+  /* 选完文件先做快照，再清空 input：
+     Chromium/Edge 里 input.value = '' 会把 files 那个 FileList 就地清空。
+     旧写法「var fs = this.files; this.value = '';」拿到的是同一个活引用，
+     清空后 fs.length 已经是 0，整批文件一声不响地丢掉（没有报错、没有提示）。
+     所以必须先用 slice 拷成普通数组（数组里握着 File 对象，不会跟着消失），
+     再清 value —— 清空是为了让用户还能重选同一个文件（不清的话 change 不触发）。 */
+  function takePicked(input, kind) {
+    var picked = Array.prototype.slice.call((input && input.files) || []);
+    try { input.value = ''; } catch (e) { /* 个别环境不让改，不影响已拷出来的数组 */ }
+    if (!picked.length) return Promise.resolve();   // 用户点了取消，什么都不做
+    return importFiles(picked, kind);
+  }
   $('#pickFileBtn').addEventListener('click', function () { $('#fileInput').click(); });
   $('#paperPickBtn').addEventListener('click', function () { $('#paperInput').click(); });
-  $('#fileInput').addEventListener('change', function () {
-    var fs = this.files;
-    this.value = '';
-    importFiles(fs, 'note');
-  });
-  $('#paperInput').addEventListener('change', function () {
-    var fs = this.files;
-    this.value = '';
-    importFiles(fs, 'paper');
-  });
+  $('#fileInput').addEventListener('change', function () { takePicked(this, 'note'); });
+  $('#paperInput').addEventListener('change', function () { takePicked(this, 'paper'); });
   $('#noteClearBtn').addEventListener('click', function () {
     S.noteFiles = [];
     $('#noteText').value = '';
@@ -5494,6 +5498,7 @@
     parsePaperRuns: parsePaperRuns,
     renderFileList: renderFileList,
     importFiles: importFiles,
+    takePicked: takePicked,
     chapterOf: chapterOf,
     guessCourse: guessCourse,
     paperPool: paperPool,

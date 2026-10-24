@@ -484,6 +484,79 @@ console.log('\n九、不内置任何专业的原卷题库');
   ok(api.state().noteFiles.length === 2, '笔记也能多选', api.state().noteFiles.length);
   ok(/2 个文件/.test(d.querySelector('#noteStat').textContent), '笔记字数统计带上文件数', d.querySelector('#noteStat').textContent);
 
+  console.log('\n十一、点「选择原卷文件」→ 选中 → 打开：文件真的进来了');
+  {
+    const { win, api } = boot(null);
+    const d = win.document;
+    const F = (name, text) => new win.File([text], name, { type: 'text/plain' });
+    const A = ['第二章 药物治疗的原则与过程', '单选题（每题2分）',
+      '药物治疗的前提是（     ）B', 'A.安全性  B.有效性   C.经济性   D.适当性'].join('\n');
+    const B = ['第三章 药物相互作用', '单选题（每题2分）',
+      '肝药酶诱导剂是（     ）A', 'A.苯巴比妥  B.酮康唑   C.西咪替丁   D.红霉素'].join('\n');
+
+    /* 回归点：Chromium/Edge 里 input.value = '' 会把 files 这个 FileList 就地清空。
+       旧写法「var fs = this.files; this.value = '';」拿到的是同一个活列表，
+       清空后长度已经是 0，整批文件静默丢失（没报错、没提示、列表也不动）。
+
+       happy-dom 每次读 files 给的是拷贝，复刻不出这个坑，所以这里手搓一个
+       Chromium 语义的 input：同一个数组对象，value='' 时就地清空。 */
+    function chromiumInput(list) {
+      const bag = { files: list };
+      const obj = { value: 'C:\\fakepath\\旧文件.txt' };
+      Object.defineProperty(obj, 'files', { get: () => bag.files });
+      Object.defineProperty(obj, 'value', {
+        get: () => obj._v,
+        set: (v) => {
+          obj._v = v;
+          if (v === '') bag.files.length = 0;   // 就地清空，不是换一个新的空数组
+        }
+      });
+      obj._v = 'C:\\fakepath\\旧文件.txt';
+      return obj;
+    }
+
+    const fake = chromiumInput([F('第二章 药物治疗的原则与过程.txt', A), F('第三章 药物相互作用.txt', B)]);
+    await api.takePicked(fake, 'paper');
+    ok(api.state().paperFiles.length === 2, '活列表被清空前已抢下快照：两个文件都在', api.state().paperFiles.map((f) => f.name));
+    ok(fake.value === '', '清完 value 仍然是空的（重选同一个文件还能触发 change）', fake.value);
+    ok(api.state().paperFiles[0].chars > 20, '内容是完整读出来的，不是空壳', api.state().paperFiles[0].chars);
+
+    /* 反证：先清空再取引用，就是旧代码那个 bug，一个文件也拿不到 */
+    const bad = chromiumInput([F('卷子.txt', A)]);
+    bad.value = '';
+    ok(bad.files.length === 0, '前置：先清空再取引用确实会拿到空列表（旧写法为什么静默失败）', bad.files.length);
+
+    /* 走真实事件：把文件塞进 input → 派发 change */
+    const pin = d.querySelector('#paperInput');
+    pin.files = [F('第二章 药物治疗的原则与过程.txt', A), F('第三章 药物相互作用.txt', B)];
+    pin.dispatchEvent(new win.Event('change'));
+    const t0 = Date.now();
+    while (api.state().paperFiles.length < 2 && Date.now() - t0 < 3000) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    ok(api.state().paperFiles.length === 2, '一次选中两个原卷，两个都读进来了', api.state().paperFiles.map((f) => f.name));
+    ok(api.state().paperFiles.every((f) => f.chars > 20), '文件内容不是空的', api.state().paperFiles.map((f) => f.chars));
+    ok(d.querySelectorAll('#paperFiles .file-row').length === 2, '文件列表显示两行', d.querySelectorAll('#paperFiles .file-row').length);
+    ok(pin.value === '', '读完把 input 清空（再选同一个文件还能触发 change）', pin.value);
+
+    /* 笔记那一步是同一套事件，同样不能丢 */
+    const nin = d.querySelector('#fileInput');
+    nin.files = [F('笔记一.md', '药物治疗的前提是有效性。')];
+    nin.dispatchEvent(new win.Event('change'));
+    const t1 = Date.now();
+    while (api.state().noteFiles.length < 1 && Date.now() - t1 < 3000) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    ok(api.state().noteFiles.length === 1, '笔记文件同样能读进来', api.state().noteFiles.length);
+
+    /* 用户点了「取消」：不报错、不弹提示、不动已有列表 */
+    const before = api.state().paperFiles.length;
+    d.querySelector('#paperInput').files = [];
+    d.querySelector('#paperInput').dispatchEvent(new win.Event('change'));
+    await new Promise((r) => setTimeout(r, 30));
+    ok(api.state().paperFiles.length === before, '取消选择不破坏已导入的文件', api.state().paperFiles.length);
+  }
+
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
   process.exit(fail ? 1 : 0);
 })();
