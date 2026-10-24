@@ -220,8 +220,10 @@ console.log('\n分区题型：单选题区里不许冒出多选题：');
 
   ok(secSingle.length === 2, '单选题区两面都出了题', secSingle.map((q) => q.type));
   ok(secSingle.every((q) => q.type !== 'multi'), '单选题区里没有一道变成多选', secSingle.map((q) => q.type));
-  ok(secMulti.length === 1 && secMulti[0].type === 'multi',
-    '多选题区里那道仍是多选', secMulti.map((q) => q.type));
+  // 规矩变了：笔记里没有真正印出来的 A/B/C/D 选项，就不再凑一道假选择题，
+  // 按多个答案的填空考。真题选择题只能来自用户上传的原卷（见 preferpaper.test.js）
+  ok(secMulti.length === 1 && secMulti[0].type === 'fill',
+    '多选题区那道（没印选项）出成填空', secMulti.map((q) => q.type));
   ok(secMulti.length === 1 && (secMulti[0].answer || []).length === 3,
     '多选题答案仍是三个并列项', secMulti[0] && secMulti[0].answer);
   ok(secFill.length === 2 && secFill.every((q) => q.type === 'fill'),

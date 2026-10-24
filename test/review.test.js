@@ -85,6 +85,22 @@ const NOTE = [
   '药物治疗学是研究药物治疗疾病规律的一门学科。'
 ].join('\n');
 
+/* 原卷：选择题只能来自这里。笔记提炼出来的题已经不再自己造干扰项，
+   要测「选择题的回看」就得先有一份真卷子。
+   格式跟老师的卷子一致：答案字母跟在空括号后面。 */
+const PAPER = [
+  '单选题（每题2分）',
+  '药物治疗的核心问题是（     ）A',
+  'A、合理用药   B、获得最佳疗效',
+  'C、安全用药   D、获得最低成本',
+  '治疗药物监测最常用的标本是（     ）B',
+  'A、尿液   B、血浆',
+  'C、唾液   D、粪便',
+  '下列属于肝药酶诱导剂的是（     ）A',
+  'A、苯巴比妥   B、酮康唑',
+  'C、西咪替丁   D、红霉素'
+].join('\n');
+
 function answerCount(a) {
   const stats = JSON.parse(a.store.getItem('fq_stats_v1') || '{}');
   let n = 0;
@@ -92,12 +108,21 @@ function answerCount(a) {
   return n;
 }
 
-async function intoQuiz(a, form) {
-  a.setVal('#noteText', NOTE);
-  a.click('#extractBtn');
-  await sleep(200);
-  a.click('#saveBankBtn');
-  await sleep(200);
+async function intoQuiz(a, form, mode) {
+  if (mode === 'paper') {
+    a.click('#inputSeg .seg-btn[data-mode="paper"]');
+    a.setVal('#noteText', PAPER);
+    a.click('#extractBtn');
+    await sleep(200);
+    a.click('#saveBankBtn');
+    await sleep(200);
+  } else {
+    a.setVal('#noteText', NOTE);
+    a.click('#extractBtn');
+    await sleep(200);
+    a.click('#saveBankBtn');
+    await sleep(200);
+  }
   a.setVal('#qForm', form);
   a.setVal('#qCount', '0');
   a.click('#quizStartBtn');
@@ -199,10 +224,10 @@ async function intoQuiz(a, form) {
   ok(answerCount(c) === before, '回看不会重复计入练习记录', { before: before, after: answerCount(c) });
 
   /* ---------- 5. 选择题也要能回看 ---------- */
-  console.log('\n[5] 选择题的回看');
+  console.log('\n[5] 选择题的回看（用原卷的真实选项）');
   const d = bootApp();
   await sleep(150);
-  await intoQuiz(d, 'choice');
+  await intoQuiz(d, 'choice', 'paper');
   const opts1 = d.$$('#optsBox .opt');
   ok(opts1.length > 0, '第 1 题给了选项', opts1.length);
   ok(d.$('#prevQBtn') === null, '选择题第 1 题也没有「上一题」');

@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.9.0';
+  var FQ_VERSION = '1.10.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -76,6 +76,51 @@
     A.forEach(function (g) { if (setB.has(g)) hit++; });
     return 2 * hit / (A.length + B.length);
   }
+
+  /* ---------------- 原卷真题的识别与匹配 ----------------
+     用户定死的一条规矩：选择题只能是卷子上的原题，题干、选项、答案
+     都以原卷为准；卷子里没考过的知识点挖成填空，不许自己编干扰项。
+     所以要先能分清「这道题的选项是卷子给的」还是「系统凑的」。 */
+
+  /* 选项来自原卷的题才算真题。新的数据带 optsSrc 标记；
+     早先入库的（还没有这个字段）用「有章节 + 至少两个选项」兜底认。 */
+  function isPaperQ(q) {
+    if (!q) return false;
+    if (q.optsSrc === 'paper') return true;
+    return !!q.chapter && !!(q.opts && q.opts.length >= 2);
+  }
+
+  /* 题干去掉括号占位和题号，只留用来比对的那截 */
+  var STEM_BLANK = /[（(][\s\u3000]*[）)]/g;
+  function stemCore(stem) {
+    return normalize(String(stem || '').replace(STEM_BLANK, '').replace(/^\s*\d+[.、)）]\s*/, ''));
+  }
+
+  /* 笔记句 ↔ 原卷题干的匹配分。
+     卷子上的题干往往只是笔记句的前半截
+     （「药物协同作用包括」vs「药物协同作用包括相加作用 增强作用 增敏作用」），
+     纯 dice 会被长句稀释掉，所以题干被笔记句整个包住时直接判强命中。 */
+  function noteScore(stemN, sentN) {
+    if (!stemN || !sentN || stemN.length < 6) return 0;
+    if (sentN.indexOf(stemN) >= 0) return 0.9 + 0.1 * Math.min(1, stemN.length / 20);
+    return dice(stemN, sentN);
+  }
+
+  /* 笔记里这件事卷子考过没有：返回 {q, score} 或 null。
+     同一条原卷题只让最像的那句笔记认领，别被几句话重复挂上。 */
+  var PAPER_HIT = 0.45;
+  function findPaperMatch(cand, pool, taken) {
+    var sentN = normalize(cand && (cand.source || cand.stem) || '');
+    if (!sentN) return null;
+    var best = null, bestScore = 0;
+    pool.forEach(function (p) {
+      if (taken[p.id]) return;
+      var s = noteScore(stemCore(p.stem), sentN);
+      if (s > bestScore) { bestScore = s; best = p; }
+    });
+    return (best && bestScore >= PAPER_HIT) ? { q: best, score: bestScore } : null;
+  }
+
   function keyList(text) {
     var raw = String(text).split(/[、，,;；]+/).map(function (s) { return s.trim(); }).filter(Boolean);
     if (!raw.length) raw = [String(text)];
@@ -605,43 +650,35 @@
     return out;
   }
 
-  function multiPool(p, pts) {
-    var pool = [];
-    pts.forEach(function (o) {
-      if (o === p) return;
-      if (o.type === 'multi') o.items.forEach(function (x) { pool.push(x); });
-      else pool.push(o.right);
-    });
-    return pool;
-  }
+  /* 原来这里有个 multiPool()：从同一份笔记的其他题里抓词当干扰项。
+     现在不许自造选项了，它没有调用方，一并删掉 —— 留着容易被人再捡起来用。 */
 
   function buildQuestions(pts) {
-    var answerPool = [];
-    pts.forEach(function (p) {
-      if (p.type === 'multi') p.items.forEach(function (x) { answerPool.push(x); });
-      else answerPool.push(p.right);
-    });
+    /* 注意：这里**不再自己配干扰项**。
+       用户定的规矩是选择题只能用他上传的卷子原题，系统拼出来的
+        「正确答案 + 题库里抓几个词」那种题一律不许出。所以笔记提炼
+       出来的题都是填空，多个答案就按顿号分隔考。
+       笔记里本来就排好的题库（parseBankQuestions，A/B/C/D 是原文写的）
+       不经过这里，那些选项是原文自带的，照旧出选择题。 */
     return pts.map(function (p) {
       var stem = cleanMark(p.left + p.t + '____' + (p.tail || ''));
       if (p.type === 'multi') {
         return {
           id: qidOf(p.left + '|' + p.right),
-          type: 'multi',
+          type: 'fill',
           stem: stem,
           answer: p.items.map(cleanMark),
-          opts: pickDistractors(p.items, multiPool(p, pts), 2).map(cleanMark),
+          opts: [],
           source: cleanMark(p.sent),
           order: p.order
         };
       }
-      var opts = pickDistractors([p.right], answerPool, 3).map(cleanMark);
-      // 干扰项凑不够就不硬编选项，直接当填空题考；⑤ 兜底出来的也保持填空
       return {
         id: qidOf(p.left + '|' + p.right),
-        type: (p.type === 'fill' || opts.length < 2) ? 'fill' : 'single',
+        type: 'fill',
         stem: stem,
         answer: cleanMark(p.right),
-        opts: opts,
+        opts: [],
         source: cleanMark(p.sent),
         order: p.order
       };
@@ -1075,12 +1112,15 @@
         qs.push({
           type: 'multi', stem: cur.stem, answer: texts,
           opts: opts.map(function (o) { return o.text; }),
+          // optsSrc: 选项是卷子印的，不是系统凑的 —— 出题时据此放行选择题
+          optsSrc: 'paper',
           source: cur.stem, order: qs.length
         });
       } else {
         qs.push({
           type: 'single', stem: cur.stem, answer: texts[0],
           opts: opts.map(function (o) { return o.text; }),
+          optsSrc: 'paper',
           source: cur.stem, order: qs.length
         });
       }
@@ -1610,7 +1650,8 @@
     recite: null,
     noteRaw: null,
     inputMode: 'note',        // 'note' 提炼笔记 / 'paper' 照抄原卷
-    paperInfo: null           // 上一次原卷解析的统计（跳过了几道、为什么）
+    paperInfo: null,          // 上一次原卷解析的统计（跳过了几道、为什么）
+    paperMatch: null,         // 上一次笔记解析里对上了几道卷子原题
   };
 
   function save() {
@@ -1739,6 +1780,15 @@
     return s;
   }
   function answerText(q) { return Array.isArray(q.answer) ? q.answer.join('、') : q.answer; }
+
+  /* 笔记里对这道题的讲解。真题优先之后，原卷题的题干和选项都来自卷子，
+     笔记那句话就退到「讲解」的位置 —— 答完能看到自己笔记里怎么说的。 */
+  function noteLine(q) {
+    if (!q || !q.note) return '';
+    var t = String(q.note).trim();
+    if (!t || t === q.stem) return '';
+    return '<div class="source note-src">笔记里怎么说：' + esc(t) + '</div>';
+  }
 
   // 题型标签：简答和名词解释是手打题，界面上要让人一眼知道这题怎么答
   var TYPE_LABEL = { single: '单选', multi: '多选', fill: '填空', term: '名词解释', short: '简答' };
@@ -2248,15 +2298,105 @@
       toast('没提炼出判断句，试试用「……是……」「……的标志是……」这样的句式写笔记');
       return false;
     }
+    // 笔记对得上卷子里的原题，就出原题；对不上的按笔记挖空
+    var m = preferPaper(qs);
+    S.paperMatch = m;
+    qs = m.list;
+    if (!qs.length && m.hit) {
+      toast('这 ' + m.hit + ' 条笔记卷子里全都考过，已给题库里的原题补上讲解，没有重复出题');
+      return false;
+    }
     S.preview = qs;
     renderPreview();
     $('#previewCard').hidden = false;
     if (!silent) {
       $('#previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      var banked = qs.filter(function (q) { return q.type !== 'fill'; }).length;
-      toast('共 ' + qs.length + ' 道题' + (banked ? '（其中 ' + banked + ' 道是原题库还原）' : ''));
+      var parts = [];
+      if (m.hit) parts.push(m.hit + ' 道对上了卷子原题（用原题干、原选项）');
+      if (m.dup) parts.push('其中 ' + m.dup + ' 道题库里已有，只补讲解');
+      if (m.fresh) parts.push(m.fresh + ' 道卷子里没考过，按笔记挖空出填空');
+      toast(parts.length ? parts.join('；') : ('共 ' + qs.length + ' 道题'));
     }
     return true;
+  }
+
+  /* =========================================================
+     真题优先：笔记里这件事卷子考过，就出卷子那道原题
+     ---------------------------------------------------------
+     用户定的规矩（原话）：「选择题来自我上传的卷子原题，并以原题的
+     题干和选项为准；不要自行编造干扰性选择题或改动原题内容。」
+
+     所以解析笔记时先拿每条笔记去题库里翻已导入的原卷题：
+       · 对上了 → 直接吐那道原卷题，题干、选项、答案一个字不动，
+                  笔记那句话说到底就是它的讲解，存进 q.note
+       · 没对上 → 按笔记挖空出填空（buildFromNote 已经不出选择题了）
+     题库里本来就有的原卷题不重复加，只把讲解补上去。
+     ========================================================= */
+  function preferPaper(cands) {
+    var pool = getQs().filter(isPaperQ);
+    var res = { list: cands, hit: 0, dup: 0, demoted: 0, fresh: 0, noPool: !pool.length };
+    if (!pool.length) {
+      // 还没导入原卷：没什么可对的，老实按笔记出填空
+      var out0 = cands.map(demoteToFill);
+      res.list = out0;
+      res.demoted = out0.filter(function (q, i) { return q !== cands[i]; }).length;
+      res.fresh = out0.length;
+      return res;
+    }
+
+    var exist = {};
+    pool.forEach(function (p) { exist[p.id] = 1; });
+    var taken = {}, out = [];
+
+    cands.forEach(function (cand) {
+      var m = findPaperMatch(cand, pool, taken);
+      if (!m) { out.push(demoteToFill(cand)); res.demoted++; res.fresh++; return; }
+
+      taken[m.q.id] = 1;
+      res.hit++;
+      if (exist[m.q.id]) {
+        // 已经在题库里了：不重复添加，只带一条「补讲解」的指令回去
+        out.push({
+          id: m.q.id, stem: m.q.stem, answer: m.q.answer, opts: m.q.opts,
+          type: m.q.type, source: m.q.source, chapter: m.q.chapter,
+          optsSrc: m.q.optsSrc, order: m.q.order,
+          note: String(cand.source || cand.stem || '').trim(),
+          onlyAttachNote: true
+        });
+        res.dup++;
+        return;
+      }
+      // 题库里还没有这道真题：整条照卷子抄，答案也用卷子上的
+      var q = {};
+      for (var k in m.q) if (Object.prototype.hasOwnProperty.call(m.q, k)) q[k] = m.q[k];
+      q.answer = Array.isArray(m.q.answer) ? m.q.answer.slice() : m.q.answer;
+      q.opts = (m.q.opts || []).slice();
+      q.note = String(cand.source || cand.stem || '').trim();
+      out.push(q);
+    });
+
+    // 同一条原卷题只留一份（几条笔记可能都对上同一道题）
+    var seen = {}, dedup = [];
+    out.forEach(function (q) {
+      if (seen[q.id]) return;
+      seen[q.id] = 1;
+      dedup.push(q);
+    });
+
+    res.list = dedup;
+    return res;
+  }
+
+  /* 笔记提炼出来的选择题（选项是系统拼的）一律降级成填空。
+     名词解释 / 简答 / 本来就是填空的不动。 */
+  function demoteToFill(q) {
+    if (!q || (q.type !== 'single' && q.type !== 'multi')) return q;
+    if (isPaperQ(q)) return q;               // 选项本来就是卷子的，放过
+    var c = {};
+    for (var k in q) if (Object.prototype.hasOwnProperty.call(q, k)) c[k] = q[k];
+    c.type = 'fill';
+    c.opts = [];
+    return c;
   }
 
   /* 原卷：不提炼、不猜，照着试卷抄。老师给的分值、括号、选项顺序一律不动，
@@ -2327,7 +2467,7 @@
   setInputMode('note');
 
   /* 内置原卷题库：把《临床药物治疗学概论》15 章教材里有卷的 14 章原卷一次装进来（第一章没卷）。
-     223 道题铺进预览表太长，直接存成题集更实在。 */
+     224 道题铺进预览表太长，直接存成题集更实在。 */
   $('#builtinPaperBtn').addEventListener('click', function () {
     var btn = this;
     var label = btn.textContent;
@@ -2342,7 +2482,9 @@
         (ch.questions || []).forEach(function (q) {
           list.push({
             type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
-            source: q.source || q.stem, chapter: ch.chapter || '', order: list.length
+            source: q.source || q.stem, chapter: ch.chapter || '', order: list.length,
+            // 内置题库同样是卷子上的原题，选项不是系统凑的
+            optsSrc: (q.opts && q.opts.length >= 2) ? 'paper' : null
           });
         });
       });
@@ -2369,7 +2511,10 @@
       tr.innerHTML =
         '<td class="c-chk"><input type="checkbox" class="p-chk" checked></td>' +
         '<td class="c-type"><span class="tag' + (q.type === 'multi' ? ' multi' : (q.type === 'short' || q.type === 'term') ? ' typed' : '') + '">' +
-        typeLabel(q) + '</span></td>' +
+        typeLabel(q) + '</span>' +
+        (q.onlyAttachNote ? '<span class="tag paper" title="题库里已经有这道真题，这次只把笔记里的讲解补上去">已有·补讲解</span>'
+          : isPaperQ(q) ? '<span class="tag paper" title="题干、选项、答案都照你上传的原卷">原卷真题</span>' : '') +
+        '</td>' +
         '<td><input class="cell-input p-stem" value="' + esc(q.stem) + '">' +
         ((q.opts && q.opts.length)
           ? '<div class="p-opts">' + q.opts.map(function (o, k) {
@@ -2377,6 +2522,7 @@
             }).join('') + '</div>'
           : '') +
         (q.chapter ? '<div class="p-chapter">' + esc(q.chapter) + '</div>' : '') +
+        (q.note ? '<div class="p-note">笔记：' + esc(q.note) + '</div>' : '') +
         '</td>' +
         '<td class="c-ans"><input class="cell-input p-ans" value="' + esc(answerText(q)) + '"></td>' +
         '<td class="c-op">' +
@@ -2405,7 +2551,8 @@
       if (!q) return;
       q.stem = $('.p-stem', tr).value.trim() || q.stem;
       var av = $('.p-ans', tr).value.trim();
-      q.answer = q.type === 'multi'
+      // 多选和「多个答案的填空」都是顿号分隔的，两种都要拆开
+      q.answer = (q.type === 'multi' || Array.isArray(q.answer))
         ? av.split(/[、，,]/).map(function (s) { return s.trim(); }).filter(Boolean)
         : (av || q.answer);
     });
@@ -2457,7 +2604,11 @@
       if (!ans || (Array.isArray(ans) && !ans.length)) return;
       list.push({
         id: q.id, type: q.type, stem: q.stem, answer: ans, opts: q.opts || [],
-        source: q.source || '', chapter: q.chapter || ''
+        source: q.source || '', chapter: q.chapter || '',
+        // optsSrc 决定这题能不能出选择题（只能来自原卷）；
+        // note 是笔记里对它的讲解，别在这层白名单上丢掉
+        optsSrc: q.optsSrc || null,
+        note: q.note || null
       });
     });
     if (!list.length) { toast('请先勾选要保存的题目'); return; }
@@ -2496,17 +2647,38 @@
       exist[q.id] = 1;
       if (q.order != null && q.order > maxOrder) maxOrder = q.order;
     });
-    var add = 0;
+    var add = 0, noted = 0;
     list.forEach(function (q, i) {
-      if (exist[q.id]) return;
+      // 原卷解析出来的题不带 id，得在这里补上：
+      // 掌握度、错题、改题面板都按 id 记账，没有 id 会全挤到 undefined 上
+      if (!q.id) {
+        q.id = qidOf(String(q.stem || '') + '|' +
+          (Array.isArray(q.answer) ? q.answer.join('') : String(q.answer || '')));
+      }
+      if (exist[q.id]) {
+        // 这道真题已经在题库里了：不重复加，只把笔记里的讲解挂上去
+        if (q.note) {
+          var old = null;
+          for (var j = 0; j < bank.questions.length; j++) {
+            if (bank.questions[j].id === q.id) { old = bank.questions[j]; break; }
+          }
+          if (old && !old.note) { old.note = q.note; noted++; }
+        }
+        return;
+      }
+      // onlyAttachNote 是「题库里已有」的标记，别把这条幽灵题当新题存进去
+      if (q.onlyAttachNote) return;
       q.order = maxOrder + 1 + i;   // 新题接在旧题后面，still 按笔记顺序
       bank.questions.push(q);
+      exist[q.id] = 1;              // 同一批里重复的题也别加两遍
       add++;
     });
     bank.questions.sort(byOrder);
     save();
     renderBankSelect();
     bindStars();
+    bank._lastAdded = add;
+    bank._lastNoted = noted;
     return bank;
   }
 
@@ -2518,6 +2690,8 @@
         return {
           type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
           source: q.source || '', chapter: q.chapter || '', order: q.order == null ? i : q.order,
+          optsSrc: q.optsSrc || null,          // 选项来自原卷时带 'paper'
+          note: q.note || null,                // 笔记里对这道题的讲解
           // 带上用户教过的改法：换台设备 / 换个人接着用，反馈不丢
           fix: q.fix || null, orig: q.orig || null
         };
@@ -2602,6 +2776,10 @@
       chapter: q.chapter || '',
       order: q.order == null ? (idx || 0) : q.order
     };
+    // 选项是卷子印的还是系统凑的，出题时要看这个标记
+    if (q.optsSrc) out.optsSrc = q.optsSrc;
+    // 笔记里对这道题的讲解（刷题答完显示「笔记里怎么说」）
+    if (q.note) out.note = String(q.note);
     // 导入别人导出的题库时，「教过的改法」也一起接住
     if (q.fix) { out.fix = q.fix; out.orig = q.orig || null; applyFix(out); }
     return out;
@@ -2879,10 +3057,15 @@
       // 一看到掌握度高，又会把单选题掰回填空，等于白改
       if (q.fix && q.fix.type) {
         if (isTypedQ(q) || q.type === 'fill') return 'fill';
+        // 用户把选项删光了，就别硬撑一道没有选项的选择题
+        if (!(q.opts && q.opts.length >= 2)) return 'fill';
         return 'choice';
       }
       // 简答 / 名词解释天生就是手打，给不了选项
       if (isTypedQ(q)) return 'fill';
+      // 手里没有两个以上选项就不是选择题 —— 选择题只能是卷子原题，
+      // 系统不许临时拼干扰项凑一道出来（「形式：全部给选项」也一样）
+      if (!(q.opts && q.opts.length >= 2)) return 'fill';
       if (mode === 'fill') return 'fill';
       if (mode === 'choice') return q.type === 'fill' ? 'fill' : 'choice';
       // 混合：已经练熟的改成填空考（更难），还生疏的先给选项
@@ -2906,14 +3089,14 @@
      ========================================================= */
   var FIX_TYPE_OPT = [
     ['fill', '填空（挖空，自己填）'],
-    ['single', '单选（一个正确项，配干扰项）'],
+    ['single', '单选（一个正确项 + 干扰项）'],
     ['multi', '多选（多个正确项，全对才得分）'],
     ['term', '名词解释（只留名词，默写解释）'],
     ['short', '简答（标题 + 答要点）']
   ];
   var FIX_ANS_HINT = {
     fill: '多个空按顺序用顿号隔开，例如：血药浓度、谷浓度',
-    single: '填正确项原文；选项会自动从题库里配干扰项',
+    single: '填正确项原文；选项要你自己填，或者在下面点「补几个干扰项」（那是系统编的，不是原卷）',
     multi: '多个正确项用顿号隔开，全部选对才算对',
     term: '填这个名词的完整解释，考试时你要默写出来',
     short: '一条要点一行（也可以用分号隔开），按要点给分'
@@ -3041,7 +3224,7 @@
       '<div id="fixOptsList"></div>' +
       '<div class="fix-opt-tools">' +
       '<button class="btn ghost tiny" id="fixOptAdd" type="button">+ 加一个选项</button>' +
-      '<button class="btn ghost tiny" id="fixOptFill" type="button">↻ 从题库再配几个干扰项</button>' +
+      '<button class="btn ghost tiny" id="fixOptFill" type="button" title="从题库里抓几个词当干扰项 —— 这是系统编的，不是原卷上的选项">↻ 补几个干扰项（系统编的，非原卷）</button>' +
       '</div></div>' +
       '<label class="fld"><span>④ 答案</span>' +
       '<input id="fixAns" class="input" autocomplete="off" value="' + esc(ansText) + '"' +
@@ -3177,7 +3360,7 @@
         FIXROWS = out;
         renderOptRows();
         syncAnsFromOpts();
-        toast('干扰项换了一批');
+        toast('换了一批干扰项（系统编的，不是原卷上的选项）');
       });
     }
 
@@ -3523,7 +3706,10 @@
     var r = st.results[i];
     var q = r.q || st.list[i];
     var isFill = r.input != null;
-    var your = isFill ? r.input : (r.picked || []).join('、');
+    // 单选的 picked 存的是字符串，多选才是数组 —— 这里统一成数组再拼，
+    // 不然回顾单选会炸在 .join 上
+    var pickedArr = Array.isArray(r.picked) ? r.picked : (r.picked == null || r.picked === '' ? [] : [r.picked]);
+    var your = isFill ? r.input : pickedArr.join('、');
     var cls = r.ok ? 'ok' : (r.partial ? 'mid' : 'bad');
     var title = r.ok ? '✅ 这题你答对了' : (r.partial ? '🟡 这题你记住了大半' : '❌ 这题你答错了');
     var html = '<div class="quiz-card">' +
@@ -3540,7 +3726,8 @@
         : q.type === 'term' ? '参考答案：<strong>' + esc(q.answer) + '</strong>'
         : '正确答案：<strong>' + esc(answerText(q)) + '</strong>') +
       '</div>' +
-      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      noteLine(q) +
       '</div>' +
       '<div class="row" style="margin-top:12px">' +
       (i > 0 ? '<button class="btn ghost" id="revPrevBtn">← 更早一题</button>' : '') +
@@ -3621,7 +3808,8 @@
       '<div class="verdict-body">你选：<strong>' + esc(pickedText) + '</strong></div>' +
       // 答对也把「正确答案」摆出来：只写「你选」时，答对的题看着就像没给答案
       '<div class="answer-line ans-key">正确答案：<strong>' + esc(corrects.join('、')) + '</strong></div>' +
-      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      noteLine(q) +
       '</div>' +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
       (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
@@ -3874,7 +4062,8 @@
       '<div class="verdict-title">' + title + '</div>' +
       '<div class="verdict-body">标准答案的要点共 ' + pts.length + ' 条，你答到 ' + g.hits.length + ' 条。</div>' +
       '<ol class="pt-list">' + list + '</ol>' +
-      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      noteLine(q) +
       '</div>';
   }
 
@@ -3889,7 +4078,8 @@
       '<div class="verdict-body">你写的是：' + esc(input) + '</div>' +
       '<div class="answer-line ans-key">参考答案：<strong>' + esc(q.answer) + '</strong></div>' +
       (miss ? '<div class="answer-line">漏掉的关键内容：<strong>' + esc(miss) + '</strong></div>' : '') +
-      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      noteLine(q) +
       '</div>';
   }
 
@@ -3921,7 +4111,8 @@
       '<div class="verdict-body">' + body + '</div>' +
       '<div class="answer-line ans-key">正确答案：<strong>' + esc(answerText(q)) + '</strong></div>' +
       '<div class="answer-line">完整表述：<strong>' + esc(q.stem.replace('____', answerText(q))) + '</strong></div>' +
-      (q.source ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      noteLine(q) +
       '</div>';
   }
 
@@ -5067,6 +5258,14 @@
     gradeAnswer: gradeAnswer,
     decideForms: decideForms,
     stemHtml: stemHtml,
+    /* 真题优先：笔记命中卷子原题就用原题，命中不了才挖空 */
+    isPaperQ: isPaperQ,
+    stemCore: stemCore,
+    noteScore: noteScore,
+    findPaperMatch: findPaperMatch,
+    preferPaper: preferPaper,
+    demoteToFill: demoteToFill,
+    noteLine: noteLine,
     extractPoints: extractPoints,
     buildQuestions: buildQuestions,
     splitSentences: splitSentences,

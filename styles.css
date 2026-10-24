@@ -340,7 +340,10 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr.off { opacity: .45; }
 
 .c-chk { width: 34px; }
-.c-type { width: 60px; }
+/* 题型列要放得下「单选 + 已有·补讲解」两个标签，窄了会一个字一行地竖排 */
+.c-type { width: 98px; }
+.c-type .tag { white-space: nowrap; display: inline-block; }
+.c-type .tag.paper { display: block; margin: 4px 0 0; text-align: center; }
 .c-ans { width: 30%; }
 .c-op { width: 96px; white-space: nowrap; }
 
@@ -363,6 +366,7 @@ tbody tr.off { opacity: .45; }
   padding: 1px 7px;
   border-radius: 6px;
   font-size: 11.5px;
+  white-space: nowrap;      /* 别让标签被挤成一个字一行 */
   background: var(--brand-soft);
   color: var(--brand);
 }
@@ -1029,6 +1033,20 @@ strong, b { font-weight: 800; }
   opacity: .85;
 }
 .p-chapter::before { content: '章节 · '; opacity: .7; }
+
+/* 原卷真题标记：题干选项都来自卷子，不是系统拼的 */
+.tag.paper {
+  background: var(--brand-soft);
+  color: var(--brand);
+  margin-left: 6px;
+}
+/* 笔记里对这道题的讲解 */
+.p-note {
+  margin-top: 5px; font-size: 12.5px; color: var(--muted);
+  line-height: 1.65;
+  padding-left: 8px; border-left: 2px solid var(--line);
+}
+.note-src { color: var(--brand); opacity: .95; }
 
 /* ============ 用户反馈：教它怎么出这道题 ============ */
 /* 挂在刷题卡片下面，跟着卡片一起卷走；不是全屏弹窗，

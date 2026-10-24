@@ -279,7 +279,11 @@ const NOTE = [
   b.setVal('#qForm', 'choice');
   b.click('#quizStartBtn');
   await sleep(150);
-  ok(b.$$('#optsBox .opt').length > 0, '「全部给选项」时给出选项', b.$$('#optsBox .opt').length);
+  // 规矩变了：示例笔记提炼出来的题没有卷子原题选项，就算选「全部给选项」
+  // 也不许临时编干扰项 —— 老实考填空。有原卷选项的题才出选择题。
+  ok(b.$$('#optsBox .opt').length === 0 && (!!b.$('#fillInput') || !!b.$('#quizBody .blank-mark')),
+    '「全部给选项」也不会凭空造干扰项，没有原卷选项的题仍考填空',
+    b.$$('#optsBox .opt').length);
 
   console.log('\n[9] 弹窗遮挡（登录页把人卡死那个 bug）');
   const CSS = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');

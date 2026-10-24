@@ -203,12 +203,17 @@ console.log('\n手打题判分（简答按要点、名词解释按关键词）�
 
 console.log('\n简答/名词解释一律手打，卡片标题和答案一起背：');
 (function () {
-  // 简答和名词解释在「全部给选项」模式下也不能变成选择题
+  // 简答和名词解释在「全部给选项」模式下也不能变成选择题；
+  // 选择题只认带选项的题（选项来自原卷），没选项的题型一律考填空
   const form = api.decideForms
-    ? api.decideForms([{ type: 'short' }, { type: 'term' }, { type: 'multi' }], 'choice')
+    ? api.decideForms([
+        { type: 'short' }, { type: 'term' },
+        { type: 'multi', opts: ['甲', '乙', '丙'] },   // 有原卷选项 → 可以出选择题
+        { type: 'multi' }                              // 没选项 → 不许凭空造
+      ], 'choice')
     : null;
-  ok(form === null || (form[0] === 'fill' && form[1] === 'fill' && form[2] === 'choice'),
-    '「全部给选项」也不会给手打题塞选项', form);
+  ok(form === null || (form[0] === 'fill' && form[1] === 'fill' && form[2] === 'choice' && form[3] === 'fill'),
+    '「全部给选项」也不会给手打题塞选项，没选项的题只能考填空', form);
 })();
 
 console.log('\n重复的名词解释只留一条：');

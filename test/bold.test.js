@@ -38,11 +38,13 @@ console.log('[1] 加粗标记（**重点** / *重点*）：');
 {
   const a = qs('所选药物对患者具备**安全、有效、经济、适当**四个要素');
   ok(a.length === 1, '双星号能出题', a.length);
-  ok(a[0].type === 'multi', '并列内容出成多选题', a[0].type);
+  // 规矩变了：笔记提炼出来的题不再自己配干扰项凑选择题，并列内容按多个答案的填空考
+  ok(a[0].type === 'fill', '并列内容出成填空（不自己造选择题）', a[0].type);
+  ok(a[0].opts.length === 0, '不给自己造干扰项', a[0].opts);
   ok(JSON.stringify(a[0].answer) === JSON.stringify(['安全', '有效', '经济', '适当']),
     '加粗里的四项都是答案', a[0].answer);
   ok(a[0].stem === '所选药物对患者具备____四个要素', '题干不残留星号', a[0].stem);
-  ok(noMark(a[0].stem) && a[0].opts.every(noMark), '题干和选项都干净');
+  ok(noMark(a[0].stem) && (a[0].opts || []).every(noMark), '题干和选项都干净');
 
   const b = qs('所选药物对患者具备*安全、有效、经济、适当*四个要素');
   ok(b.length === 1 && b[0].stem === a[0].stem, '单星号和双星号结果一致', b.length && b[0].stem);
@@ -51,7 +53,7 @@ console.log('[1] 加粗标记（**重点** / *重点*）：');
   ok(c.length === 1 && c[0].stem === '治疗方案的制定应遵循____的原则', '句尾加粗也能挖', c[0] && c[0].stem);
 
   const d = qs('药物不良反应包括**副作用、毒性反应、变态反应**三种。');
-  ok(d.length === 1 && d[0].type === 'multi', '加粗 + 顿号 → 多选', d[0] && d[0].type);
+  ok(d.length === 1 && d[0].type === 'fill', '加粗 + 顿号 → 多答案填空', d[0] && d[0].type);
 }
 
 console.log('\n[2] 加粗顶在句首（以前会整个掉进兜底，答案还反了）：');
@@ -135,10 +137,10 @@ console.log('\n[6] 挖空只挖考点，后半句留在题干里（以前答案�
   ok(String(b[0].answer) === '胃肠道', '答案只挖最后一个考点', b[0] && b[0].answer);
 
   const c = qs('药物不良反应包括副作用、毒性反应、变态反应。');
-  ok(c[0].type === 'multi' && c[0].answer.length === 3, '顿号并列仍然出多选题', c[0] && c[0].answer);
+  ok(c[0].type === 'fill' && c[0].answer.length === 3, '顿号并列 → 三个答案的填空', c[0] && c[0].answer);
 
   const d = qs('所选药物对患者具备**安全、有效、经济、适当**四个要素，需综合权衡。');
-  ok(d[0].type === 'multi' && d[0].answer.length === 4, '加粗标好的范围不被截断', d[0] && d[0].answer);
+  ok(d[0].type === 'fill' && d[0].answer.length === 4, '加粗标好的范围不被截断', d[0] && d[0].answer);
   ok(/____四个要素，需综合权衡$/.test(d[0].stem), '加粗后面的尾巴也留在题干', d[0] && d[0].stem);
 }
 
