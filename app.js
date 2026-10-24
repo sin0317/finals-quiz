@@ -9,6 +9,7 @@
   var LS_BANKS = 'fq_banks_v1';
   var LS_STATS = 'fq_stats_v1';
   var LS_SR = 'fq_sr_v1';   // 间隔复习的排期：每组抽题都用它算「该不该来」
+  var LS_QUIZ = 'fq_quiz_v1';   // 这场刷题刷到哪了：刷新 / 关页面再开都能接着答
   var LS_LOG = 'fq_log_v1';
   var LS_CUR = 'fq_current_v1';
   var LS_THEME = 'fq_theme_v1';
@@ -17,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.7.0';
+  var FQ_VERSION = '1.8.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1430,7 +1431,7 @@
   function switchBank(id) {
     S.cur = id;
     save();
-    S.quiz = null;
+    forgetQuiz();          // 换题集了，上一本刷到哪儿不再适用
     S.recite = null;
     renderBankSelect();
     if (S.view === 'quiz') renderQuizEmpty();
@@ -1523,7 +1524,7 @@
       if (!confirm('删除题集「' + bank.course + '」及其 ' + bank.questions.length + ' 道题？删掉就找不回来了。')) return;
       S.banks = S.banks.filter(function (x) { return x.id !== bank.id; });
       if (S.cur === bank.id) S.cur = S.banks.length ? S.banks[0].id : '';
-      S.quiz = null;
+      forgetQuiz();
       S.recite = null;
       save();
       renderBankSelect();
@@ -2107,6 +2108,7 @@
           });
           S.stats = data.stats || {}; S.log = data.log || [];
           S.cur = S.banks.length ? S.banks[0].id : '';
+          forgetQuiz();
           save(); renderBankSelect(); switchView('stats');
           toast('已导入全部数据');
           return;
@@ -2178,6 +2180,126 @@
      点「开始刷题」是新开一场，清空；点「再来一组」接着用。 */
   var DRILL = { done: {}, served: {} };
   var MASTER_PCT = 90;   // 「已掌握」的门槛，跟 mastered 的算法同一个口径
+
+  /* =========================================================
+     刷题进度存档
+     ---------------------------------------------------------
+     刷新一下整场就没了，是这站最反直觉的地方：答到第 12 题手滑按了 F5，
+     回来又得从第 1 题点起。这里把「这一组抽了哪几道、答到第几题、每题怎么答的」
+     存进 localStorage，重进页面直接接着答。
+     只存题目 id 和作答结果，题目本身按 id 从题库现取 —— 中途用「✎ 改题」
+     改过题、或者重新提炼过笔记，恢复出来也是最新的说法，不会翻出一份旧快照。
+     ========================================================= */
+  var QUIZ_OPT_IDS = ['qRange', 'qType', 'qCount', 'qOrder', 'qForm', 'qMode'];
+
+  function quizOptsNow() {
+    var o = {};
+    QUIZ_OPT_IDS.forEach(function (id) { var el = $('#' + id); if (el) o[id] = el.value; });
+    return o;
+  }
+
+  function restoreQuizOpts(o) {
+    if (!o) return;
+    QUIZ_OPT_IDS.forEach(function (id) {
+      var el = $('#' + id);
+      if (el && o[id] != null && String(o[id]) !== '') el.value = String(o[id]);
+    });
+  }
+
+  function persistQuiz() {
+    try {
+      if (!S.quiz) { localStorage.removeItem(LS_QUIZ); return; }
+      var st = S.quiz;
+      localStorage.setItem(LS_QUIZ, JSON.stringify({
+        v: 1,
+        bank: S.cur || '',
+        at: Date.now(),
+        round: st.round || 1,
+        idx: st.idx || 0,
+        mode: st.mode || 'srs',
+        remain: st.remain || 0,
+        opt: st.opt || quizOptsNow(),
+        forms: st.forms || [],
+        draft: st.draft || '',
+        draftFor: st.draftFor || '',
+        ids: (st.list || []).map(function (q) { return q.id; }),
+        results: (st.results || []).map(function (r) {
+          return {
+            q: (r.q && r.q.id) || '',
+            ok: !!r.ok,
+            partial: !!r.partial,
+            multi: !!r.multi,
+            input: r.input == null ? null : r.input,
+            picked: r.picked || null
+          };
+        }),
+        drill: { done: DRILL.done, served: DRILL.served }
+      }));
+    } catch (e) { /* 存不下就算了，不能因此答不了题 */ }
+  }
+
+  // 打字时每敲一下就写库太浪费，攒一下再落盘
+  var quizSaveTimer = null;
+  function scheduleQuizSave() {
+    if (quizSaveTimer) return;
+    quizSaveTimer = setTimeout(function () { quizSaveTimer = null; persistQuiz(); }, 350);
+  }
+
+  /* 扔掉存档（换题集、删题集、点「重新开始」时用）。
+     注意只清存档不动 S.quiz 以外的东西：练习记录和间隔复习排期照旧。 */
+  function forgetQuiz() {
+    S.quiz = null;
+    try { localStorage.removeItem(LS_QUIZ); } catch (e) {}
+  }
+
+  /* 把上次那场捞回来。认不出来（换了题集、题目被删、存档坏了）就返回 false，
+     老老实实从「开始刷题」开始 —— 半截会话比没有更麻烦。 */
+  function restoreQuiz() {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(LS_QUIZ) || 'null'); } catch (e) { raw = null; }
+    if (!raw || !raw.ids || !raw.ids.length) return false;
+    if (raw.bank && S.cur && raw.bank !== S.cur) return false;
+
+    var map = {};
+    getQs().forEach(function (q) { map[q.id] = q; });
+    var list = [];
+    for (var i = 0; i < raw.ids.length; i++) {
+      if (!map[raw.ids[i]]) return false;   // 有一道认不出来，整场作废
+      list.push(map[raw.ids[i]]);
+    }
+
+    var results = (raw.results || []).map(function (r) {
+      return {
+        q: map[r.q] || null,
+        ok: !!r.ok,
+        partial: !!r.partial,
+        multi: !!r.multi,
+        input: r.input == null ? null : r.input,
+        picked: r.picked || null
+      };
+    });
+
+    S.quiz = {
+      list: list,
+      idx: Math.max(0, Math.min(raw.idx || 0, list.length)),
+      results: results,
+      timer: null,
+      round: raw.round || 1,
+      mode: raw.mode || 'srs',
+      remain: raw.remain || 0,
+      draft: raw.draft || '',
+      draftFor: raw.draftFor || '',
+      opt: raw.opt || null,
+      // 题型排布也一并恢复：不然恢复出来的题可能跟上次看到的考法不一样
+      forms: (raw.forms && raw.forms.length === list.length)
+        ? raw.forms
+        : decideForms(list, ($('#qForm') || {}).value || 'mix'),
+      resumed: true
+    };
+    if (raw.drill) DRILL = { done: raw.drill.done || {}, served: raw.drill.served || {} };
+    restoreQuizOpts(raw.opt);
+    return true;
+  }
 
   /* 下一组抽哪几道。以前「再来一组」只是重新点了一次「开始刷题」，
      而抽题是「按笔记顺序取前 N 道」，所以永远回到第 1 题 —— 它压根不知道
@@ -2268,6 +2390,7 @@
     S.quiz = {
       list: got.list, idx: 0, results: [], timer: null, round: round,
       mode: quizMode(), remain: got.remain,
+      opt: quizOptsNow(), draft: '', draftFor: '',
       forms: decideForms(got.list, $('#qForm').value)
     };
     renderQuiz();
@@ -2545,6 +2668,7 @@
   function renderQuiz() {
     var st = S.quiz;
     if (!st) return renderQuizEmpty();
+    persistQuiz();                                  // 每翻一题就落盘：刷新不丢进度
     if (st.idx >= st.list.length) return renderQuizResult();
     // 这道题已经答过了（从后面的题回看过来的），直接显示当时的结果，不让人重复作答
     if (st.results[st.idx]) return renderQuizReview();
@@ -2580,9 +2704,11 @@
       (st.idx + 1) + ' / ' + st.list.length + ' 题</span>' +
       '<span class="pill">' + (typed ? typeLabel(q) : isFill ? '填空' : isMulti ? '多选' : '单选') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
+      (st.resumed ? '<span class="pill ok" title="刷新或重开页面后接着上次的进度">已恢复</span>' : '') +
       '<span class="grow"></span>' +
       fixBtnHtml(q) +
       (st.idx > 0 ? '<button class="btn ghost tiny" id="prevQBtn">← 上一题</button>' : '') +
+      (st.resumed ? '<button class="btn ghost tiny" id="quizResetBtn" title="扔掉这次进度，从第一组重新抽题">重新开始</button>' : '') +
       '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
       bodyHtml +
@@ -2598,9 +2724,24 @@
         renderQuiz();
       });
     }
+    // 恢复出来的那一题，可能上次正写到一半 —— 把草稿放回输入框
+    if (st.draft && st.draftFor === q.id && $('#fillInput')) {
+      $('#fillInput').value = st.draft;
+    }
+    // 扔掉这次进度重新抽题（只在恢复态显示，平时不占地方）
+    if ($('#quizResetBtn')) {
+      $('#quizResetBtn').addEventListener('click', function () {
+        forgetQuiz();
+        startQuiz(false);
+        toast('已重新开始一组');
+      });
+    }
 
     if (typed) {
       $('#fillInput').focus();
+      $('#fillInput').addEventListener('input', function () {
+        st.draft = this.value; st.draftFor = q.id; scheduleQuizSave();
+      });
       $('#fillInput').addEventListener('keydown', function (e) {
         // 手打大段文字时 Enter 是换行，只有 Ctrl/⌘+Enter 才提交
         if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
@@ -2611,6 +2752,9 @@
       $('#fillSubmit').addEventListener('click', submitFill);
     } else if (isFill) {
       $('#fillInput').focus();
+      $('#fillInput').addEventListener('input', function () {
+        st.draft = this.value; st.draftFor = q.id; scheduleQuizSave();
+      });
       $('#fillInput').addEventListener('keydown', function (e) {
         // 中文输入法打字时按 Enter 是在选候选词，那一下不能当提交，
         // 否则提交的是拼音串（还会把候选词吞掉不上屏）
@@ -2648,6 +2792,9 @@
     var g = typed ? gradeTyped(q, v) : gradeAnswer(v, q.answer);
     recordAnswer(q.id, g.level, { sr: true });
     st.results.push({ q: q, ok: g.level === 'right', partial: g.level === 'mid', input: v });
+    st.draft = ''; st.draftFor = '';             // 交卷了，草稿没用了
+    st.resumed = false;
+    persistQuiz();
 
     $('#fillInput').disabled = true;
     var fb = $('#fillSubmit');
@@ -2667,6 +2814,7 @@
       '</div>';
     $('#nextQBtn').addEventListener('click', function () {
       quizTimerStop(st);
+      st.resumed = false;                        // 「已恢复」提示只挂在捞回来的那一道上
       st.idx++;
       renderQuiz();
     });
@@ -2684,6 +2832,7 @@
   // 回看已经答过的题：只看不答，不重复统计
   function renderQuizReview() {
     var st = S.quiz;
+    persistQuiz();                                  // 翻页也落盘，刷新后回到同一处
     var i = st.idx;
     var r = st.results[i];
     var q = r.q || st.list[i];
@@ -2763,6 +2912,8 @@
       : (picked === q.answer);
     recordAnswer(q.id, right ? 'right' : 'wrong', { sr: true });
     st.results.push({ q: q, ok: right, multi: isMulti, picked: picked });
+    st.resumed = false;
+    persistQuiz();
 
     var corrects = isMulti ? q.answer.slice() : [q.answer];
     $$('#optsBox .opt').forEach(function (b) {
@@ -2791,6 +2942,7 @@
       fixBtnHtml(q, '✎ 这题出得不对？') + '</div>';
     $('#nextQBtn').addEventListener('click', function () {
       quizTimerStop(st);
+      st.resumed = false;                        // 「已恢复」提示只挂在捞回来的那一道上
       st.idx++;
       renderQuiz();
     });
@@ -2804,6 +2956,7 @@
   function renderQuizResult() {
     var st = S.quiz;
     quizTimerStop(st);
+    persistQuiz();                                  // 结账页也算一处进度：刷新后还在这儿
     var ok = st.results.filter(function (r) { return r.ok; }).length;
     var mid = st.results.filter(function (r) { return r.partial; }).length;
     var total = st.results.length;
@@ -3314,6 +3467,7 @@
         if (!confirm('导入会覆盖当前的题集与记录，继续吗？')) return;
         S.banks = d.banks; S.stats = d.stats || {}; S.log = d.log || [];
         S.cur = S.banks.length ? S.banks[0].id : '';
+        forgetQuiz();
         save(); renderBankSelect(); switchView('stats');
         toast('数据已导入');
       } catch (e) { toast('解析失败：' + e.message); }
@@ -3331,6 +3485,7 @@
     if (!confirm('删除题集「' + b.course + '」及其全部题目？')) return;
     S.banks = S.banks.filter(function (x) { return x.id !== b.id; });
     S.cur = S.banks.length ? S.banks[0].id : '';
+    forgetQuiz();
     save(); renderBankSelect(); renderStats();
     toast('题集已删除');
   });
@@ -3874,7 +4029,18 @@
   if (localStorage.getItem(LS_THEME) === 'dark') $('#themeBtn').textContent = '☀️';
   renderBankSelect();
   updateNoteStat();
-  switchView('import');
+  // 上次刷到一半就刷新 / 关页面的，直接回到那道题上，不用从头点一遍。
+  // 认领失败（换了题集、题被删了）就当没这回事，照旧从导入页开始。
+  var resumedQuiz = restoreQuiz();
+  switchView(resumedQuiz ? 'quiz' : 'import');
+  if (resumedQuiz) {
+    renderQuiz();
+    var st0 = S.quiz;
+    toast(st0.idx >= st0.list.length
+      ? '已恢复上一组的成绩'
+      : '已接着上次的进度：第 ' + (st0.round > 1 ? st0.round + ' 组 · ' : '') +
+        (st0.idx + 1) + ' / ' + st0.list.length + ' 题');
+  }
 
   // 先处理 WorkBuddy 授权回来的人（换好会话），再走常规的 ping / 拉取
   wbInit();
@@ -4193,6 +4359,9 @@
     parsePaper: parsePaper,
     pickBatch: pickBatch,
     pickQuestions: pickQuestions,
+    persistQuiz: persistQuiz,
+    restoreQuiz: restoreQuiz,
+    forgetQuiz: forgetQuiz,
     srGap: srGap,
     srApply: srApply,
     getSR: function () { return SR; },
