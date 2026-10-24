@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.14.0';
+  var FQ_VERSION = '1.15.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1883,6 +1883,129 @@
     return '<div class="source note-src">笔记里怎么说：' + esc(t) + '</div>';
   }
 
+  /* ---------------------------------------------------------
+     批注：用户自己的话
+     ---------------------------------------------------------
+     记在题目上（q.memo），跟收藏一个思路：题目在批注就在，导出、
+     导入、云同步都跟着走，不用另写一套。
+     只在「答完看到答案」的时候出现 —— 初见态露出来就等于提前泄题。 */
+  var MEMO_MAX = 500;
+
+  function memoText(q) { return q && q.memo ? String(q.memo) : ''; }
+
+  function memoInner(q) {
+    var t = memoText(q);
+    return '<div class="memo-head"><span class="memo-label">✎ 我的批注</span>' +
+      '<span class="grow"></span>' +
+      '<button class="mini-btn" data-memo-edit type="button" title="' +
+      (t ? '改这条批注' : '写一条自己的批注，下次答完这道题会跟正确答案一起显示') + '">' +
+      (t ? '改' : '写一条') + '</button>' +
+      (t ? '<button class="mini-btn" data-memo-del type="button" title="删掉这条批注">✕</button>' : '') +
+      '</div>' +
+      (t
+        ? '<div class="memo-text">' + esc(t).replace(/\n/g, '<br>') + '</div>'
+        : '<div class="memo-text memo-empty">写点自己的话：易错点、口诀、老师强调的那一句……</div>');
+  }
+
+  function memoBlock(q) {
+    if (!q) return '';
+    return '<div class="memo' + (q.memo ? '' : ' is-empty') + '" data-memo="' + esc(q.id) + '">' +
+      memoInner(q) + '</div>';
+  }
+
+  function memoEditorInner(q) {
+    var t = memoText(q);
+    return '<div class="memo-head"><span class="memo-label">✎ 我的批注</span>' +
+      '<span class="grow"></span>' +
+      '<span class="memo-count">' + t.length + ' / ' + MEMO_MAX + '</span></div>' +
+      '<textarea class="memo-input" rows="3" maxlength="' + MEMO_MAX + '" ' +
+      'placeholder="写点自己的话：易错点、口诀、老师强调的那一句……"></textarea>' +
+      '<div class="memo-tools">' +
+      '<button class="btn primary tiny" data-memo-save type="button">保存批注</button>' +
+      (t ? '<button class="btn ghost tiny" data-memo-del type="button">删掉</button>' : '') +
+      '<button class="btn ghost tiny" data-memo-cancel type="button">取消</button>' +
+      '<span class="muted">答完题才显示，不会提前露出来</span>' +
+      '</div>';
+  }
+
+  /* 存批注。空字符串 = 删掉这条批注。返回 false 说明这道题不在任何题集里。 */
+  function setMemo(id, text) {
+    var q = findQ(id);
+    if (!q) { toast('找不到这道题，刷新一下再试'); return false; }
+    var t = String(text == null ? '' : text).replace(/\r\n?/g, '\n').trim();
+    if (t.length > MEMO_MAX) t = t.slice(0, MEMO_MAX);
+    if (t) q.memo = t; else delete q.memo;
+    save();
+    return true;
+  }
+
+  /* 批注块是就地替换的，不重绘整张卡片 —— 重绘会把用户刚写的答案、滚动位置一起冲掉 */
+  function refreshMemoBox(box, q) {
+    if (!box || !q) return;
+    box.classList.remove('editing');
+    // 空态样式（虚线、灰字）也得跟着变 —— 删掉批注后就该回到「写一条」
+    box.classList.toggle('is-empty', !q.memo);
+    box.innerHTML = memoInner(q);
+  }
+
+  // 列表页（错题本 / 收藏夹）里的批注改完，整页得跟着变；答题页只要换那一小块
+  function afterMemoChange() {
+    if (S.view === 'fav') renderFav();
+    if (S.view === 'wrong') renderWrong();
+  }
+
+  /* 用事件委托挂在 document 上：反馈区、回顾态、列表里的批注块都是随渲染
+     现插的，逐个绑会在每次重绘后失效。 */
+  function initMemoDelegate() {
+    document.addEventListener('click', function (e) {
+      var el = e.target;
+      if (!el || !el.closest) return;
+      var box = el.closest('.memo');
+      if (!box) return;
+      var id = box.dataset.memo;
+      var q = findQ(id);
+      if (!q) return;
+
+      if (el.closest('[data-memo-edit]')) {
+        if (box.classList.contains('editing')) return;
+        box.classList.add('editing');
+        box.innerHTML = memoEditorInner(q);
+        var ta = box.querySelector('.memo-input');
+        if (ta) {
+          ta.value = memoText(q);
+          ta.focus();
+          ta.addEventListener('input', function () {
+            var c = box.querySelector('.memo-count');
+            if (c) c.textContent = ta.value.length + ' / ' + MEMO_MAX;
+          });
+        }
+        return;
+      }
+
+      if (el.closest('[data-memo-cancel]')) {
+        refreshMemoBox(box, q);
+        return;
+      }
+
+      if (el.closest('[data-memo-save]')) {
+        var input = box.querySelector('.memo-input');
+        var v = input ? input.value : '';
+        if (!setMemo(id, v)) return;
+        refreshMemoBox(box, q);
+        toast(String(v || '').trim() ? '批注已存下，下次答完这道题会跟正确答案一起显示' : '批注已清空');
+        afterMemoChange();
+        return;
+      }
+
+      if (el.closest('[data-memo-del]')) {
+        if (!setMemo(id, '')) return;
+        refreshMemoBox(box, q);
+        toast('批注已删除');
+        afterMemoChange();
+      }
+    });
+  }
+
   // 题型标签：简答和名词解释是手打题，界面上要让人一眼知道这题怎么答
   var TYPE_LABEL = { single: '单选', multi: '多选', fill: '填空', term: '名词解释', short: '简答' };
   function typeLabel(q) { return TYPE_LABEL[(q && q.type) || ''] || '选择'; }
@@ -3463,6 +3586,7 @@
           fromPaper: !!q.fromPaper,            // 来自第一步导入的原卷
           note: q.note || null,                // 笔记里对这道题的讲解
           fav: q.fav || null,                  // 收藏时间（没收藏就不写）
+          memo: q.memo || null,                // 自己写的批注
           // 带上用户教过的改法：换台设备 / 换个人接着用，反馈不丢
           fix: q.fix || null, orig: q.orig || null
         };
@@ -3554,6 +3678,8 @@
     if (q.note) out.note = String(q.note);
     // 收藏时间戳：导出/导入、云端同步之后收藏依然在
     if (q.fav) out.fav = q.fav;
+    // 用户自己写的批注，也是一句不落地跟着题走
+    if (q.memo) out.memo = String(q.memo);
     // 导入别人导出的题库时，「教过的改法」也一起接住
     if (q.fix) { out.fix = q.fix; out.orig = q.orig || null; applyFix(out); }
     return out;
@@ -3645,6 +3771,7 @@
         draftFor: st.draftFor || '',
         ids: (st.list || []).map(function (q) { return q.id; }),
         results: (st.results || []).map(function (r) {
+          if (!r) return null;                    // 改题后清掉的作答：留个空洞占位
           return {
             q: (r.q && r.q.id) || '',
             ok: !!r.ok,
@@ -3690,6 +3817,7 @@
     }
 
     var results = (raw.results || []).map(function (r) {
+      if (!r) return null;                        // 空洞：这题这次没作答，刷新后照样是初见
       return {
         q: map[r.q] || null,
         ok: !!r.ok,
@@ -4255,8 +4383,9 @@
       // 这题的呈现形式跟着改：本来决定给选项的，现在要按新题型来
       syncFormsAfterFix(q);
       closeFixPanel();
-      toast('记住了：以后这题按「' + typeLabel(q) + '」出');
-      refreshAfterFix();
+      var again1 = refreshAfterFix(q);
+      toast('记住了：以后这题按「' + typeLabel(q) + '」出' +
+        (again1 ? '，这道题回到未作答，重新答一次看看' : ''));
     });
 
     if ($('#fixUndo')) {
@@ -4264,8 +4393,8 @@
         clearFix(q);
         syncFormsAfterFix(q);
         closeFixPanel();
-        toast('已恢复成系统原来的出法');
-        refreshAfterFix();
+        var again2 = refreshAfterFix(q);
+        toast('已恢复成系统原来的出法' + (again2 ? '，这道题回到未作答，重新答一次看看' : ''));
       });
     }
   }
@@ -4280,11 +4409,31 @@
     S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
   }
 
-  function refreshAfterFix() {
+  /* 改完题，这道题「这次答的」就不作数了 —— 它是照旧题干、旧答案判的，
+     留着会一直挂着「这题你答错了」，看着就像改题没生效，也没法按新版再答一次。
+     只清「正停在这一题」那次作答：改的是别的题、或者从错题本里改，
+     不能顺手把人家这场刷题的记录抹了。 */
+  function resetQuizItem(q) {
+    var st = S.quiz;
+    if (!st || !st.list || !q) return false;
+    var i = st.list.indexOf(q);
+    if (i < 0 || i !== st.idx || !st.results[i]) return false;
+    st.results[i] = null;                       // 留个空洞占位，别让后面的结果整体前移
+    if (st.draftFor === q.id) { st.draft = ''; st.draftFor = ''; }
+    st.resumed = false;
+    persistQuiz();
+    return true;
+  }
+
+  /* 改完之后两个页面都得跟着变，并且当前这道题回到「初见」：卡上重新出现
+     输入框 / 选项，反馈区清空，可以照新版本再答一次。 */
+  function refreshAfterFix(q) {
+    var again = resetQuizItem(q);
     if (S.recite) renderRecite();
     if (S.quiz) renderQuiz();
     bindFixButtons();
     bindFavButtons();
+    return again;
   }
 
   /* 每张卡片右上角的入口。刷题、回顾、背知识点都要有 —— 答完看到答案才最想改。 */
@@ -4498,7 +4647,9 @@
     var typed = isTypedQ(q);
     var g = typed ? gradeTyped(q, v) : gradeAnswer(v, q.answer);
     recordAnswer(q.id, g.level, { sr: true });
-    st.results.push({ q: q, ok: g.level === 'right', partial: g.level === 'mid', input: v });
+    // 按题号存而不是 push：改题之后要把「这道题这次答的」清掉重答，
+    // push 的数组一删就整体前移，后面的题会跟结果错位
+    st.results[st.idx] = { q: q, ok: g.level === 'right', partial: g.level === 'mid', input: v };
     st.draft = ''; st.draftFor = '';             // 交卷了，草稿没用了
     st.resumed = false;
     persistQuiz();
@@ -4567,6 +4718,7 @@
       '</div>' +
       (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       noteLine(q) +
+      memoBlock(q) +
       '</div>' +
       '<div class="row" style="margin-top:12px">' +
       (i > 0 ? '<button class="btn ghost" id="revPrevBtn">← 更早一题</button>' : '') +
@@ -4626,7 +4778,7 @@
       ? (picked.length === q.answer.length && q.answer.every(function (a) { return picked.indexOf(a) >= 0; }))
       : (picked === q.answer);
     recordAnswer(q.id, right ? 'right' : 'wrong', { sr: true });
-    st.results.push({ q: q, ok: right, multi: isMulti, picked: picked });
+    st.results[st.idx] = { q: q, ok: right, multi: isMulti, picked: picked };
     st.resumed = false;
     persistQuiz();
 
@@ -4643,16 +4795,8 @@
     // 选择题题干末尾也有个空，作答后把正确答案补上去
     fillStemBlank($('#quizBody'), q, right);
 
-    var pickedText = isMulti ? picked.join('、') : picked;
     $('#quizFb').innerHTML =
-      '<div class="verdict ' + (right ? 'ok' : 'bad') + '" style="margin-top:14px">' +
-      '<div class="verdict-title">' + (right ? '✅ 答对了' : '❌ 答错了') + '</div>' +
-      '<div class="verdict-body">你选：<strong>' + esc(pickedText) + '</strong></div>' +
-      // 答对也把「正确答案」摆出来：只写「你选」时，答对的题看着就像没给答案
-      '<div class="answer-line ans-key">正确答案：<strong>' + esc(corrects.join('、')) + '</strong></div>' +
-      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
-      noteLine(q) +
-      '</div>' +
+      choiceVerdictHtml(q, picked, right, isMulti) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="nextQBtn">' +
       (st.idx + 1 >= st.list.length ? '看看这组成绩' : '下一题 →') + '</button>' +
       fixBtnHtml(q, '✎ 这题出得不对？') + '</div>';
@@ -4674,11 +4818,13 @@
     var st = S.quiz;
     quizTimerStop(st);
     persistQuiz();                                  // 结账页也算一处进度：刷新后还在这儿
-    var ok = st.results.filter(function (r) { return r.ok; }).length;
-    var mid = st.results.filter(function (r) { return r.partial; }).length;
-    var total = st.results.length;
+    // 有空洞（改题清掉的那次作答）时不能拿 length 当总数，只数真答过的
+    var done = (st.results || []).filter(Boolean);
+    var ok = done.filter(function (r) { return r.ok; }).length;
+    var mid = done.filter(function (r) { return r.partial; }).length;
+    var total = done.length;
     var pct = total ? Math.round(ok / total * 100) : 0;
-    var wrongs = st.results.filter(function (r) { return !r.ok; });
+    var wrongs = done.filter(function (r) { return !r.ok; });
     // 下一组还剩多少可刷：这里只是预估（不落状态），让人知道「再来一组」不会从头再来
     var next = pickBatch(batchOpt({ round: (SR.round || 0) + 1 }));
     var nextTip = next.why === 'mastered'
@@ -4732,8 +4878,17 @@
     if (!list.length) { toast('这个范围里没有题'); return; }
     S.recite = {
       list: list, phase: 'cards', cardIdx: 0, seenIdx: {},
-      idx: 0, prev: null, hint: $('#rHint').checked, ok: 0, mid: 0, bad: 0
+      idx: 0, prev: null, hint: $('#rHint').checked, ok: 0, mid: 0, bad: 0,
+      answered: false                      // 这一问已经交过卷（切形式时别把反馈冲掉）
     };
+    renderRecite();
+  });
+
+  /* 切「形式」：还没交卷就把这一问按新形式重出一遍；已经交过卷的不动，
+     免得把刚看到的反馈冲掉、还重复记一次统计。 */
+  $('#rForm').addEventListener('change', function () {
+    if (!S.recite || S.recite.phase !== 'drill') return;
+    if (S.recite.answered) { toast('已经答过这一问了，新形式从下一问开始'); return; }
     renderRecite();
   });
 
@@ -4780,11 +4935,14 @@
 
   // 卡片阶段「给首字提示」没有意义，先藏起来，免得看着奇怪
   function recitePhaseUI(phase) {
+    var cards = phase === 'cards';
     [$('#rHint')].forEach(function (el) {
       if (!el || !el.closest) return;
       var lab = el.closest('label');
-      if (lab) lab.hidden = (phase === 'cards');
+      if (lab) lab.hidden = cards;
     });
+    // 卡片阶段还没开始考，「形式」在那儿只会让人以为卡片会变样
+    if ($('#rForm')) $('#rForm').hidden = cards;
   }
 
   function renderReciteCards() {
@@ -4838,6 +4996,22 @@
     bindFavButtons();
   }
 
+  /* 背知识点这道题怎么考：给选项，还是自己默写。
+     名词解释 / 简答天生手打；卷子上没有两个以上选项的题也只能默写 ——
+     选择题的选项只能是原卷真题，不许临时拼干扰项凑一道（跟刷题页同一条规矩）。 */
+  function reciteForm(q) {
+    if (!q || isTypedQ(q)) return 'fill';
+    if (!(q.opts && q.opts.length >= 2)) return 'fill';
+    var mode = ($('#rForm') && $('#rForm').value) || 'fill';
+    if (mode === 'choice') return 'choice';
+    if (mode === 'mix') {
+      // 混合：练熟了的考默写（更难），还生疏的先给选项
+      var s = getStat(q.id);
+      return (s.ok + s.bad) > 0 && s.mastery >= 0.6 ? 'fill' : 'choice';
+    }
+    return 'fill';
+  }
+
   function renderRecite() {
     var st = S.recite;
     if (!st) return renderReciteEmpty();
@@ -4847,6 +5021,8 @@
     var q = st.list[st.idx];
     var isMulti = q.type === 'multi';
     var typed = isTypedQ(q);
+    var asChoice = !typed && reciteForm(q) === 'choice';
+    var multiChoice = asChoice && isMulti;
     var full = answerText(q);
     var hint = '';
     if (st.hint) {
@@ -4858,6 +5034,15 @@
       ? '<div class="typed-row"><textarea class="typed-input" id="reciteInput" rows="' + (q.type === 'short' ? 6 : 4) + '" placeholder="' +
         (q.type === 'short' ? '一条一条写要点，Ctrl+Enter 提交' : '把解释写下来，Ctrl+Enter 提交') + '"></textarea>' +
         '<div class="row" style="margin-top:10px"><button class="btn primary" id="reciteSubmit">作答（Ctrl+Enter）</button></div></div>'
+      : asChoice
+      ? '<div class="opts" id="reciteOpts">' +
+        shuffle(choiceOptions(q, isMulti)).map(function (o, i) {
+          return '<button class="opt" data-v="' + esc(o) + '"><span class="key">' + String.fromCharCode(65 + i) +
+            '</span><span class="opt-text">' + esc(o) + '</span></button>';
+        }).join('') +
+        '</div>' +
+        (multiChoice ? '<div class="row" style="margin-top:14px"><button class="btn primary" id="reciteSubmit">提交答案</button>' +
+          '<span class="muted">可多选</span></div>' : '')
       : '<div class="recite-input-row">' +
         '<input class="recite-input" id="reciteInput" autocomplete="off" placeholder="' + (isMulti ? '多项之间用顿号或空格隔开' : '把空填上，Enter 提交') + '">' +
         '<button class="btn primary" id="reciteSubmit">作答</button>' +
@@ -4866,7 +5051,7 @@
       '<div class="progress"><i style="width:' + (st.idx / st.list.length * 100) + '%"></i></div>' +
       (st.prev ? '<div class="prev-note">' + st.prev + '</div>' : '') +
       '<div class="q-meta"><span>第 ' + (st.idx + 1) + ' / ' + st.list.length + ' 问</span>' +
-      '<span class="pill">' + (typed ? typeLabel(q) : isMulti ? '列举题' : '填空') + '</span>' +
+      '<span class="pill">' + (typed ? typeLabel(q) : asChoice ? (isMulti ? '多选' : '单选') : isMulti ? '列举题' : '填空') + '</span>' +
       '<span>掌握度 ' + masteryPct(q) + '%</span>' +
       '<span class="grow"></span>' +
       favBtnHtml(q) +
@@ -4878,19 +5063,87 @@
       '<div id="reciteVb"></div>' +
       '</div>';
     $('#reciteBody').innerHTML = html;
-    $('#reciteInput').focus();
-    $('#reciteInput').addEventListener('keydown', function (e) {
-      // 同刷题页：输入法还在组合状态时，Enter 是选词，不当提交；
-      // 大段手写时 Enter 是换行，只有 Ctrl/⌘+Enter 才交卷
-      if (e.key !== 'Enter') return;
-      if (e.isComposing || e.keyCode === 229) return;
-      if (typed && !(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
-      submitRecite();
-    });
-    $('#reciteSubmit').addEventListener('click', submitRecite);
+    if (asChoice) {
+      if (multiChoice) {
+        $$('#reciteOpts .opt').forEach(function (b) {
+          b.addEventListener('click', function () { b.classList.toggle('sel'); });
+        });
+        $('#reciteSubmit').addEventListener('click', function () {
+          var picked = $$('#reciteOpts .opt.sel').map(function (b) { return b.dataset.v; });
+          if (!picked.length) { toast('先选一个答案'); return; }
+          answerRecite(picked);
+        });
+      } else {
+        $$('#reciteOpts .opt').forEach(function (b) {
+          b.addEventListener('click', function () { answerRecite(b.dataset.v); });
+        });
+      }
+    } else {
+      $('#reciteInput').focus();
+      $('#reciteInput').addEventListener('keydown', function (e) {
+        // 同刷题页：输入法还在组合状态时，Enter 是选词，不当提交；
+        // 大段手写时 Enter 是换行，只有 Ctrl/⌘+Enter 才交卷
+        if (e.key !== 'Enter') return;
+        if (e.isComposing || e.keyCode === 229) return;
+        if (typed && !(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        submitRecite();
+      });
+      $('#reciteSubmit').addEventListener('click', submitRecite);
+    }
     bindFixButtons();
     bindFavButtons();
+  }
+
+  /* 背知识点里「给选项」的题：判定、记统计、把选项染成对错，再给反馈。
+     判定规则和刷题卡完全一致（单选比相等，多选要比集合），
+     只是少了「上一题 / 重新开始」那些刷题专有的按钮。 */
+  function answerRecite(picked) {
+    var st = S.recite;
+    var q = st.list[st.idx];
+    var isMulti = Array.isArray(picked);
+    var ans = q.answer || [];
+    var right = isMulti
+      ? (picked.length === ans.length && ans.every(function (a) { return picked.indexOf(a) >= 0; }))
+      : picked === q.answer;
+    if (right) st.ok++; else st.bad++;
+    recordAnswer(q.id, right ? 'right' : 'wrong');
+    st.answered = true;
+
+    var corrects = isMulti ? ans.slice() : [q.answer];
+    $$('#reciteOpts .opt').forEach(function (b) {
+      b.disabled = true;
+      b.classList.remove('sel');
+      if (corrects.indexOf(b.dataset.v) >= 0) b.classList.add('right');
+      else if ((isMulti ? picked.indexOf(b.dataset.v) >= 0 : b.dataset.v === picked)) b.classList.add('wrong');
+    });
+    var sb = $('#reciteSubmit');
+    if (sb) sb.remove();
+
+    fillStemBlank($('#reciteBody'), q, right);
+
+    $('#reciteVb').innerHTML = choiceVerdictHtml(q, picked, right, isMulti) +
+      '<div class="row" style="margin-top:12px"><button class="btn primary" id="reciteNext">' +
+      (st.idx + 1 >= st.list.length ? '这一轮结束' : '下一问 →') + '</button>' +
+      fixBtnHtml(q, '✎ 这题出得不对？') +
+      '<span class="muted">看完答案再点</span></div>';
+    scrollToFb($('#reciteVb'));
+    bindFixButtons();
+    bindFavButtons();
+
+    var pickedText = isMulti ? picked.join('、') : picked;
+    var prevNote = '上一问：' + esc(q.stem) + '　你选「' + esc(pickedText) + '」 → ' +
+      (right ? '<span style="color:var(--ok)">正确</span>'
+        : '<span style="color:var(--err)">记错了，答案是 <strong>' + esc(corrects.join('、')) + '</strong></span>');
+
+    function goNext() { st.prev = prevNote; st.idx++; st.answered = false; renderRecite(); }
+    $('#reciteNext').addEventListener('click', goNext);
+    $('#reciteNext').addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      if (e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      goNext();
+    });
   }
 
   // 简答：把要点一条条列出来，答到的打勾，漏掉的空着 —— 比只给一段话有用
@@ -4911,6 +5164,7 @@
       '<ol class="pt-list">' + list + '</ol>' +
       (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       noteLine(q) +
+      memoBlock(q) +
       '</div>';
   }
 
@@ -4927,6 +5181,7 @@
       (miss ? '<div class="answer-line">漏掉的关键内容：<strong>' + esc(miss) + '</strong></div>' : '') +
       (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       noteLine(q) +
+      memoBlock(q) +
       '</div>';
   }
 
@@ -4960,6 +5215,22 @@
       '<div class="answer-line">完整表述：<strong>' + esc(q.stem.replace('____', answerText(q))) + '</strong></div>' +
       (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
       noteLine(q) +
+      memoBlock(q) +
+      '</div>';
+  }
+
+  /* 选择题答完的反馈：答对答错都把正确答案摆出来，再补原文、笔记、批注。
+     刷题和背知识点（形式选「全部给选项」）共用这一块，省得两边文案慢慢走偏。 */
+  function choiceVerdictHtml(q, picked, right, isMulti) {
+    var corrects = isMulti ? (q.answer || []).slice() : [q.answer];
+    var pickedText = isMulti ? (picked || []).join('、') : picked;
+    return '<div class="verdict ' + (right ? 'ok' : 'bad') + '" style="margin-top:14px">' +
+      '<div class="verdict-title">' + (right ? '✅ 答对了' : '❌ 答错了') + '</div>' +
+      '<div class="verdict-body">你选：<strong>' + esc(pickedText) + '</strong></div>' +
+      '<div class="answer-line ans-key">正确答案：<strong>' + esc(corrects.join('、')) + '</strong></div>' +
+      (q.source && q.source !== q.stem ? '<div class="source">原文：' + esc(q.source) + '</div>' : '') +
+      noteLine(q) +
+      memoBlock(q) +
       '</div>';
   }
 
@@ -4973,6 +5244,7 @@
     else if (g.level === 'mid') st.mid++;
     else st.bad++;
     recordAnswer(q.id, g.level === 'empty' ? 'wrong' : g.level);
+    st.answered = true;
 
     // 把答案直接补进题干那个空里，一眼就能看到正确答案
     fillStemBlank($('#reciteBody'), q, g.level === 'right');
@@ -4992,7 +5264,7 @@
         : g.level === 'mid' ? '<span style="color:var(--warn)">部分正确' + (q.type === 'short' ? '（' + g.hits.length + '/' + (q.answer || []).length + ' 条）' : '') + '</span>'
         : '<span style="color:var(--err)">记错了，答案是 <strong>' + esc(q.type === 'short' ? (q.answer || []).join('；') : answerText(q)) + '</strong></span>');
 
-    function goNext() { st.prev = prevNote; st.idx++; renderRecite(); }
+    function goNext() { st.prev = prevNote; st.idx++; st.answered = false; renderRecite(); }
     $('#reciteNext').addEventListener('click', goNext);
     $('#reciteNext').addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') return;
@@ -5065,6 +5337,7 @@
         '<div class="item-main">' +
         '<div class="item-stem">' + stemHtml(q) + '</div>' +
         '<div class="item-sub">正确答案：<strong>' + esc(answerText(q)) + '</strong>　·　练 ' + (s.ok + s.bad) + ' 次，错 ' + s.bad + ' 次</div>' +
+        memoBlock(q) +
         '</div>' +
         '<div class="bar" title="掌握度"><i style="width:' + Math.round(s.mastery * 100) + '%"></i></div>' +
         '<span class="pill ' + (s.bad > 0 ? 'err' : s.mastered ? 'ok' : 'warn') + '">' + (s.bad > 0 ? '错过' : s.mastered ? '已掌握' : '待巩固') + '</span>' +
@@ -5079,7 +5352,8 @@
         if (!q) return;
         S.recite = {
           list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
-          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0
+          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
+          answered: false
         };
         switchView('recite');
         renderRecite();
@@ -5122,6 +5396,7 @@
         (scope === 'all' ? '　·　' + esc(r.bank.course) : '') +
         (q.fav ? '　·　' + fmtDate(q.fav) + ' 收藏' : '') +
         '　·　练 ' + (s.ok + s.bad) + ' 次，错 ' + s.bad + ' 次</div>' +
+        memoBlock(q) +
         '</div>' +
         '<span class="pill ' + (s.bad > 0 ? 'err' : s.mastered ? 'ok' : 'warn') + '">' +
         (s.bad > 0 ? '错过' : s.mastered ? '已掌握' : '待巩固') + '</span>' +
@@ -5136,7 +5411,8 @@
         if (!q) return;
         S.recite = {
           list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
-          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0
+          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
+          answered: false
         };
         switchView('recite');
         renderRecite();
@@ -5244,7 +5520,8 @@
         if (!q) return;
         S.recite = {
           list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
-          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0
+          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
+          answered: false
         };
         switchView('recite');
         renderRecite();
@@ -5826,6 +6103,7 @@
   $('#adminRefreshBtn').addEventListener('click', loadAdmin);
 
   /* ---------------- 启动 ---------------- */
+  initMemoDelegate();
   load();
   if (localStorage.getItem(LS_THEME) === 'dark') $('#themeBtn').textContent = '☀️';
   renderBankSelect();
@@ -6194,6 +6472,16 @@
     renderFileList: renderFileList,
     importFiles: importFiles,
     takePicked: takePicked,
+    /* 批注 */
+    exportBankJson: exportBankJson,
+    memoBlock: memoBlock,
+    setMemo: setMemo,
+    memoText: memoText,
+    /* 背知识点的形式选择 */
+    reciteForm: reciteForm,
+    answerRecite: answerRecite,
+    /* 改题后重答 */
+    resetQuizItem: resetQuizItem,
     /* 收藏 */
     save: save,
     normQ: normQ,

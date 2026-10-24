@@ -418,7 +418,13 @@ tbody tr.off { opacity: .45; }
   color: var(--muted);
   font-size: 12.5px;
   margin-bottom: 10px;
+  /* 窄屏上「第 1/1 题 · 单选 · 掌握度 70% · ☆收藏 · ✎改题」挤在一行时，
+     按钮会被压成「☆收 / 藏」两行 —— 允许整行换行，按钮自己不换 */
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
+.q-meta > span { white-space: nowrap; }
+.q-meta .btn { flex: 0 0 auto; white-space: nowrap; }
 
 .stem { font-size: 19px; font-weight: 600; line-height: 1.7; margin: 6px 0 16px; }
 .stem .blank { color: var(--brand); border-bottom: 2px dashed var(--brand); padding: 0 6px; }
@@ -1229,3 +1235,56 @@ strong, b { font-weight: 800; }
   .topbar-right { margin-left: 0; }
   .plaza-filter .input { flex-basis: 100%; }
 }
+
+/* ============ 我的批注 ============ */
+/* 只在「答完 + 看到答案」之后出现（反馈区 / 回顾态 / 错题本 / 收藏夹）。
+   初见态不渲染这一块 —— 批注是写给自己看的提示，提前露出来等于泄题。 */
+.memo {
+  margin-top: 12px;
+  padding: 9px 12px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 10px;
+  background: var(--brand-soft);
+}
+.memo.is-empty { background: var(--panel-2); border-left-style: dashed; }
+/* 正在写：底色换成白卡片，输入框看着才像个能打字的地方 */
+.memo.editing { background: var(--panel); }
+.memo-head { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.memo-label { font-size: 12.5px; font-weight: 700; color: var(--brand); }
+.memo.is-empty .memo-label { color: var(--muted); font-weight: 600; }
+/* 「改 / 写一条」是个正向操作，别跟着 .mini-btn 的默认红色 hover 走 */
+.memo .mini-btn:hover { background: var(--brand-soft); color: var(--brand); }
+.memo [data-memo-del]:hover { background: var(--err-soft); color: var(--err); }
+.memo-text {
+  margin-top: 3px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.memo-text.memo-empty { font-size: 12.5px; color: var(--muted); }
+.memo-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.memo-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.memo-input:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+.memo-tools { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.memo-tools .btn { margin-left: 0; }
+.memo-tools .muted { font-size: 12px; }
+
+/* 错题本 / 收藏夹的列表里：批注小一号，别把一行撑太高 */
+.item .memo { margin-top: 7px; padding: 6px 9px 7px; }
+.item .memo-text { font-size: 13px; line-height: 1.55; }
+.item .memo-label { font-size: 12px; }
