@@ -427,5 +427,63 @@ console.log('\n九、不内置任何专业的原卷题库');
   ok(!fs.existsSync(path.join(ROOT, 'assets', 'paper_bank.json')), '内置题库文件已移除');
 }
 
-console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
-process.exit(fail ? 1 : 0);
+/* ---------------- 十、真·多文件：一次读十几个文件 ---------------- */
+(async function () {
+  console.log('\n十、真实文件：一次读进多个文件，坏文件不拖垮整批');
+  const { win, api } = boot(null);
+  const d = win.document;
+  const F = (name, text) => new win.File([text], name, { type: 'text/plain' });
+
+  const A = ['第二章 药物治疗的原则与过程', '单选题（每题2分）',
+    '药物治疗的前提是（     ）B', 'A.安全性  B.有效性   C.经济性   D.适当性'].join('\n');
+  const B = ['第三章 药物相互作用', '单选题（每题2分）',
+    '肝药酶诱导剂是（     ）A', 'A.苯巴比妥  B.酮康唑   C.西咪替丁   D.红霉素'].join('\n');
+  const C = ['第四章 不良反应', '单选题（每题2分）',
+    'A型不良反应的特点是（     ）A', 'A.与剂量相关  B.与剂量无关   C.不可预测   D.死亡率高'].join('\n');
+
+  await api.importFiles([
+    F('第二章 药物治疗的原则与过程.txt', A),
+    F('第三章 药物相互作用.md', B),
+    F('第四章 不良反应.txt', C),
+    F('坏掉的.docx', '这不是一个 zip 文件')
+  ], 'paper');
+
+  const st = api.state();
+  ok(st.paperFiles.length === 3, '三个好文件都读进来了（坏的那个不计数）', st.paperFiles.length);
+  ok(st.paperFiles.every((f) => f.chars > 20), '每个文件都记了字数', st.paperFiles.map((f) => f.chars));
+  const rows = d.querySelectorAll('#paperFiles .file-row');
+  ok(rows.length === 3, '文件列表里一一列出来', rows.length);
+  ok(/共 3 个文件/.test(d.querySelector('#paperFiles').textContent), '底部有合计');
+  ok(/第二章 药物治疗的原则与过程\.txt/.test(d.querySelector('#paperFiles').textContent), '文件名显示出来了');
+  ok(!d.querySelector('#paperFiles').hidden, '文件列表可见');
+  ok(/共 /.test(d.querySelector('#paperStat').textContent), '文本框下方也报了字数', d.querySelector('#paperStat').textContent);
+
+  // 点一下入库：三份卷子合成一个真题库
+  d.querySelector('#courseName').value = '临床药物治疗学概论';
+  d.querySelector('#paperExtractBtn').click();
+  const bank = JSON.parse(win.localStorage.getItem('fq_banks_v1'))[0];
+  ok(bank.questions.length === 3, '三份卷子的三道题都入库', bank.questions.length);
+  ok(bank.questions.map((q) => q.chapter).join('|') ===
+    '第二章 药物治疗的原则与过程|第三章 药物相互作用|第四章 不良反应',
+    '各按自己文件名的章节归档', bank.questions.map((q) => q.chapter));
+
+  // 再选一次同样的文件：不重复、也不报错
+  await api.importFiles([F('第二章 药物治疗的原则与过程.txt', A)], 'paper');
+  ok(api.state().paperFiles.length === 3, '重选同名文件是替换，不是叠加', api.state().paperFiles.length);
+
+  // 删除一个文件：列表跟着变
+  d.querySelector('#paperFiles .f-del').click();
+  ok(api.state().paperFiles.length === 2, '点 ✕ 就移除', api.state().paperFiles.length);
+  ok(d.querySelectorAll('#paperFiles .file-row').length === 2, '列表同步刷新', d.querySelectorAll('#paperFiles .file-row').length);
+
+  // 笔记这步：多文件合成一份笔记
+  await api.importFiles([
+    F('第一章笔记.md', '药物治疗的前提是有效性。'),
+    F('第二章笔记.txt', '生物半衰期与血药浓度无关，又称之为恒比消除。')
+  ], 'note');
+  ok(api.state().noteFiles.length === 2, '笔记也能多选', api.state().noteFiles.length);
+  ok(/2 个文件/.test(d.querySelector('#noteStat').textContent), '笔记字数统计带上文件数', d.querySelector('#noteStat').textContent);
+
+  console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
+  process.exit(fail ? 1 : 0);
+})();

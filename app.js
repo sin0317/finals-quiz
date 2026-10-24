@@ -5493,6 +5493,7 @@
     /* 两步导入：多份原卷合成真题库 */
     parsePaperRuns: parsePaperRuns,
     renderFileList: renderFileList,
+    importFiles: importFiles,
     chapterOf: chapterOf,
     guessCourse: guessCourse,
     paperPool: paperPool,
