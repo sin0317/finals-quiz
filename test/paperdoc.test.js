@@ -87,6 +87,65 @@ console.log('\n二、答案字母跟在括号后面，隔着半句话也认得')
   ok(q.answer === 'A药游离型增加', '括号前的 A药 / B药 不会被误当成答案字母', q && q.answer);
 }
 
+/* ---------------- 二·二、答案印在括号里面 ---------------- */
+console.log('\n二·二、答案印在括号里（（A））也认得');
+{
+  const { api } = boot(null);
+  const mk = (lines, sec) => api.parsePaperDoc([sec || '单选题（每题2分）'].concat(lines).join('\n')).questions;
+
+  let q = mk(['1. 药物治疗的核心问题是（A）',
+    'A、合理用药   B、获得最佳疗效   C、药品价格   D、给药途径'])[0];
+  ok(q && q.answer === '合理用药', '「（A）」写在括号里', q && q.answer);
+  ok(q && q.type === 'single', '一个字母 → 单选', q && q.type);
+  ok(q && q.stem === '药物治疗的核心问题是（　）', '题干里括号清成空括号、题号去掉', q && q.stem);
+  ok(q && q.opts.length === 4 && q.opts[2] === '药品价格', '选项仍是卷子那四个', q && q.opts);
+  ok(q && q.optsSrc === 'paper', '选项标记为来自原卷', q && q.optsSrc);
+
+  q = mk(['2. 治疗药物监测最常用的标本是（ B ）',
+    'A、尿液   B、血浆   C、唾液   D、粪便'])[0];
+  ok(q && q.answer === '血浆', '「（ B ）」带空格也认得', q && q.answer);
+
+  q = mk(['3. 下列属于肝药酶诱导剂的是(A)',
+    'A、苯巴比妥   B、酮康唑   C、西咪替丁   D、红霉素'])[0];
+  ok(q && q.answer === '苯巴比妥', '半角括号「(A)」也认得', q && q.answer);
+
+  // 括号里多个字母 → 多选
+  q = mk(['4. 下列需要做治疗药物监测的有（A、C）',
+    'A、地高辛   B、维生素C   C、苯妥英钠   D、青霉素'])[0];
+  ok(q && q.type === 'multi', '括号里两个字母 → 多选', q && q.type);
+  ok(q && JSON.stringify(q.answer) === JSON.stringify(['地高辛', '苯妥英钠']),
+    '两个正确项都按字母翻出来', q && q.answer);
+
+  q = mk(['5. 下列需要做治疗药物监测的有（A,C）',
+    'A、地高辛   B、维生素C   C、苯妥英钠   D、青霉素'])[0];
+  ok(q && q.answer.length === 2 && q.answer[1] === '苯妥英钠', '逗号分隔的字母也认得', q && q.answer);
+
+  // 括号里没答案的仍然要跳过，别把「（A型题）」这种当答案
+  q = mk(['6. 关于A型不良反应（A型题）的说法正确的是',
+    'A、与剂量相关   B、与剂量无关   C、不可预测   D、发生率低'])[0];
+  ok(!q || q.answer === '' || typeof q.answer === 'string',
+    '「（A型题）」不会被当成答案字母', q && q.answer);
+
+  // 选项正文里出现（AC）这种写法，不能把该选项行当成新题干
+  const list = mk(['7. 下列说法正确的是（D）',
+    'A、甲说法错误   B、乙说法错误   C、丙说法错误',
+    'D、（AC）均正确']);
+  ok(list.length === 1, '选项里的「（AC）」不会多切出一道题', list.length);
+  ok(list[0] && list[0].answer === '（AC）均正确', 'D 项原样保留', list[0] && list[0].answer);
+
+  // 两种写法混排在同一份卷子里都要对上
+  const mixed = mk([
+    '8. 首过效应明显的给药途径是（B）',
+    'A、静脉注射   B、口服   C、舌下含服   D、吸入',
+    '9. 血浆半衰期是指（     ）C',
+    'A、药物被吸收一半的时间   B、药物排泄一半的时间',
+    'C、血药浓度下降一半所需的时间   D、药效下降一半的时间'
+  ]);
+  ok(mixed.length === 2, '括号内、括号后两种写法混排都对上', mixed.length);
+  ok(mixed[0] && mixed[0].answer === '口服' && mixed[1] && mixed[1].answer.indexOf('血药浓度下降一半') === 0,
+    '两道题的答案各自正确', mixed.map((x) => x.answer));
+}
+
 /* ---------------- 三、选项排版的各种花活 ---------------- */
 console.log('\n三、选项：一行两个 / 缺标号 / 跨行 / 整段不标号');
 {

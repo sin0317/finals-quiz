@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.10.0';
+  var FQ_VERSION = '1.11.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1008,7 +1008,8 @@
          2. 新的、严重的ADR应当在（  ）日内报告   D
          0   B. 1    C. 7   D.15
 
-     特点：答案字母尾随在空括号后面（有时还隔着半句话），选项一行两个、
+     答案的两种写法都认：印在括号后面（`（　）A`，可以隔着半句话）、
+     或者直接印在括号里（`（A）`、`（A、C）`）。特点：选项一行两个、
      甚至某一项缺标号、长选项还跨行。这一层只做「照着原卷抄」，
      不改写、不提炼、不猜题意 —— 抄错了用户在「✎ 改题」里还能修。
      ========================================================= */
@@ -1020,8 +1021,13 @@
     { k: 'fill', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*填空题/ },
     { k: 'judge', re: /^(?:[一二三四五六七八九十]+\s*[、.．]|\d+\s*[、.．])?\s*判断/ }
   ];
+  /* 空括号「（　）」和「答案印在括号里」的「（A）」「（A、C）」都算题干上的空位。
+     只认括号里全是选项字母的，避免把「（A型题）」「（B超）」这种正文误当空位。 */
+  var PAPER_ANS_IN = /[（(][\s\u3000]*([A-Ea-e](?:[\s\u3000]*[、,，\/和]?[\s\u3000]*[A-Ea-e]){0,4})[\s\u3000]*[）)]/;
   var PAPER_BLANK = /[（(][\s\u3000]*[）)]/;
   var PAPER_NUM = /^\s*\d+\s*[.、．)）]\s*/;
+  // 以「A、」「B.」开头的行是选项，哪怕里面带括号也不能当题干
+  var PAPER_OPT_START = /^\s*[A-E]\s*[、.．。\)）]/;
 
   function paperSecKind(line) {
     var t = String(line || '').trim();
@@ -1033,11 +1039,18 @@
   }
 
   /* 题干后面那个答案字母。括号后面的正文里也可能有孤立大写字母，
-     所以只在「不是字母也不是汉字」的边界上认，避免把「维生素D」当成 D 项。 */
+     所以只在「不是字母也不是汉字」的边界上认，避免把「维生素D」当成 D 项。
+     答案有两种写法，都认：
+         药物治疗的核心问题是（     ）A     ← 印在括号后面（可隔半句话）
+         药物治疗的核心问题是（A）           ← 印在括号里面
+     括号里写了就优先用括号里的，不再去后面找。 */
   function paperAnswerOf(line) {
-    var m = String(line).match(PAPER_BLANK);
+    var s = String(line);
+    var inParen = s.match(PAPER_ANS_IN);
+    if (inParen) return inParen[1].replace(/[^A-Ea-e]/g, '').toUpperCase();
+    var m = s.match(PAPER_BLANK);
     if (!m) return '';
-    var rest = String(line).slice(m.index + m[0].length);
+    var rest = s.slice(m.index + m[0].length);
     var re = /(^|[^A-Za-z0-9\u4e00-\u9fa5])([A-E]{1,5})(?![A-Za-z0-9])/;
     var k = rest.match(re);
     return k ? k[2] : '';
@@ -1046,7 +1059,11 @@
   /* 题干去掉题号、去掉答案字母、括号统一成（　） */
   function paperStemOf(line) {
     var t = String(line).replace(PAPER_NUM, '').trim();
-    var ans = paperAnswerOf(t);
+    // 答案印在括号里：先把「（A）」换成「（　）」，后面按尾随字母切尾巴的逻辑
+    // 才不会把括号里的那个 A 当成句子尾巴切掉半个题干
+    var inner = PAPER_ANS_IN.test(t);
+    if (inner) t = t.replace(PAPER_ANS_IN, '（　）');
+    var ans = inner ? '' : paperAnswerOf(t);
     if (ans) {
       // 右侧连着答案的那一小截切掉（可能是「A」「。C」「 ABC」）
       var i = t.lastIndexOf(ans);
@@ -1067,6 +1084,10 @@
     var re = /([A-E])\s*[、.．。\)）]\s*/g;
     var marks = [], m;
     while ((m = re.exec(t))) {
+      // 前面的字符也是字母数字时，这个「字母 + 括号」是正文不是标号：
+      // 选项写成「D、（AC）均正确」时，里面的「C）」会被误当成 C 项
+      var prev = m.index > 0 ? t.charAt(m.index - 1) : '';
+      if (/[A-Za-z0-9]/.test(prev)) continue;
       marks.push({ letter: m[1], at: m.index, textAt: m.index + m[0].length });
     }
     if (!marks.length) return [];
@@ -1131,7 +1152,7 @@
       var line = String(raw || '').trim();
       if (!line) return;
 
-      if (PAPER_BLANK.test(line)) {
+      if ((PAPER_BLANK.test(line) || PAPER_ANS_IN.test(line)) && !PAPER_OPT_START.test(line)) {
         flush();
         cur = { stem: paperStemOf(line), letters: paperAnswerOf(line), opts: [], rawLines: [] };
         // 题干和第一个选项挤在同一行的（「…（ ）A  A.xxx」）后面再切
@@ -2426,9 +2447,9 @@
 
   /* ---------------- 导入笔记 / 导入原卷 ---------------- */
   var NOTE_TIP = '从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成';
-  var PAPER_TIP = '支持 .docx / .txt，也可以直接把试卷文字粘进来；按原卷的分段照抄，题干、选项、答案都不改写';
+  var PAPER_TIP = '支持 .docx / .txt，也可以直接把试卷文字粘进来；按原卷的分段照抄，题干、选项、答案都不改写。答案字母写在括号里（A）或跟在括号后面都认得';
   var NOTE_PH = '把笔记整段粘进来。写的时候尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。';
-  var PAPER_PH = '把试卷整段粘进来，保留原来的分段标题，例如：\n\n单选题（每题2分）\n药物治疗的核心问题是（     ）A\nA、合理用药        B、获得最佳疗效\n\n多选题（每题2分）\n药物治疗要求（     ）ABCD\nA.安全  B.有效  C.经济  D.适当\n\n名词解释（每题4分）\n处方：是指由注册的执业医师……';
+  var PAPER_PH = '把试卷整段粘进来，保留原来的分段标题，例如：\n\n单选题（每题2分）\n药物治疗的核心问题是（     ）A\nA、合理用药        B、获得最佳疗效\n首过效应最明显的给药途径是（B）\nA、静脉注射        B、口服\n\n多选题（每题2分）\n药物治疗要求（     ）ABCD\nA.安全  B.有效  C.经济  D.适当\n\n名词解释（每题4分）\n处方：是指由注册的执业医师……';
 
   function setInputMode(mode) {
     S.inputMode = mode === 'paper' ? 'paper' : 'note';
@@ -2441,7 +2462,7 @@
     $('#importTitle').textContent = isPaper ? '① 把整份原卷贴进来' : '① 贴上你的课程笔记';
     $('#importHint').textContent = isPaper ? PAPER_TIP : NOTE_TIP;
     $('#segHint').textContent = isPaper
-      ? '原卷 = 老师发的试卷：单选题（每题2分）/ 多选题 / 名词解释 / 简答题，答案字母通常跟在括号后面'
+      ? '原卷 = 老师发的试卷：单选题（每题2分）/ 多选题 / 名词解释 / 简答题，答案字母写在括号里（A）或跟在括号后面都认'
       : '笔记 = 课本或讲义正文，系统从判断句里提炼题目；换成「导入原卷」则一条一条照着试卷抄';
     $('#extractBtn').textContent = isPaper ? '解析原卷' : '一键提炼知识点';
     $('#pickFileBtn').textContent = isPaper ? '选择原卷文件' : '选择笔记文件';
@@ -2450,7 +2471,8 @@
     var ta = $('#noteText');
     if (ta) {
       ta.placeholder = isPaper ? PAPER_PH : NOTE_PH;
-      ta.rows = isPaper ? 10 : 12;
+      // 原卷的示例占位有 14 行，行数给不够会把它从底部切掉
+      ta.rows = isPaper ? 15 : 12;
     }
     $('#previewTitle').textContent = isPaper ? '② 核对原卷题目，可随手改' : '② 核对题目，可随手改';
   }
