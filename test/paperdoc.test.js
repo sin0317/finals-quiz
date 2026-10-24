@@ -313,11 +313,23 @@ console.log('\n六、题干：去题号、括号统一');
   ok(q.stem.indexOf('____') < 0, '原卷题干里不会凭空多一条下划线');
 }
 
-/* ---------------- 七、端到端：导入页切到原卷 → 解析 → 保存 ---------------- */
-console.log('\n七、导入页：切到「导入原卷」→ 解析 → 保存 → 刷题能出选项');
+/* ---------------- 七、两步导入：第一步原卷（可跳过）→ 第二步笔记 ---------------- */
+console.log('\n七、两步导入：第一步原卷（可跳过）→ 第二步笔记');
 {
   const { win } = boot(null);
   const d = win.document;
+
+  ok(!!d.querySelector('#stepPaper') && !!d.querySelector('#stepNote'), '导入页分成「原卷」「笔记」两张步骤卡');
+  ok(/可选/.test(d.querySelector('#stepPaper').textContent), '第一步明确标着「可选」');
+  ok(/必做/.test(d.querySelector('#stepNote').textContent), '第二步明确标着「必做」');
+  ok(/1/.test(d.querySelector('#flowPaper .flow-n').textContent) &&
+    /2/.test(d.querySelector('#flowNote .flow-n').textContent), '顶上流程条写着 1 → 2 的先后');
+  ok(!d.querySelector('#inputSeg'), '原来那个「笔记 / 原卷」切换已经去掉');
+  ok(!d.querySelector('#builtinPaperBtn'), '不再有某个专业专属的原卷按钮');
+  ok(d.querySelector('#paperInput').multiple && d.querySelector('#fileInput').multiple,
+    '两个文件框都支持一次选多个文件');
+  ok(/可以跳过/.test(d.querySelector('#paperPoolBar').textContent), '还没原卷时明说这步能跳过');
+
   const paper = [
     '第二章 药物治疗的原则与过程',
     '单选题（每题2分）',
@@ -330,80 +342,89 @@ console.log('\n七、导入页：切到「导入原卷」→ 解析 → 保存 �
     '处方：是指由注册的执业医师为患者开具的医疗文书。（4分）'
   ].join('\n');
 
-  ok(d.querySelector('#inputSeg'), '导入页有「笔记 / 原卷」切换');
-  const paperBtn = d.querySelector('#inputSeg .seg-btn[data-mode="paper"]');
-  paperBtn.click();
-  ok(paperBtn.classList.contains('active'), '切到原卷模式');
-  ok(d.querySelector('#extractBtn').textContent === '解析原卷', '按钮文案跟着变');
-  ok(!d.querySelector('#builtinPaperBtn').hidden, '原卷模式下出现「载入内置原卷」');
+  /* 第一步：粘进来 → 点一下就进真题库，不再挤占第二步的预览表 */
+  d.querySelector('#paperText').value = paper;
+  d.querySelector('#courseName').value = '临床药物治疗学概论';
+  d.querySelector('#paperExtractBtn').click();
 
-  d.querySelector('#noteText').value = paper;
-  d.querySelector('#noteText').dispatchEvent(new win.Event('input', { bubbles: true }));
-  d.querySelector('#extractBtn').click();
-
-  ok(!d.querySelector('#previewCard').hidden, '解析完出现预览');
-  const rows = d.querySelectorAll('#previewBody tr');
-  ok(rows.length === 3, '三道题都进预览', rows.length);
-  ok(d.querySelector('#previewBody .p-opts'), '预览里能看到选项');
-
-  d.querySelector('#saveBankBtn').click();
   const saved = JSON.parse(win.localStorage.getItem('fq_banks_v1'));
-  ok(saved.length === 1, '存成一个题集');
-  const qs = saved[0].questions;
-  ok(qs.length === 3, '三题入库');
-  const single = qs.filter((q) => q.type === 'single')[0];
-  ok(single.opts.length === 4, '单选题带着四个选项入库', single.opts);
-  ok(single.answer === '有效性', '答案数字母翻译成了原文');
-  const multi = qs.filter((q) => q.type === 'multi')[0];
-  ok(Array.isArray(multi.answer) && multi.answer.length === 3, '多选三个正确项');
+  ok(saved.length === 1 && saved[0].course === '临床药物治疗学概论', '原卷直接存成题集', saved[0] && saved[0].course);
+  ok(saved[0].questions.length === 3, '三道题全部入库', saved[0].questions.length);
+  const single = saved[0].questions.filter((q) => q.type === 'single')[0];
+  ok(single && single.answer === '有效性', '答案字母翻译成原文', single && single.answer);
+  ok(single && single.chapter.indexOf('第二章') === 0, '每道题都标着章节', single && single.chapter);
+  ok(d.querySelector('#previewCard').hidden, '原卷这步不占用预览表');
+  ok(d.querySelector('#flowPaper').classList.contains('done'), '第一步完成后流程条自己亮起来');
+  ok(/真题库：3 道/.test(d.querySelector('#paperPoolBar').textContent), '真题库有多少道写得明明白白');
 
-  // 真的去刷一次题，看选项能不能点
-  d.querySelector('.tab[data-view="quiz"]').click();
-  d.querySelector('#qType').value = 'all';
-  d.querySelector('#qCount').value = '10';
-  d.querySelector('#qOrder').value = 'seq';
-  d.querySelector('#quizStartBtn').click();
-  ok(!!d.querySelector('#optsBox'), '刷题页按选项出题');
-  ok(d.querySelectorAll('#optsBox .opt').length === 4, '四个选项都在', d.querySelectorAll('#optsBox .opt').length);
-}
-
-/* ---------------- 八、切换来源不会串题 ---------------- */
-console.log('\n八、切回笔记模式：上一批原卷预览作废');
-{
-  const { win } = boot(null);
-  const d = win.document;
-  d.querySelector('#inputSeg .seg-btn[data-mode="paper"]').click();
-  d.querySelector('#noteText').value = ['单选题（每题2分）', '甲是（  ）A', 'A、一  B、二'].join('\n');
+  /* 第二步：笔记里这件事卷子考过 → 直接出原题 */
+  d.querySelector('#noteText').value = [
+    '药物治疗的前提是有效性，这是最基本的要求。',
+    '血浆半衰期是指血药浓度下降一半所需的时间。'
+  ].join('\n');
   d.querySelector('#extractBtn').click();
-  ok(!d.querySelector('#previewCard').hidden, '原卷预览出现');
 
-  d.querySelector('#inputSeg .seg-btn[data-mode="note"]').click();
-  ok(d.querySelector('#previewCard').hidden, '切回笔记后预览收起，不会把原卷的题混进去');
-  ok(d.querySelector('#extractBtn').textContent === '一键提炼知识点', '按钮文案变回来');
+  ok(!d.querySelector('#previewCard').hidden, '第二步解析完出预览');
+  const rows = d.querySelectorAll('#previewBody tr');
+  ok(rows.length === 2, '两条笔记出两道题', rows.length);
+  const hitRow = Array.prototype.filter.call(rows, (tr) => /原卷真题/.test(tr.textContent))[0];
+  ok(!!hitRow, '对上的那条标成「原卷真题」');
+  ok(hitRow && hitRow.querySelector('.p-opts'), '原卷真题带着卷子上的选项');
+  ok(hitRow && /有效性/.test(hitRow.textContent), '答案是卷子上的那个');
+  const freshRow = Array.prototype.filter.call(rows, (tr) => !/原卷真题/.test(tr.textContent))[0];
+  ok(freshRow && !freshRow.querySelector('.p-opts'), '卷子里没考过的那条是填空，没有选项');
+  ok(d.querySelector('#flowPaper').classList.contains('done'), '第二步能看见第一步的状态还在');
 }
 
-/* ---------------- 九、内置原卷题库的成品 ---------------- */
-console.log('\n九、内置原卷题库（14 章）结构完整');
+/* ---------------- 八、多文件：一次十几份原卷合成一个真题库 ---------------- */
+console.log('\n八、多份原卷合成一个真题库');
 {
-  const f = path.join(ROOT, 'assets', 'paper_bank.json');
-  ok(fs.existsSync(f), '题库文件在包里（部署后也能读到）');
-  const bank = JSON.parse(fs.readFileSync(f, 'utf8'));
-  ok(bank.chapters.length === 14, '14 章（第一章没有原卷）', bank.chapters.length);
-  let n = 0, bad = 0;
-  bank.chapters.forEach((ch) => {
-    ch.questions.forEach((q) => {
-      n++;
-      if (!q.stem || !q.answer || (q.type !== 'term' && q.type !== 'short' && (!q.opts || q.opts.length < 2))) bad++;
-      if (!q.chapter) bad++;
-    });
-  });
-  ok(n >= 200, '两百多道原卷题', n);
-  ok(bad === 0, '每道题都有题干、答案、选项齐全、标着章节', bad);
+  const { win, api } = boot(null);
+  const d = win.document;
 
-  const ch2 = bank.chapters.filter((c) => c.chapter.indexOf('第二章') >= 0)[0];
-  ok(ch2 && ch2.questions.length === 20, '第二章 20 道（原卷全录）', ch2 && ch2.questions.length);
-  const allMulti = bank.chapters.reduce((s, c) => s + c.questions.filter((q) => q.type === 'multi').length, 0);
-  ok(allMulti >= 60, '多选题 60 道以上（原卷本来就多）', allMulti);
+  const A = ['第二章 药物治疗的原则与过程', '单选题（每题2分）',
+    '药物治疗的前提是（     ）B', 'A.安全性  B.有效性   C.经济性   D.适当性'].join('\n');
+  const B = ['第三章 药物相互作用', '单选题（每题2分）',
+    '肝药酶诱导剂是（     ）A', 'A.苯巴比妥  B.酮康唑   C.西咪替丁   D.红霉素'].join('\n');
+
+  const r = api.parsePaperRuns([
+    { name: '第二章 药物治疗的原则与过程.docx', text: A },
+    { name: '第三章 药物相互作用.docx', text: B },
+    { name: '第二章 补考卷.pdf', text: A }        // 同一道题又出一遍
+  ]);
+  ok(r.files === 3, '三份文件都参与解析', r.files);
+  ok(r.questions.length === 2, '重复的题只留一份', r.questions.length);
+  ok(r.dup === 1, '重复计数对得上', r.dup);
+  ok(r.questions[0].chapter.indexOf('第二章') === 0 &&
+    r.questions[1].chapter.indexOf('第三章') === 0, '每份卷子按自己的文件名分章节',
+    r.questions.map((q) => q.chapter));
+  ok(r.questions.every((q) => q.id), '合成后每道题都有 id（不然掌握度会全挤到 undefined）');
+
+  ok(api.chapterOf('第三章 药物相互作用.docx', '') === '第三章 药物相互作用', '文件名里的章节优先');
+  ok(api.chapterOf('卷子.docx', '第四章 药物相互作用') === '第四章 药物相互作用', '文件名没章节就用文内标题');
+  ok(api.guessCourse('临床药物治疗学概论 第三章.docx') === '临床药物治疗学概论', '文件名能猜出课程名');
+  ok(api.guessCourse('第三章 药物治疗的原则与过程.docx') === '', '纯章节名不瞎猜课程');
+
+  /* 真界面：把三份文件塞进第一步，点一下入库 */
+  api.state().paperFiles = [
+    { name: '第二章 药物治疗的原则与过程.docx', text: A, chars: A.length },
+    { name: '第三章 药物相互作用.docx', text: B, chars: B.length }
+  ];
+  d.querySelector('#courseName').value = '临床药物治疗学概论';
+  d.querySelector('#paperExtractBtn').click();
+  const bank = JSON.parse(win.localStorage.getItem('fq_banks_v1'))[0];
+  ok(bank.questions.length === 2, '两份原卷合成一个题集里的 2 道题', bank.questions.length);
+  ok(bank.questions.every((q) => q.chapter), '题库里每道题都带章节');
+}
+
+/* ---------------- 九、不再内置某个专业的原卷 ---------------- */
+console.log('\n九、不内置任何专业的原卷题库');
+{
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  ok(html.indexOf('临床药物治疗学概论') < 0, '页面里不再有某个专业的硬编码按钮');
+  ok(app.indexOf('paper_bank.json') < 0, '代码不再依赖内置题库文件');
+  ok(!fs.existsSync(path.join(ROOT, 'assets', 'paper_bank.json')), '内置题库文件已移除');
 }
 
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');

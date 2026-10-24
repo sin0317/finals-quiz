@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.12.0';
+  var FQ_VERSION = '1.13.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -86,7 +86,7 @@
      早先入库的（还没有这个字段）用「有章节 + 至少两个选项」兜底认。 */
   function isPaperQ(q) {
     if (!q) return false;
-    if (q.optsSrc === 'paper') return true;
+    if (q.optsSrc === 'paper' || q.fromPaper) return true;
     return !!q.chapter && !!(q.opts && q.opts.length >= 2);
   }
 
@@ -1736,9 +1736,10 @@
     view: 'import',
     quiz: null,
     recite: null,
-    noteRaw: null,
-    inputMode: 'note',        // 'note' 提炼笔记 / 'paper' 照抄原卷
+    noteFiles: [],            // 第二步读进来的文件：{name, text, chars}
+    paperFiles: [],           // 第一步读进来的原卷：{name, text, chars}
     paperInfo: null,          // 上一次原卷解析的统计（跳过了几道、为什么）
+    paperPool: null,          // 真题库现状：{count, chapters, files}
     paperMatch: null,         // 上一次笔记解析里对上了几道卷子原题
   };
 
@@ -1908,6 +1909,7 @@
     sel.appendChild(on);
     if (S.banks.length && S.cur) sel.value = S.cur;
     renderBankList();
+    updatePoolBar();   // 换题集了，真题库的数目跟着变
   }
 
   function fmtDate(ts) {
@@ -2070,19 +2072,51 @@
   ].join('\n');
 
   $('#loadSampleBtn').addEventListener('click', function () {
-    S.noteRaw = null;
-    $('#fileChip').hidden = true;
+    S.noteFiles = [];
+    renderFileList('note');
     $('#noteText').value = SAMPLE_NOTE;
     if (!$('#courseName').value.trim()) $('#courseName').value = '中国近代史';
     updateNoteStat();
     toast('示例笔记已载入，点「一键提炼知识点」试试');
   });
 
+  /* ---------------------------------------------------------
+     多文件导入：一次选十几个文件（一章一个），逐个读
+     --------------------------------------------------------- */
   $('#pickFileBtn').addEventListener('click', function () { $('#fileInput').click(); });
+  $('#paperPickBtn').addEventListener('click', function () { $('#paperInput').click(); });
   $('#fileInput').addEventListener('change', function () {
-    var f = this.files[0];
-    if (f) readNoteFile(f);
+    var fs = this.files;
     this.value = '';
+    importFiles(fs, 'note');
+  });
+  $('#paperInput').addEventListener('change', function () {
+    var fs = this.files;
+    this.value = '';
+    importFiles(fs, 'paper');
+  });
+  $('#noteClearBtn').addEventListener('click', function () {
+    S.noteFiles = [];
+    $('#noteText').value = '';
+    renderFileList('note');
+    updateNoteStat();
+    $('#flowNote').classList.remove('done');
+  });
+  $('#paperClearBtn').addEventListener('click', function () {
+    S.paperFiles = [];
+    $('#paperText').value = '';
+    renderFileList('paper');
+    updatePaperStat();
+  });
+  ['note', 'paper'].forEach(function (kind) {
+    var box = kind === 'paper' ? $('#paperFiles') : $('#noteFiles');
+    box.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('.f-del') : null;
+      if (!b) return;
+      fileStore(kind).splice(+b.dataset.i, 1);
+      renderFileList(kind);
+      if (kind === 'paper') updatePaperStat(); else updateNoteStat();
+    });
   });
 
   /* ---------- 各种格式的文件解析 ---------- */
@@ -2281,106 +2315,205 @@
     }).then(function (t) { return t.replace(/\n{3,}/g, '\n\n'); });
   }
 
-  function readNoteFile(f) {
+  /* 一个文件读成纯文本。读不出来就 reject —— 交给调用方记一笔，
+     不能因为十几个文件里有一个扫描版 PDF 就整批失败。 */
+  function readOneFile(f) {
     var ext = (f.name.split('.').pop() || '').toLowerCase();
-    var finish = function (text) {
-      if (!$('#courseName').value.trim()) $('#courseName').value = f.name.replace(/\.[^.]+$/, '');
-      showFileChip(f.name, text);   // 原文进内存，不摊在页面上
-    };
-    var afterExtract = function () {
-      var n = doExtract(true) ? S.preview.length : 0;
-      if (n) toast('已读取 ' + f.name + '，提炼出 ' + n + ' 道题');
-      else toast('已读取 ' + f.name + '，但没提炼出判断句 —— 点「查看 / 编辑原文」看看内容对不对');
-    };
-
+    if (ext === 'doc') {
+      return Promise.reject(new Error('老版 .doc 网页里解析不了，用 Word 另存为 .docx 再来'));
+    }
     if (ext === 'docx') {
-      toast('正在解析 Word 文档…');
-      return readAsBuf(f).then(docxToText).then(function (t) {
-        finish(t);
-        afterExtract();
-      }).catch(function (e) {
-        toast('Word 解析失败：' + e.message + '，也可以直接复制正文粘贴');
+      return readAsBuf(f).then(docxToText).catch(function (e) {
+        throw new Error('Word 解析失败：' + e.message);
       });
     }
     if (ext === 'pdf') {
-      toast('正在解析 PDF，页数多时要等一会儿…');
       return readAsBuf(f).then(pdfToText).then(function (t) {
-        if (!t.replace(/\s/g, '')) {
-          toast('这个 PDF 没有文字层，是扫描件 —— 复制正文粘贴进来吧');
-          return;
-        }
-        finish(t);
-        afterExtract();
-      }).catch(function (e) {
-        toast('PDF 解析失败：' + e.message + '，也可以直接复制正文粘贴');
+        if (!String(t).replace(/\s/g, '')) throw new Error('这个 PDF 没有文字层（扫描件），只能复制正文粘贴');
+        return t;
       });
     }
-    if (ext === 'doc') {
-      toast('老版 .doc 在网页里解析不了 —— 用 Word 打开另存为 .docx 再来，或直接复制正文');
-      return;
-    }
     if (['txt', 'md', 'markdown', 'text', 'csv'].indexOf(ext) < 0) {
-      toast('暂不支持 .' + ext + ' 文件，可以复制正文粘贴进来');
-      return;
+      return Promise.reject(new Error('不支持 .' + ext + ' 文件'));
     }
-    readAsText(f).then(function (t) {
-      finish(t);
-      afterExtract();
-    }).catch(function (e) { toast(e.message); });
+    return readAsText(f);
   }
 
-  var dz = $('#dropZone');
-  ['dragenter', 'dragover'].forEach(function (ev) {
-    dz.addEventListener(ev, function (e) { e.preventDefault(); dz.style.outline = '2px dashed var(--brand)'; });
-  });
-  ['dragleave', 'drop'].forEach(function (ev) {
-    dz.addEventListener(ev, function (e) { e.preventDefault(); dz.style.outline = ''; });
-  });
-  dz.addEventListener('drop', function (e) {
-    var f = e.dataTransfer && e.dataTransfer.files[0];
-    if (f) readNoteFile(f);
-  });
+  function fileStore(kind) { return kind === 'paper' ? S.paperFiles : S.noteFiles; }
+  function joinFiles(store) {
+    return store.map(function (f) { return f.text; }).join('\n\n');
+  }
+
+  /* 文件名里的章节：「第三章 药物治疗的原则与过程.docx」→ 第三章…
+     纯粹是章节名的（没有课程前缀）不给课程名，让用户自己填，别瞎猜。 */
+  function guessCourse(name) {
+    var base = String(name || '').replace(/\.[^.]+$/, '').trim();
+    var m = base.match(/^(.+?)[\s_\-—·]*第[一二三四五六七八九十百零\d]+[章节讲]/);
+    if (m && m[1].trim()) return m[1].trim();
+    if (/^第[一二三四五六七八九十百零\d]+[章节讲]/.test(base)) return '';
+    return base.length <= 26 ? base : '';
+  }
+  function chapterOf(name, parsed) {
+    var base = String(name || '').replace(/\.[^.]+$/, '').trim();
+    var m = base.match(/第[一二三四五六七八九十百零\d]+章[^\n]{0,30}/);
+    var p = String(parsed || '').trim();
+    if (m) return m[0].replace(/[\s_\-—·]+$/, '').trim();   // 文件名说得清楚就按文件名
+    if (p && /第[一二三四五六七八九十百零\d]+章/.test(p)) return p;
+    return p || base;
+  }
+
+  /* 按顺序读，边读边报进度。同名文件重读时替换，不叠加。 */
+  function importFiles(files, kind) {
+    var arr = Array.prototype.slice.call(files || []);
+    if (!arr.length) return Promise.resolve();
+    var store = fileStore(kind);
+    var btn = kind === 'paper' ? $('#paperPickBtn') : $('#pickFileBtn');
+    var label = btn.textContent;
+    var okN = 0, bad = [];
+    btn.disabled = true;
+    function next(i) {
+      if (i >= arr.length) return Promise.resolve();
+      var f = arr[i];
+      btn.textContent = '正在读取 ' + (i + 1) + '/' + arr.length + '…';
+      return readOneFile(f).then(function (t) {
+        var text = String(t || '');
+        if (!text.replace(/\s/g, '')) throw new Error('里面没有文字');
+        var item = { name: f.name, text: text, chars: text.replace(/\s/g, '').length };
+        var at = -1;
+        for (var j = 0; j < store.length; j++) if (store[j].name === f.name) { at = j; break; }
+        if (at >= 0) store[at] = item; else store.push(item);
+        okN++;
+      }).catch(function (e) {
+        bad.push({ name: f.name, why: (e && e.message) || '读不出来' });
+      }).then(function () { return next(i + 1); });
+    }
+    return next(0).then(function () {
+      btn.disabled = false;
+      btn.textContent = label;
+      if (!$('#courseName').value.trim() && store.length) {
+        var g = guessCourse(store[0].name);
+        if (g) $('#courseName').value = g;
+      }
+      renderFileList(kind);
+      updateNoteStat();
+      updatePaperStat();
+      var msg = okN ? ('已读入 ' + okN + ' 个文件') : '';
+      if (bad.length) {
+        msg += (msg ? '；' : '') + bad.length + ' 个没读成（' + bad[0].name + '：' + bad[0].why + '）';
+      }
+      toast(msg || '没有读到文件');
+    });
+  }
+
+  /* 文件列表：一次十几个文件，得让用户看见都读到了什么、哪个失败了 */
+  function renderFileList(kind) {
+    var store = fileStore(kind);
+    var box = kind === 'paper' ? $('#paperFiles') : $('#noteFiles');
+    box.innerHTML = '';
+    if (!store.length) { box.hidden = true; return; }
+    store.forEach(function (f, i) {
+      var row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML = '<span class="f-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span>' +
+        '<span class="f-meta">' + f.chars.toLocaleString() + ' 字</span>' +
+        '<button class="f-del" type="button" title="移除这个文件" data-i="' + i + '">✕</button>';
+      box.appendChild(row);
+    });
+    var total = store.reduce(function (s, f) { return s + f.chars; }, 0);
+    var sum = document.createElement('div');
+    sum.className = 'f-sum';
+    sum.textContent = '共 ' + store.length + ' 个文件、' + total.toLocaleString() + ' 字' +
+      (kind === 'paper' ? ' · 每份按它自己的章节记，合成一个真题库' : ' · 按文件顺序合成一份笔记');
+    box.appendChild(sum);
+    box.hidden = false;
+  }
+
+  /* 两个框都能拖文件进来（原卷窗、笔记窗各拖各的） */
+  function bindDrop(zoneId, kind) {
+    var z = $(zoneId);
+    if (!z) return;
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      z.addEventListener(ev, function (e) { e.preventDefault(); z.style.outline = '2px dashed var(--brand)'; });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      z.addEventListener(ev, function (e) { e.preventDefault(); z.style.outline = ''; });
+    });
+    z.addEventListener('drop', function (e) {
+      var fs = e.dataTransfer && e.dataTransfer.files;
+      if (fs && fs.length) importFiles(fs, kind);
+    });
+  }
+  bindDrop('#dropZone', 'note');
+  bindDrop('#paperDrop', 'paper');
 
   // 文件读进来的原文放在内存里，不铺到页面上（Word/PDF 的结构没必要摊开，也容易乱）
-  function activeText() {
-    var v = $('#noteText').value;
-    return v.trim() ? v : (S.noteRaw || '');
+  // 粘贴的正文优先按粘贴走；两边都有就拼起来，顺序是「文件在前、粘贴在后」
+  function activeText(kind) {
+    var k = kind || 'note';
+    var pasted = (k === 'paper' ? $('#paperText').value : $('#noteText').value).trim();
+    var fromFiles = joinFiles(fileStore(k));
+    if (fromFiles && pasted) return fromFiles + '\n\n' + pasted;
+    return pasted || fromFiles;
   }
 
   function updateNoteStat() {
-    var t = activeText();
-    $('#noteStat').textContent = t.trim() ? ('共 ' + t.replace(/\s/g, '').length + ' 字，' + splitSentences(t).length + ' 句') : '';
+    var t = activeText('note');
+    var n = S.noteFiles.length;
+    var pre = n ? (n + ' 个文件 · ') : '';
+    $('#noteStat').textContent = t.trim()
+      ? (pre + '共 ' + t.replace(/\s/g, '').length + ' 字，' + splitSentences(t).length + ' 句')
+      : '';
   }
   $('#noteText').addEventListener('input', updateNoteStat);
 
-  function showFileChip(name, text) {
-    S.noteRaw = text;
-    $('#chipName').textContent = name;
-    $('#chipMeta').textContent = text.replace(/\s/g, '').length + ' 字 · ' + splitSentences(text).length + ' 句 · 表格会按行展开成文字';
-    $('#fileChip').hidden = false;
-    updateNoteStat();
+  function updatePaperStat() {
+    var t = activeText('paper');
+    var n = S.paperFiles.length;
+    var pre = n ? (n + ' 个文件 · ') : '';
+    $('#paperStat').textContent = t.trim()
+      ? (pre + '共 ' + t.replace(/\s/g, '').length + ' 字')
+      : '';
+  }
+  $('#paperText').addEventListener('input', updatePaperStat);
+
+  /* 真题库现状：第一步到底有没有东西、多少道、几个章节。
+     这是两步之间唯一的事实依据 —— 第二步能不能出原题就看这个数。 */
+  function paperPool() {
+    return getQs().filter(isPaperQ);
+  }
+  function updatePoolBar(info) {
+    var pool = paperPool();
+    var chs = {};
+    pool.forEach(function (q) { if (q.chapter) chs[q.chapter] = 1; });
+    var cn = Object.keys(chs).length;
+    var bar = $('#paperPoolBar');
+    var step = $('#flowPaper');
+    if (!bar) return;
+    if (pool.length) {
+      bar.className = 'step-note ok';
+      bar.innerHTML = '<b>真题库：' + pool.length + ' 道原卷题</b>' +
+        (cn ? '，来自 ' + cn + ' 个章节' : '') +
+        '。第二步解析笔记时，卷子里考过的内容直接出这些原题 —— 题干、选项、答案都照卷子来，系统不自己编选项。' +
+        (info ? '<br>这次新增 ' + info.added + ' 道' + (info.dup ? '，' + info.dup + ' 道题库里已有' : '') + '。' : '');
+      if (step) step.classList.add('done');
+      var sub = $('#flowPaperSub');
+      if (sub) sub.textContent = '已知 ' + pool.length + ' 道真题' + (cn ? ' · ' + cn + ' 个章节' : '');
+    } else {
+      bar.className = 'step-note';
+      bar.textContent = '这一步可以跳过 —— 没有原卷也能直接做第二步，只是卷子里没考过的内容会按笔记挖空出填空题，不会给你编选择题';
+      if (step) step.classList.remove('done');
+      var s2 = $('#flowPaperSub');
+      if (s2) s2.textContent = '先做这步，选择题才有真题可出；不做也行';
+    }
   }
 
-  $('#chipView').addEventListener('click', function () {
-    $('#noteText').value = S.noteRaw || '';
-    S.noteRaw = null;
-    $('#fileChip').hidden = true;
-    updateNoteStat();
-    $('#noteText').focus();
-    toast('原文已展开，可以直接改');
-  });
-  $('#chipClear').addEventListener('click', function () {
-    S.noteRaw = null;
-    $('#noteText').value = '';
-    $('#fileChip').hidden = true;
-    updateNoteStat();
-    toast('已移除文件');
-  });
-
-  function doExtract(silent) {
-    var text = activeText();
-    if (!text.trim()) { toast('先把笔记粘进来，或选一个笔记文件'); return false; }
-    if (S.inputMode === 'paper') return doExtractPaper(text, silent);
+  /* 第二步：笔记。每条笔记先去翻第一步入库的真题。 */
+  function doExtractNote(silent) {
+    var text = activeText('note');
+    if (!text.trim()) {
+      toast('先把笔记粘进来，或选一个笔记文件（第一步的原卷不用重来）');
+      return false;
+    }
     var qs = buildFromNote(text);
     if (!qs.length) {
       toast('没提炼出判断句，试试用「……是……」「……的标志是……」这样的句式写笔记');
@@ -2392,17 +2525,23 @@
     qs = m.list;
     if (!qs.length && m.hit) {
       toast('这 ' + m.hit + ' 条笔记卷子里全都考过，已给题库里的原题补上讲解，没有重复出题');
+      $('#flowNote').classList.add('done');
       return false;
     }
     S.preview = qs;
     renderPreview();
     $('#previewCard').hidden = false;
+    $('#flowNote').classList.add('done');
     if (!silent) {
       $('#previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
       var parts = [];
-      if (m.hit) parts.push(m.hit + ' 道对上了卷子原题（用原题干、原选项）');
-      if (m.dup) parts.push('其中 ' + m.dup + ' 道题库里已有，只补讲解');
-      if (m.fresh) parts.push(m.fresh + ' 道卷子里没考过，按笔记挖空出填空');
+      if (m.noPool) {
+        parts.push('还没导入原卷，全部按笔记挖空出填空');
+      } else {
+        if (m.hit) parts.push(m.hit + ' 道对上了卷子原题（用原题干、原选项）');
+        if (m.dup) parts.push('其中 ' + m.dup + ' 道题库里已有，只补讲解');
+        if (m.fresh) parts.push('其中 ' + m.fresh + ' 道卷子里没考过，按笔记挖空出填空');
+      }
       toast(parts.length ? parts.join('；') : ('共 ' + qs.length + ' 道题'));
     }
     return true;
@@ -2487,109 +2626,102 @@
     return c;
   }
 
-  /* 原卷：不提炼、不猜，照着试卷抄。老师给的分值、括号、选项顺序一律不动，
-     只把「答案字母」翻译成「答案原文」，不然判分没法做。 */
-  function doExtractPaper(text, silent) {
-    var r = parsePaperDoc(text);
+  /* =========================================================
+     第一步：导入原卷（可选）
+     ---------------------------------------------------------
+     一次可以塞十几个文件，一份一个章节。原卷只做「照抄」：
+     不改写题干、不换选项、不猜答案。抄进来的题就是「真题库」，
+     第二步解析笔记时优先从这里抽原题来考。
+     ========================================================= */
+  function parsePaperRuns(runs) {
+    var list = [], warn = [], dup = 0, seen = {};
+    runs.forEach(function (run) {
+      var r;
+      try {
+        r = parsePaperDoc(String(run.text || ''));
+      } catch (e) {
+        warn.push({ file: run.name, why: '解析出错：' + (e && e.message) });
+        return;
+      }
+      var ch = chapterOf(run.name, r.chapter);
+      (r.questions || []).forEach(function (q) {
+        q.chapter = q.chapter || ch;
+        var id = qidOf(String(q.stem || '') + '|' +
+          (Array.isArray(q.answer) ? q.answer.join('') : String(q.answer || '')));
+        // 同一道题在几份卷子里都出现（老师重复出），只留一份
+        if (seen[id]) { dup++; return; }
+        seen[id] = 1;
+        q.id = id;
+        q.fromPaper = true;          // 名词解释 / 简答没有选项，也得算真题
+        q.order = list.length;
+        list.push(q);
+      });
+      (r.warn || []).forEach(function (w) { warn.push({ file: run.name, why: w.why }); });
+    });
+    var stats = { single: 0, multi: 0, term: 0, short: 0, fill: 0 };
+    list.forEach(function (q) { stats[q.type] = (stats[q.type] || 0) + 1; });
+    return { questions: list, warn: warn, dup: dup, files: runs.length, stats: stats };
+  }
+
+  function importPaper(silent) {
+    var runs = S.paperFiles.slice();
+    var pasted = $('#paperText').value.trim();
+    if (pasted) runs.push({ name: '粘贴的原卷', text: pasted });
+    if (!runs.length) {
+      toast('先选原卷文件（可以多选），或把试卷粘进来');
+      return false;
+    }
+    var course = $('#courseName').value.trim();
+    if (!course) {
+      toast('先在上面填个课程名 —— 原卷和笔记要进同一个题集，第二步才找得到这些真题');
+      $('#courseName').focus();
+      return false;
+    }
+    var r = parsePaperRuns(runs);
     S.paperInfo = r;
     if (!r.questions.length) {
       toast('没解析出题目 —— 原卷里要有「单选题 / 多选题 / 名词解释 / 简答题」这样的分段标题');
       return false;
     }
-    if (!$('#courseName').value.trim()) {
-      $('#courseName').value = S.paperChapter || r.chapter.replace(/^第.+?章\s*/, '') || '原卷题库';
-    }
-    S.preview = r.questions;
-    renderPreview();
-    $('#previewCard').hidden = false;
+    var bank = saveQuestionsToBank(r.questions, course);
+    var added = (bank && bank._lastAdded) || 0;
+    updatePoolBar({ added: added, dup: r.questions.length - added });
+    var cn = {};
+    r.questions.forEach(function (q) { if (q.chapter) cn[q.chapter] = 1; });
+    $('#flowPaper').classList.add('done');
     if (!silent) {
-      $('#previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      var sk = r.warn.length ? '，跳过 ' + r.warn.length + ' 道（' + r.warn.map(function (w) { return w.why; }).slice(0, 2).join('、') + '）' : '';
-      toast('照原卷录入 ' + r.questions.length + ' 道题' + sk);
+      var parts = ['存入真题库 ' + r.questions.length + ' 道题'];
+      if (r.files > 1) parts.unshift(r.files + ' 份原卷');
+      if (Object.keys(cn).length) parts.push(Object.keys(cn).length + ' 个章节');
+      if (r.dup) parts.push('重复的 ' + r.dup + ' 道已去掉');
+      if (r.warn.length) {
+        parts.push('跳过 ' + r.warn.length + ' 道（' +
+          r.warn.map(function (w) { return w.why; }).slice(0, 2).join('、') + '）');
+      }
+      toast(parts.join('，') + '。接着做第二步：导入笔记');
     }
     return true;
   }
 
-  $('#extractBtn').addEventListener('click', function () { doExtract(false); });
+  $('#extractBtn').addEventListener('click', function () { doExtractNote(false); });
+  $('#paperExtractBtn').addEventListener('click', function () { importPaper(false); });
 
-  /* ---------------- 导入笔记 / 导入原卷 ---------------- */
+  /* ---------------- 两步的文案 ---------------- */
   var NOTE_TIP = '从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成';
   var PAPER_TIP = '支持 .docx / .txt，也可以直接把试卷文字粘进来；按原卷的分段照抄，题干、选项、答案都不改写。答案写在括号里（A）、跟在括号后面、或者直接写成词（合理用药）都认得';
   var NOTE_PH = '把笔记整段粘进来。写的时候尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。';
-  var PAPER_PH = '把试卷整段粘进来，保留原来的分段标题，例如：\n\n单选题（每题2分）\n药物治疗的核心问题是（     ）A\nA、合理用药        B、获得最佳疗效\n首过效应最明显的给药途径是（B）\nA、静脉注射        B、口服\n治疗药物监测最常用的标本是（血浆）\n\n多选题（每题2分）\n药物治疗要求（     ）ABCD\nA.安全  B.有效  C.经济  D.适当\n\n名词解释（每题4分）\n处方：是指由注册的执业医师……';
+  var PAPER_PH = '把试卷整段粘进来，保留原来的分段标题，例如：\n\n单选题（每题2分）\n药物治疗的核心问题是（     ）A\nA、合理用药        B、获得最佳疗效\n首过效应最明显的给药途径是（B）\nA、静脉注射        B、口服\n\n多选题（每题2分）\n药物治疗要求（     ）ABCD\nA.安全  B.有效  C.经济  D.适当';
 
-  function setInputMode(mode) {
-    S.inputMode = mode === 'paper' ? 'paper' : 'note';
-    var isPaper = S.inputMode === 'paper';
-    $$('#inputSeg .seg-btn').forEach(function (b) {
-      var on = b.dataset.mode === S.inputMode;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    $('#importTitle').textContent = isPaper ? '① 把整份原卷贴进来' : '① 贴上你的课程笔记';
-    $('#importHint').textContent = isPaper ? PAPER_TIP : NOTE_TIP;
-    $('#segHint').textContent = isPaper
-      ? '原卷 = 老师发的试卷：单选题（每题2分）/ 多选题 / 名词解释 / 简答题；答案认三种写法 —— 括号里、括号后、直接写成词'
-      : '笔记 = 课本或讲义正文，系统从判断句里提炼题目；换成「导入原卷」则一条一条照着试卷抄';
-    $('#extractBtn').textContent = isPaper ? '解析原卷' : '一键提炼知识点';
-    $('#pickFileBtn').textContent = isPaper ? '选择原卷文件' : '选择笔记文件';
-    $('#loadSampleBtn').hidden = isPaper;
-    $('#builtinPaperBtn').hidden = !isPaper;
-    var ta = $('#noteText');
-    if (ta) {
-      ta.placeholder = isPaper ? PAPER_PH : NOTE_PH;
-      // 原卷的示例占位有 15 行，行数给不够会把它从底部切掉
-      ta.rows = isPaper ? 16 : 12;
-    }
-    $('#previewTitle').textContent = isPaper ? '② 核对原卷题目，可随手改' : '② 核对题目，可随手改';
-  }
+  /* 例句放进 textarea 的 placeholder（HTML 里也写了一份，这里兜底） */
+  (function initImportUi() {
+    if ($('#noteText') && !$('#noteText').placeholder) $('#noteText').placeholder = NOTE_PH;
+    if ($('#paperText') && !$('#paperText').placeholder) $('#paperText').placeholder = PAPER_PH;
+    renderFileList('note');
+    renderFileList('paper');
+    updatePaperStat();
+    updatePoolBar();
+  })();
 
-  $('#inputSeg').addEventListener('click', function (e) {
-    var btn = e.target && e.target.closest ? e.target.closest('.seg-btn') : null;
-    if (!btn || btn.dataset.mode === S.inputMode) return;
-    setInputMode(btn.dataset.mode);
-    // 换了来源，之前那批预览就作废了，免得把笔记的题混进原卷里
-    S.preview = [];
-    $('#previewCard').hidden = true;
-    updateNoteStat();
-  });
-  setInputMode('note');
-
-  /* 内置原卷题库：把《临床药物治疗学概论》15 章教材里有卷的 14 章原卷一次装进来（第一章没卷）。
-     224 道题铺进预览表太长，直接存成题集更实在。 */
-  $('#builtinPaperBtn').addEventListener('click', function () {
-    var btn = this;
-    var label = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '正在载入原卷…';
-    fetch('assets/paper_bank.json', { cache: 'no-cache' }).then(function (r) {
-      if (!r.ok) throw new Error('题库文件没找到（HTTP ' + r.status + '）');
-      return r.json();
-    }).then(function (data) {
-      var list = [];
-      (data.chapters || []).forEach(function (ch) {
-        (ch.questions || []).forEach(function (q) {
-          list.push({
-            type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
-            source: q.source || q.stem, chapter: ch.chapter || '', order: list.length,
-            // 内置题库同样是卷子上的原题，选项不是系统凑的
-            optsSrc: (q.opts && q.opts.length >= 2) ? 'paper' : null
-          });
-        });
-      });
-      if (!list.length) throw new Error('题库是空的');
-      var bank = saveQuestionsToBank(list, data.course || '原卷题库');
-      if (bank) {
-        toast('已载入 ' + list.length + ' 道原卷题到「' + bank.course + '」，共 ' +
-          (data.chapters || []).length + ' 章');
-      }
-    }).catch(function (e) {
-      toast('载入失败：' + e.message);
-    }).then(function () {
-      btn.disabled = false;
-      btn.textContent = label;
-    });
-  });
 
   function renderPreview() {
     var tb = $('#previewBody');
@@ -2601,7 +2733,9 @@
         '<td class="c-chk"><input type="checkbox" class="p-chk" checked></td>' +
         '<td class="c-type"><span class="tag' + (q.type === 'multi' ? ' multi' : (q.type === 'short' || q.type === 'term') ? ' typed' : '') + '">' +
         typeLabel(q) + '</span>' +
-        (q.onlyAttachNote ? '<span class="tag paper" title="题库里已经有这道真题，这次只把笔记里的讲解补上去">已有·补讲解</span>'
+        (q.onlyAttachNote
+          ? '<span class="tag paper" title="题库里已经有这道真题，这次只把笔记里的讲解补上去">' +
+            (isPaperQ(q) ? '原卷真题·补讲解' : '已有·补讲解') + '</span>'
           : isPaperQ(q) ? '<span class="tag paper" title="题干、选项、答案都照你上传的原卷">原卷真题</span>' : '') +
         '</td>' +
         '<td><input class="cell-input p-stem" value="' + esc(q.stem) + '">' +
@@ -2705,7 +2839,7 @@
     if (bank) toast('已保存到「' + bank.course + '」，共 ' + bank.questions.length + ' 道');
   });
 
-  /* 存题集：预览保存和「一键载入内置原卷」都走这里，免得两套逻辑各写一遍 */
+  /* 存题集：第二步的「保存到题集」和第一步的原卷入库都走这里，免得两套逻辑各写一遍 */
   function saveQuestionsToBank(list, courseName) {
     // 重新提炼同一份笔记时，之前「教过」的改法要跟着搬过来。
     // 按原文句子认领：解析规则以后变了、题目 id 跟着变，反馈也不会白教。
@@ -2780,6 +2914,7 @@
           type: q.type, stem: q.stem, answer: q.answer, opts: q.opts || [],
           source: q.source || '', chapter: q.chapter || '', order: q.order == null ? i : q.order,
           optsSrc: q.optsSrc || null,          // 选项来自原卷时带 'paper'
+          fromPaper: !!q.fromPaper,            // 来自第一步导入的原卷
           note: q.note || null,                // 笔记里对这道题的讲解
           // 带上用户教过的改法：换台设备 / 换个人接着用，反馈不丢
           fix: q.fix || null, orig: q.orig || null
@@ -2867,6 +3002,7 @@
     };
     // 选项是卷子印的还是系统凑的，出题时要看这个标记
     if (q.optsSrc) out.optsSrc = q.optsSrc;
+    if (q.fromPaper) out.fromPaper = true;
     // 笔记里对这道题的讲解（刷题答完显示「笔记里怎么说」）
     if (q.note) out.note = String(q.note);
     // 导入别人导出的题库时，「教过的改法」也一起接住
@@ -3166,7 +3302,7 @@
   }
 
   function renderQuizEmpty() {
-    $('#quizBody').innerHTML = '<div class="empty">选择题库还没有生成。<br>先到「① 导入笔记」提炼题目，或用顶部下拉切换题集，再点「开始刷题」。</div>';
+    $('#quizBody').innerHTML = '<div class="empty">题库还没有题目。<br>先到「① 导入笔记」做第二步（第一步的原卷可选），或用顶部下拉切换题集，再点「开始刷题」。</div>';
   }
 
   /* =========================================================
@@ -5354,6 +5490,15 @@
     findPaperMatch: findPaperMatch,
     preferPaper: preferPaper,
     demoteToFill: demoteToFill,
+    /* 两步导入：多份原卷合成真题库 */
+    parsePaperRuns: parsePaperRuns,
+    renderFileList: renderFileList,
+    chapterOf: chapterOf,
+    guessCourse: guessCourse,
+    paperPool: paperPool,
+    importPaper: importPaper,
+    doExtractNote: doExtractNote,
+    state: function () { return S; },
     noteLine: noteLine,
     extractPoints: extractPoints,
     buildQuestions: buildQuestions,

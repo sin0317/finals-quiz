@@ -110,11 +110,10 @@ function answerCount(a) {
 
 async function intoQuiz(a, form, mode) {
   if (mode === 'paper') {
-    a.click('#inputSeg .seg-btn[data-mode="paper"]');
-    a.setVal('#noteText', PAPER);
-    a.click('#extractBtn');
-    await sleep(200);
-    a.click('#saveBankBtn');
+    // 两步导入：第一步把原卷存进真题库（不走预览）
+    a.setVal('#courseName', '临床药物治疗学概论');
+    a.setVal('#paperText', PAPER);
+    a.click('#paperExtractBtn');
     await sleep(200);
   } else {
     a.setVal('#noteText', NOTE);

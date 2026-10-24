@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.12.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.13.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -33,51 +33,99 @@
 
 <main class="wrap" data-page-node-id="r0jMQqLFvKrizUIZ0FNtOm">
 
-  <!-- ============ 导入笔记 ============ -->
+  <!-- ============ 导入：第一步原卷（可选）→ 第二步笔记 ============ -->
   <section class="view active" id="view-import" data-page-node-id="vnSqztJkPUlV6JB0zUPFVv">
-    <div class="card" data-page-node-id="tTD58CHkpHE0gdS2r27Ci0">
-      <div class="card-head" data-page-node-id="zvQHGyRmYtUxvtZR6BZBkF" style="background-color: transparent;">
-        <h2 data-page-node-id="WEoYFQkW8PsYbpwI9y6J3S" id="importTitle">① 贴上你的课程笔记</h2>
-        <span class="hint" data-page-node-id="YtjZQf2LRcrvgzIHjDHwdh" id="importHint">从乐享复制正文粘进来，或直接拖入 .docx / .pdf / .md / .txt（文件不上传，只在你电脑里解析）；题目按笔记原文顺序生成</span>
-      </div>
 
-      <!-- 两种来源：笔记要「提炼」，原卷要「照抄」。解析路径完全不同，放在同一个入口切 -->
-      <div class="seg" id="inputSeg" role="tablist">
-        <button class="seg-btn active" data-mode="note" type="button" role="tab">导入笔记</button>
-        <button class="seg-btn" data-mode="paper" type="button" role="tab">导入原卷</button>
-        <span class="seg-hint" id="segHint">原卷 = 老师发的试卷：单选题（每题2分）/ 多选题 / 名词解释 / 简答题，答案字母通常跟在括号后面</span>
+    <!-- 流程条：先说清「谁先谁后、哪一步可以跳过」 -->
+    <div class="flow">
+      <div class="flow-item" id="flowPaper">
+        <span class="flow-n">1</span>
+        <div class="flow-body">
+          <b>导入原卷<span class="badge opt">可选</span></b>
+          <span id="flowPaperSub">先做这步，选择题才有真题可出</span>
+        </div>
       </div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-item" id="flowNote">
+        <span class="flow-n">2</span>
+        <div class="flow-body">
+          <b>导入笔记<span class="badge req">必做</span></b>
+          <span id="flowNoteSub">先翻原卷真题，翻不到才按笔记挖空出填空</span>
+        </div>
+      </div>
+    </div>
 
-      <div class="row" data-page-node-id="T4qF8VHTmuvmvlI7YBOIo6">
-        <input id="courseName" class="input" placeholder="课程名称，例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
-        <button class="btn ghost" id="loadSampleBtn" data-page-node-id="HcRsxvWmAtqshJZQSfEeJ9">载入示例笔记</button>
-        <button class="btn ghost" id="pickFileBtn" data-page-node-id="0hdABGznxMehC7ioqxEA8x">选择笔记文件</button>
-        <button class="btn ghost" id="builtinPaperBtn" type="button" hidden>载入《临床药物治疗学概论》原卷（14 章 · 224 题）</button>
-        <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc" hidden="" data-page-node-id="fDp1g3YhJ24sqiOwX2Sytg">
+    <div class="card tight" data-page-node-id="tTD58CHkpHE0gdS2r27Ci0">
+      <div class="row">
+        <label class="fld-label" for="courseName">课程</label>
+        <input id="courseName" class="input" placeholder="例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
+        <span class="hint" id="courseHint">两步填同一个课程名，原卷和笔记才会进同一个题集、才能互相对上</span>
       </div>
-      <div id="fileChip" class="file-chip" hidden>
-        <span class="chip-name" id="chipName"></span>
-        <span class="chip-meta" id="chipMeta"></span>
-        <button class="btn ghost" id="chipView">查看 / 编辑原文</button>
-        <button class="mini-btn" id="chipClear" title="移除这个文件">✕</button>
+    </div>
+
+    <!-- ========== 第一步：原卷 ========== -->
+    <div class="card step" id="stepPaper">
+      <div class="card-head">
+        <h2>第一步 · 导入原卷 <span class="badge opt">可选</span></h2>
+        <span class="hint">老师发的试卷、往年真题。一次可以选十几个文件（.docx / .pdf / .txt / .md），也可以整份粘进来；按原卷照抄，题干、选项、答案都不改写</span>
       </div>
+      <div class="row">
+        <button class="btn" id="paperPickBtn" type="button">选择原卷文件（可多选）</button>
+        <button class="btn ghost" id="paperClearBtn" type="button">清空</button>
+        <input type="file" id="paperInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc,.csv" multiple hidden>
+      </div>
+      <div id="paperFiles" class="file-list" hidden></div>
+      <div id="paperDrop" class="textarea">
+        <textarea id="paperText" class="textarea-inner" rows="12" placeholder="也可以把试卷整段粘进来，保留原来的分段标题，例如：
+
+单选题（每题2分）
+药物治疗的核心问题是（     ）A
+A、合理用药        B、获得最佳疗效
+首过效应最明显的给药途径是（B）
+A、静脉注射        B、口服
+
+多选题（每题2分）
+药物治疗要求（     ）ABCD
+A.安全  B.有效  C.经济  D.适当
+（名词解释、简答题照原样粘，一行一条即可）"></textarea>
+      </div>
+      <div class="row right">
+        <span class="muted" id="paperStat"></span>
+        <button class="btn primary" id="paperExtractBtn" type="button">解析原卷，存进真题库</button>
+      </div>
+      <div class="step-note" id="paperPoolBar">这一步可以跳过 —— 没有原卷也能直接做第二步，只是卷子里没考过的内容会按笔记挖空出填空题，不会给你编选择题</div>
+    </div>
+
+    <!-- ========== 第二步：笔记 ========== -->
+    <div class="card step" id="stepNote">
+      <div class="card-head">
+        <h2>第二步 · 导入笔记 <span class="badge req">必做</span></h2>
+        <span class="hint">课本、讲义、自己的整理。一次可以选十几个文件；每条笔记先去翻第一步导入的真题，翻到就出那道原题（原题干、原选项、原答案），翻不到才挖空出填空</span>
+      </div>
+      <div class="row">
+        <button class="btn" id="pickFileBtn" type="button">选择笔记文件（可多选）</button>
+        <button class="btn ghost" id="loadSampleBtn" type="button">载入示例笔记</button>
+        <button class="btn ghost" id="noteClearBtn" type="button">清空</button>
+        <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc,.csv" multiple hidden data-page-node-id="fDp1g3YhJ24sqiOwX2Sytg">
+      </div>
+      <div id="noteFiles" class="file-list" hidden></div>
       <div id="dropZone" class="textarea" placeholder="" data-page-node-id="9RVOIMlwe4JpPzKfAa7LbK">
-        <textarea id="noteText" class="textarea-inner" rows="12" placeholder="把笔记整段粘进来。写的时候尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。
+        <textarea id="noteText" class="textarea-inner" rows="9" placeholder="也可以把笔记整段粘进来。尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。
 
 例如：
 林则徐是开眼看世界的第一人。
 太平天国运动爆发的标志是1851年金田起义。" data-page-node-id="Fl3m1b0mChhv2u6geFaiQr"></textarea>
       </div>
-      <div class="row right" data-page-node-id="ciA1ASKpKV0e1ULoxdlVXk">
-        <span class="muted" id="noteStat" data-page-node-id="BvMPvwrERWtZFgFz2m1sKq">共 399 字，18 句</span>
-        <button class="btn primary" id="extractBtn" data-page-node-id="fDHAOqKYdbneEEsCNn6BqL">一键提炼知识点</button>
+      <div class="row right">
+        <span class="muted" id="noteStat" data-page-node-id="BvMPvwrERWtZFgFz2m1sKq"></span>
+        <button class="btn primary" id="extractBtn" type="button" data-page-node-id="fDHAOqKYdbneEEsCNn6BqL">一键提炼知识点</button>
       </div>
     </div>
 
     <div class="card" id="previewCard" hidden="" data-page-node-id="EMuEPNkastADHWqyICIDA0">
       <div class="card-head" data-page-node-id="hobyNoFzplqTPDPMNFkqaB">
-        <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C" id="previewTitle">② 核对题目，可随手改</h2>
-        <span class="hint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">按笔记原文顺序生成，可用 ↑ ↓ 调顺序；题干与答案都能直接改，不需要的取消勾选</span>
+        <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C" id="previewTitle">核对题目，确认后保存</h2>
+        <span class="hint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选</span>
       </div>
       <div class="table-wrap" data-page-node-id="oFailoM5P4xZr4yu9TZlsh">
         <table id="previewTable" data-page-node-id="G3a2FyDWBPFFm95OSTHn7V">
@@ -307,7 +355,7 @@
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.12.0</span>
+    <span id="appVer">期末刷题站 v1.13.0</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -412,7 +460,7 @@
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5">示例笔记已载入，点「一键提炼知识点」试试</div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.12.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="app.js?v=1.13.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

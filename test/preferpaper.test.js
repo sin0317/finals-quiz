@@ -273,9 +273,9 @@ console.log('\n九、端到端：先导入原卷，再解析笔记');
   const a = boot({});
   await sleep(80);
 
-  // ① 导入原卷（答案字母跟在括号后面，跟老师卷子一致）
-  a.click('#inputSeg .seg-btn[data-mode="paper"]');
-  a.setVal('#noteText', [
+  // ① 第一步：导入原卷（答案字母跟在括号后面，跟老师卷子一致）
+  a.setVal('#courseName', '临床药物治疗学概论');
+  a.setVal('#paperText', [
     '单选题（每题2分）',
     '药物治疗的核心问题是（     ）A',
     'A、合理用药   B、获得最佳疗效',
@@ -284,20 +284,17 @@ console.log('\n九、端到端：先导入原卷，再解析笔记');
     'A、尿液   B、血浆',
     'C、唾液   D、粪便'
   ].join('\n'));
-  a.click('#extractBtn');
+  a.click('#paperExtractBtn');
   await sleep(150);
-  ok(a.$$('#previewBody tr').length === 2, '原卷解析出两道题', a.$$('#previewBody tr').length);
-  ok(/原卷真题/.test(a.text('#previewBody')), '预览里标着「原卷真题」');
-  a.click('#saveBankBtn');
-  await sleep(150);
+  ok(a.$('#previewCard').hidden, '原卷直接进库，不占用笔记那步的预览表');
 
   const bank1 = JSON.parse(a.ls.getItem('fq_banks_v1'))[0];
   ok(bank1.questions.length === 2, '两道原卷题入库', bank1.questions.length);
   ok(bank1.questions.every((q) => q.optsSrc === 'paper'), '入库后仍带「选项来自原卷」', bank1.questions.map((q) => q.optsSrc));
+  ok(bank1.questions.every((q) => q.fromPaper), '都标着「来自导入的原卷」', bank1.questions.map((q) => q.fromPaper));
   ok(bank1.questions.every((q) => !!q.id), '入库时补上了 id', bank1.questions.map((q) => q.id));
 
-  // ② 切回笔记，解析一段既有考过的、也有没考过的
-  a.click('#inputSeg .seg-btn[data-mode="note"]');
+  // ② 第二步：解析一段笔记，既有卷子考过的、也有没考过的
   a.setVal('#noteText', [
     '药物治疗的核心问题是合理用药。',
     '生物半衰期与血药浓度无关，又称之为恒比消除。'
@@ -309,7 +306,7 @@ console.log('\n九、端到端：先导入原卷，再解析笔记');
   const allText = a.text('#previewBody') || '';
   ok(rows.length === 2, '两条笔记都出现在预览里', rows.length);
   // 这道题刚才已经导进题库了，所以标的是「已有·补讲解」—— 比「原卷真题」更准
-  ok(/已有·补讲解/.test(allText), '对上的那条标成「已有·补讲解」（说明不会重复出题）');
+  ok(/补讲解/.test(allText), '对上的那条标成「原卷真题·补讲解」（说明不会重复出题）');
   ok(/笔记：/.test(allText), '预览里能看到笔记原文');
 
   a.click('#saveBankBtn');

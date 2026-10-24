@@ -193,6 +193,8 @@ body {
 }
 
 .card h2 { margin: 0; font-size: 16.5px; }
+/* 标题里带「可选 / 必做」徽标时，别让 h2 被 info 文字压到换行 */
+.card-head > h2 { flex: 0 0 auto; }
 .card h3 { margin: 0; font-size: 15px; }
 .hint { color: var(--muted); font-size: 12.5px; }
 .muted { color: var(--muted); font-size: 13px; }
@@ -998,29 +1000,111 @@ strong, b { font-weight: 800; }
 }
 
 /* ============ 导入来源切换：笔记 / 原卷 ============ */
-.seg {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  margin: 2px 0 14px;
-  padding-bottom: 14px;
-  border-bottom: 1px dashed var(--line);
+/* ================= 导入页：两步流程 =================
+   第一步「导入原卷」可选，第二步「导入笔记」必做。
+   顶上的 flow 条就是把这件事先说清楚，别让用户猜哪步能跳。 */
+.flow {
+  display: flex; align-items: stretch; flex-wrap: wrap; gap: 10px;
+  margin-bottom: 16px;
 }
-.seg-btn {
-  font: inherit; font-size: 13.5px; font-weight: 600;
-  color: var(--muted);
+.flow-item {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  transition: border-color .18s, background .18s;
+}
+.flow-n {
+  flex: 0 0 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--brand-soft); color: var(--brand);
+  font-size: 13px; font-weight: 800;
+}
+.flow-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.flow-body b {
+  display: block;
+  font-size: 14px; font-weight: 700; color: var(--ink);
+  line-height: 1.5;
+}
+.flow-body b .badge { margin-left: 6px; vertical-align: 2px; }
+.flow-body > span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.flow-arrow { display: flex; align-items: center; color: var(--muted); font-size: 16px; }
+/* 原卷已入库 / 笔记已提炼，步骤条自己会亮起来 */
+.flow-item.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: var(--ok-soft); }
+.flow-item.done .flow-n { background: var(--ok); color: #fff; }
+@media (max-width: 760px) {
+  .flow-arrow { display: none; }
+}
+/* 手机上两栏并排会挤，改成上下两块，各自占满一行 */
+@media (max-width: 560px) {
+  .flow-item { flex: 1 1 100%; }
+}
+
+.badge {
+  display: inline-block;
+  width: max-content;      /* 兜底：父级若是 flex / 有奇特的尺寸继承，也别被拉成整行 */
+  max-width: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .3px;
+  line-height: 1.7;
+}
+.badge.opt { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.badge.req { background: var(--brand-soft); color: var(--brand); }
+
+.card.tight { padding: 12px 16px; }
+.fld-label { font-size: 13px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+
+.card.step { border-left: 3px solid var(--line); }
+#stepPaper { border-left-color: color-mix(in srgb, var(--muted) 40%, var(--line)); }
+#stepNote { border-left-color: var(--brand); }
+
+/* 一次导入十几个文件时，把读进来的文件按行列出来 */
+.file-list {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: 11px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 7px 16px;
-  cursor: pointer;
-  transition: background .15s, color .15s, border-color .15s;
+  max-height: 190px; overflow: auto;
 }
-.seg-btn:hover { color: var(--ink); border-color: var(--brand); }
-.seg-btn.active {
-  color: #fff;
-  background: var(--brand);
-  border-color: var(--brand);
+.file-row { display: flex; align-items: center; gap: 10px; font-size: 13px; min-width: 0; }
+.file-row .f-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-2);
 }
-.seg-hint { font-size: 12.5px; color: var(--muted); flex: 1 1 240px; line-height: 1.6; }
+.file-row .f-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+.file-row .f-bad { flex: 0 0 auto; color: var(--warn); font-size: 12px; }
+.file-row .f-del {
+  flex: 0 0 auto;
+  border: 0; background: none; cursor: pointer;
+  color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px;
+}
+.file-row .f-del:hover { color: var(--err); }
+.file-list .f-sum {
+  margin-top: 2px; padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 12px; color: var(--muted);
+}
+
+.step-note {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px dashed var(--line);
+  font-size: 12.5px; line-height: 1.65; color: var(--muted);
+}
+.step-note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); color: var(--ink-2); }
+.step-note.ok b { color: var(--ok); }
 
 /* 预览表里的选项与章节归属 */
 .p-opts {
