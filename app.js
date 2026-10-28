@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.16.0';
+  var FQ_VERSION = '1.17.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1781,6 +1781,23 @@
   function getStat(qid) {
     return S.stats[qid] || { ok: 0, bad: 0, streak: 0, mastery: 0, mastered: false, lastAt: 0 };
   }
+  /* 一题在列表里挂什么小标。四种状态，口径互斥：
+       错过    —— 做错过，还没订正（最近一次答错了）
+       已订正  —— 做错过，最近一次答对了（掌握度未必够「已掌握」）
+       已掌握  —— 没做错过，而且连对 3 次、掌握度 90%
+       待巩固  —— 其余
+     「已订正」和「已掌握」必须分开：前者只说「这次对了」，后者是长期判断，
+     混成一个词会让统计页的「已掌握 N 题」失去意义。 */
+  function stPill(s) {
+    if (s.bad > 0 && !s.streak) return { cls: 'err', txt: '错过' };
+    // 顺序要紧：「已掌握」必须排在「已订正」前面，否则错过一次的题哪怕后来
+    // 连对到掌握度 95%，也永远停在「已订正」，统计页的已掌握数对不上。
+    // （mastered 本身就要求 streak ≥ 3，所以跟第一条不会撞车）
+    if (s.mastered) return { cls: 'ok', txt: '已掌握' };
+    if (s.bad > 0) return { cls: '', txt: '已订正' };
+    return { cls: 'warn', txt: '待巩固' };
+  }
+
   function calcMastery(st) {
     var tot = st.ok + st.bad;
     var acc = tot ? st.ok / tot : 0;
@@ -3708,7 +3725,11 @@
   function filterPool(qs, range, type) {
     if (type && type !== 'all') qs = qs.filter(function (q) { return q.type === type; });
     if (range === 'new') qs = qs.filter(function (q) { return !S.stats[q.id] || !(S.stats[q.id].ok + S.stats[q.id].bad); });
-    else if (range === 'wrong') qs = qs.filter(function (q) { var s = S.stats[q.id]; return s && s.bad > 0 && !s.mastered; });
+    // 错题 = 做错过、而且还没订正。订正只认「最近一次没答错」：
+    // streak 在答对时 +1、答错时归零、简答半对时不动，正好就是「订正过」的语义。
+    // 以前挂 !mastered，等于要求连对 3 次且掌握度 90%，错过 1 次要连对 5 次、
+    // 错过 3 次要连对 15 次才肯出列 —— 错题本于是变成「永久错题本」。
+    else if (range === 'wrong') qs = qs.filter(function (q) { var s = S.stats[q.id]; return s && s.bad > 0 && !s.streak; });
     else if (range === 'weak') qs = qs.filter(function (q) { var s = S.stats[q.id]; return !s || !s.mastered; });
     else if (range === 'fav') qs = qs.filter(function (q) { return !!q.fav; });
     return qs;
@@ -5318,7 +5339,7 @@
     var f = $('#wFilter').value;
     var qs = getQs().filter(function (q) {
       var s = S.stats[q.id];
-      if (f === 'wrong') return s && s.bad > 0 && !s.mastered;
+      if (f === 'wrong') return s && s.bad > 0 && !s.streak;
       if (f === 'weak') return !s || !s.mastered;
       return true;
     });
@@ -5327,7 +5348,7 @@
       return (sa.mastery - sb.mastery) || (sb.bad - sa.bad);
     });
     if (!qs.length) {
-      $('#wrongList').innerHTML = '<div class="empty">这里空空的 —— 说明最近还没做错过，或者还没开始练。<br>去「② 刷题」或「③ 背知识点」试试。</div>';
+      $('#wrongList').innerHTML = '<div class="empty">这里空空的 —— 错题只留还没订正的，答对一次就出列。<br>去「② 刷题」或「③ 背知识点」试试。</div>';
       return;
     }
     $('#wrongList').innerHTML = qs.map(function (q) {
@@ -5339,7 +5360,7 @@
         memoBlock(q) +
         '</div>' +
         '<div class="bar" title="掌握度"><i style="width:' + Math.round(s.mastery * 100) + '%"></i></div>' +
-        '<span class="pill ' + (s.bad > 0 ? 'err' : s.mastered ? 'ok' : 'warn') + '">' + (s.bad > 0 ? '错过' : s.mastered ? '已掌握' : '待巩固') + '</span>' +
+        '<span class="pill ' + stPill(s).cls + '">' + stPill(s).txt + '</span>' +
         '<button class="btn ghost" data-drill="' + q.id + '">背它</button>' +
         '<button class="mini-btn" data-clear="' + q.id + '" title="清除这道题的记录">✕</button>' +
         '</div>';
@@ -5397,8 +5418,7 @@
         '　·　练 ' + (s.ok + s.bad) + ' 次，错 ' + s.bad + ' 次</div>' +
         memoBlock(q) +
         '</div>' +
-        '<span class="pill ' + (s.bad > 0 ? 'err' : s.mastered ? 'ok' : 'warn') + '">' +
-        (s.bad > 0 ? '错过' : s.mastered ? '已掌握' : '待巩固') + '</span>' +
+        '<span class="pill ' + stPill(s).cls + '">' + stPill(s).txt + '</span>' +
         '<button class="btn ghost" data-drill="' + esc(q.id) + '">背它</button>' +
         '<button class="btn ghost tiny fav-toggle on" data-fav="' + esc(q.id) + '" type="button" title="取消收藏">★ 已收藏</button>' +
         '</div>';
@@ -6444,6 +6464,10 @@
     srGap: srGap,
     srApply: srApply,
     getSR: function () { return SR; },
+    /* 答一次题（对 / 半对 / 错），驱动统计与错题口径，测试用 */
+    recordAnswer: recordAnswer,
+    getStat: getStat,
+    stPill: stPill,
     setSR: function (v) { SR = v || { round: 0, items: {} }; },
     applyFix: applyFix,
     clearFix: clearFix,
