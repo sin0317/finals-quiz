@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.17.0';
+  var FQ_VERSION = '1.18.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -46,6 +46,25 @@
       var t = a[i]; a[i] = a[j]; a[j] = t;
     }
     return a;
+  }
+
+  /* 加权随机：掌握度越低，越容易被排到前面。
+     纯 shuffle 完全不看掌握度，随机乱序会撞见刚做对、已经会的题 —— 用户原话：
+     「既然选了随机乱序，肯定不希望遇见熟悉的题」。
+     但也不是按掌握度死排序（那就成了「只刷没掌握的」），而是按权重随机：
+     生的概率高、熟的也有机会，每次抽到的组合都不一样。
+
+     权重 = (1 - 掌握度)² + 0.08：
+       没练过(0) → 1.08   50% → 0.33   90% → 0.09   100% → 0.08
+     常数 0.08 兜底：万一池子里全是熟题，也得能抽出题来，不能空手。
+     Efraimidis–Spirakis：key = random^(1/weight)，降序取，等价按权重不放回抽样。 */
+  function weightedShuffle(qs) {
+    var arr = qs.slice();
+    return arr.map(function (q) {
+      var m = getStat(q.id).mastery || 0;
+      var w = Math.pow(1 - m, 2) + 0.08;
+      return { q: q, k: Math.pow(Math.random(), 1 / w) };
+    }).sort(function (a, b) { return b.k - a.k; }).map(function (x) { return x.q; });
   }
   var toastTimer;
   function toast(msg) {
@@ -3737,7 +3756,7 @@
 
   function pickQuestions(opt) {
     var qs = filterPool(getQs().slice().sort(byOrder), opt.range, opt.type);
-    if (opt.shuffle) qs = shuffle(qs);
+    if (opt.shuffle) qs = weightedShuffle(qs);
     if (opt.count > 0) qs = qs.slice(0, opt.count);
     return qs;
   }
@@ -3893,7 +3912,7 @@
       due.sort(function (a, b) {
         return (SR.items[a.id].due || 0) - (SR.items[b.id].due || 0) || byOrder(a, b);
       });
-      if (opt.shuffle) fresh = shuffle(fresh);
+      if (opt.shuffle) fresh = weightedShuffle(fresh);
       cands = due.concat(fresh);
       if (!cands.length) {
         // 全在冷却里：别让人卡在「没题可刷」，把最早到期的捞出来过一遍
@@ -3913,7 +3932,7 @@
       // 没出现过的排前面，出现过的（上几组答错的）排在后面等回头刷
       var fresh = [], back = [];
       cands.forEach(function (q) { (served[q.id] ? back : fresh).push(q); });
-      if (opt.shuffle) { fresh = shuffle(fresh); back = shuffle(back); }
+      if (opt.shuffle) { fresh = weightedShuffle(fresh); back = weightedShuffle(back); }
       cands = fresh.concat(back);
       if (!cands.length) return { list: [], remain: 0, why: 'done' };
     }
@@ -6468,6 +6487,8 @@
     recordAnswer: recordAnswer,
     getStat: getStat,
     stPill: stPill,
+    /* 加权随机（生的优先），测试用 */
+    weightedShuffle: weightedShuffle,
     setSR: function (v) { SR = v || { round: 0, items: {} }; },
     applyFix: applyFix,
     clearFix: clearFix,
