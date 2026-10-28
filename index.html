@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.15.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.16.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -59,8 +59,7 @@
     <div class="card tight" data-page-node-id="tTD58CHkpHE0gdS2r27Ci0">
       <div class="row">
         <label class="fld-label" for="courseName">课程</label>
-        <input id="courseName" class="input" placeholder="例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
-        <span class="hint" id="courseHint">两步填同一个课程名，原卷和笔记才会进同一个题集、才能互相对上</span>
+        <input id="courseName" class="input" placeholder="两步要填同一个名字，例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
       </div>
     </div>
 
@@ -68,7 +67,6 @@
     <div class="card step" id="stepPaper">
       <div class="card-head">
         <h2>第一步 · 导入原卷 <span class="badge opt">可选</span></h2>
-        <span class="hint">老师发的试卷、往年真题。一次可以选十几个文件（.docx / .pdf / .txt / .md），也可以整份粘进来；按原卷照抄，题干、选项、答案都不改写</span>
       </div>
       <div class="row">
         <button class="btn" id="paperPickBtn" type="button">选择原卷文件（可多选）</button>
@@ -77,18 +75,14 @@
       </div>
       <div id="paperFiles" class="file-list" hidden></div>
       <div id="paperDrop" class="textarea">
-        <textarea id="paperText" class="textarea-inner" rows="12" placeholder="也可以把试卷整段粘进来，保留原来的分段标题，例如：
+        <textarea id="paperText" class="textarea-inner" rows="9" placeholder="把试卷整段粘进来，保留分段标题：
 
-单选题（每题2分）
-药物治疗的核心问题是（     ）A
-A、合理用药        B、获得最佳疗效
-首过效应最明显的给药途径是（B）
-A、静脉注射        B、口服
-
-多选题（每题2分）
-药物治疗要求（     ）ABCD
-A.安全  B.有效  C.经济  D.适当
-（名词解释、简答题照原样粘，一行一条即可）"></textarea>
+单选题
+药物治疗的核心问题是（　）A
+A、合理用药　　B、获得最佳疗效
+多选题
+药物治疗要求（　）ABCD
+A.安全  B.有效  C.经济  D.适当"></textarea>
       </div>
       <div class="row right">
         <span class="muted" id="paperStat"></span>
@@ -101,7 +95,6 @@ A.安全  B.有效  C.经济  D.适当
     <div class="card step" id="stepNote">
       <div class="card-head">
         <h2>第二步 · 导入笔记 <span class="badge req">必做</span></h2>
-        <span class="hint">课本、讲义、自己的整理。一次可以选十几个文件；每条笔记先去翻第一步导入的真题，翻到就出那道原题（原题干、原选项、原答案），翻不到才挖空出填空</span>
       </div>
       <div class="row">
         <button class="btn" id="pickFileBtn" type="button">选择笔记文件（可多选）</button>
@@ -111,11 +104,10 @@ A.安全  B.有效  C.经济  D.适当
       </div>
       <div id="noteFiles" class="file-list" hidden></div>
       <div id="dropZone" class="textarea" placeholder="" data-page-node-id="9RVOIMlwe4JpPzKfAa7LbK">
-        <textarea id="noteText" class="textarea-inner" rows="9" placeholder="也可以把笔记整段粘进来。尽量用「……是……」「……的标志是……」「……包括……」这样的判断句，提炼效果最好。
+        <textarea id="noteText" class="textarea-inner" rows="7" placeholder="把笔记整段粘进来。多用「……是……」「……包括……」这样的判断句，提炼最准。
 
 例如：
-林则徐是开眼看世界的第一人。
-太平天国运动爆发的标志是1851年金田起义。" data-page-node-id="Fl3m1b0mChhv2u6geFaiQr"></textarea>
+林则徐是开眼看世界的第一人。"></textarea>
       </div>
       <div class="row right">
         <span class="muted" id="noteStat" data-page-node-id="BvMPvwrERWtZFgFz2m1sKq"></span>
@@ -127,7 +119,6 @@ A.安全  B.有效  C.经济  D.适当
     <div class="card step" id="stepSup">
       <div class="card-head">
         <h2>补充导入 <span class="badge opt">随时可用</span></h2>
-        <span class="hint">题集建好之后又拿到新卷子、新笔记？在这里补进去。文件可以多选，卷子和笔记混着选也行：像试卷的按原样照抄，像笔记的按挖空出填空</span>
       </div>
       <div class="row">
         <button class="btn" id="supPickBtn" type="button">选择文件（可多选）</button>
@@ -139,9 +130,8 @@ A.安全  B.有效  C.经济  D.适当
       </div>
       <div id="supFiles" class="file-list" hidden></div>
       <div class="textarea">
-        <textarea id="supText" class="textarea-inner" rows="5" placeholder="也可以把新的一段笔记或试卷粘进来（同样是按试卷照抄、按笔记挖空）"></textarea>
+        <textarea id="supText" class="textarea-inner" rows="3" placeholder="也可以粘一段新笔记或新试卷"></textarea>
       </div>
-      <div class="step-note" id="supHint">解析结果会进下面那张预览表，标「已有」的是这个题集里本来就有的，不会重复加 —— 勾好点「追加到当前题集」</div>
     </div>
 
     <div class="card" id="previewCard" hidden="" data-page-node-id="EMuEPNkastADHWqyICIDA0">
@@ -174,7 +164,6 @@ A.安全  B.有效  C.经济  D.适当
     <div class="card">
       <div class="card-head">
         <h2>我的题集</h2>
-        <span class="hint">左键切换当前题集，右键（或点 ⋯）重命名 / 导出 / 删除</span>
       </div>
       <div id="bankList" class="list"></div>
     </div>
@@ -182,7 +171,6 @@ A.安全  B.有效  C.经济  D.适当
     <div class="card" data-page-node-id="gwpA3j1oDFrh6J0mF7TagU">
       <div class="card-head" data-page-node-id="7XG5yAYEDFSpXKCiTZdZAc">
         <h2 data-page-node-id="xvPSyYuQuqOYUamccuugus">题集文件（换电脑 / 分享给同学）</h2>
-        <span class="hint" data-page-node-id="qStLgNofG4dEF3dGqzICYZ">也可以让 AI 直接生成题集 JSON，在这里导入</span>
       </div>
       <div class="row" data-page-node-id="alvteHHTOkShjp9DM80Q0o">
         <button class="btn ghost" id="exportBtn" data-page-node-id="xnLvJrZNaukQSaMBE2YP6Y">导出当前题集 JSON</button>
@@ -207,42 +195,41 @@ A.安全  B.有效  C.经济  D.适当
   <!-- ============ 刷题 ============ -->
   <section class="view" id="view-quiz" hidden="" data-page-node-id="63QlFxUXZu9pYpe9OjAc2a">
     <div class="toolbar" data-page-node-id="wJ1qN2LxMpBDJ1vIpsDx27">
-      <select id="qRange" class="select" data-page-node-id="ESwDEg34efww6hREIIePdF">
-        <option value="all" data-page-node-id="CPzwRN6IvnKynVDYOr6ybO">范围：全部</option>
-        <option value="weak" data-page-node-id="c07Gk1LapsnucyIVB3D0yF">范围：未掌握</option>
-        <option value="wrong" data-page-node-id="5d3XtZdpDDWkEsAnL6OPRr">范围：错题</option>
-        <option value="new" data-page-node-id="H7S5Cr0QpjxyWOZFYgTHhL">范围：没练过</option>
-        <option value="fav">范围：只刷收藏</option>
-      </select>
-      <select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
-        <option value="all" data-page-node-id="1uhgWD82ochYF4fWtegfZL">题型：全部（选择+填空）</option>
-        <option value="single" data-page-node-id="PcjOpkgoj1FU6dGC82Slzw">题型：单选</option>
-        <option value="multi" data-page-node-id="blIPTiIzZREgSD2aWBx5pE">题型：多选</option>
-        <option value="fill">题型：填空</option>
-        <option value="term">题型：名词解释（默写）</option>
-        <option value="short">题型：简答（答要点）</option>
-      </select>
-      <select id="qForm" class="select">
-        <option value="mix">形式：混合（熟的考填空、生的给选项）</option>
-        <option value="choice">形式：全部给选项</option>
-        <option value="fill">形式：全部考填空</option>
-      </select>
-      <select id="qCount" class="select" data-page-node-id="c4dYGAzSAFNCVuWItiH0Fm">
-        <option value="10" data-page-node-id="kfKHoApxGrspAEIzxFHPQt">题量：10</option>
-        <option value="20" selected="" data-page-node-id="GUZOveJh4SBkfwL663Foto">题量：20</option>
-        <option value="40" data-page-node-id="seSu6uvlNgMeTBIIPwdPRr">题量：40</option>
-        <option value="0" data-page-node-id="keWB5mn5UDPyl2nDc8qQ8b">题量：全部</option>
-      </select>
-      <select id="qOrder" class="select" data-page-node-id="wgCcmfOq8R4SY0sbURp89w">
-        <option value="seq" data-page-node-id="TzdHFn7uw4uS8DfkmSAhtF">顺序：跟着笔记走</option>
-        <option value="rand" data-page-node-id="YGLQ705w0jLxvxp1QOKUWN">顺序：随机乱序</option>
-      </select>
-      <select id="qMode" class="select" title="间隔复习：答对的题隔几组再来，答错的下组必来；一路推新题：这场答对的就不再出现；只刷没掌握的：掌握度到 90% 才放过">
-        <option value="srs" selected>抽题：间隔复习（推荐）</option>
-        <option value="new">抽题：一路推新题</option>
-        <option value="master">抽题：只刷没掌握的</option>
-      </select>
-      <span class="auto-note" data-page-node-id="3yA1PHCyUW2e7b7si7mmTH">答完停在这一题，看完答案再点「下一题」</span>
+      <label class="tfield"><span class="tl">范围</span><select id="qRange" class="select" data-page-node-id="ESwDEg34efww6hREIIePdF">
+        <option value="all" data-page-node-id="CPzwRN6IvnKynVDYOr6ybO">全部</option>
+        <option value="weak" data-page-node-id="c07Gk1LapsnucyIVB3D0yF">未掌握</option>
+        <option value="wrong" data-page-node-id="5d3XtZdpDDWkEsAnL6OPRr">错题</option>
+        <option value="new" data-page-node-id="H7S5Cr0QpjxyWOZFYgTHhL">没练过</option>
+        <option value="fav">只刷收藏</option>
+      </select></label>
+      <label class="tfield"><span class="tl">题型</span><select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
+        <option value="all" data-page-node-id="1uhgWD82ochYF4fWtegfZL">全部</option>
+        <option value="single" data-page-node-id="PcjOpkgoj1FU6dGC82Slzw">单选</option>
+        <option value="multi" data-page-node-id="blIPTiIzZREgSD2aWBx5pE">多选</option>
+        <option value="fill">填空</option>
+        <option value="term">名词解释</option>
+        <option value="short">简答</option>
+      </select></label>
+      <label class="tfield"><span class="tl">形式</span><select id="qForm" class="select">
+        <option value="mix">混合</option>
+        <option value="choice">全部给选项</option>
+        <option value="fill">全部考填空</option>
+      </select></label>
+      <label class="tfield"><span class="tl">题量</span><select id="qCount" class="select" data-page-node-id="c4dYGAzSAFNCVuWItiH0Fm">
+        <option value="10" data-page-node-id="kfKHoApxGrspAEIzxFHPQt">10</option>
+        <option value="20" selected="" data-page-node-id="GUZOveJh4SBkfwL663Foto">20</option>
+        <option value="40" data-page-node-id="seSu6uvlNgMeTBIIPwdPRr">40</option>
+        <option value="0" data-page-node-id="keWB5mn5UDPyl2nDc8qQ8b">全部</option>
+      </select></label>
+      <label class="tfield"><span class="tl">顺序</span><select id="qOrder" class="select" data-page-node-id="wgCcmfOq8R4SY0sbURp89w">
+        <option value="seq" data-page-node-id="TzdHFn7uw4uS8DfkmSAhtF">跟着笔记走</option>
+        <option value="rand" data-page-node-id="YGLQ705w0jLxvxp1QOKUWN">随机乱序</option>
+      </select></label>
+      <label class="tfield"><span class="tl">抽题</span><select id="qMode" class="select" title="间隔复习：答对的题隔几组再来，答错的下组必来；一路推新题：这场答对的就不再出现；只刷没掌握的：掌握度到 90% 才放过">
+        <option value="srs" selected>间隔复习</option>
+        <option value="new">一路推新题</option>
+        <option value="master">只刷没掌握的</option>
+      </select></label>
       <div class="grow" data-page-node-id="NMGvypGhQ6SQkMdyEkLaMY"></div>
       <button class="btn primary" id="quizStartBtn" data-page-node-id="hxHNnlj2emeyemlZjuKX3L">开始刷题</button>
     </div>
@@ -254,22 +241,22 @@ A.安全  B.有效  C.经济  D.适当
   <!-- ============ 背知识点 ============ -->
   <section class="view" id="view-recite" hidden="" data-page-node-id="pfYohoqLe96TNANkljatcQ">
     <div class="toolbar" data-page-node-id="2FSIYD6mjG5IYYhCliAqDZ">
-      <select id="rRange" class="select" data-page-node-id="CP8tariVXs63DPhPmOoG14">
-        <option value="all" data-page-node-id="O0vF1CuXH75t39phQ4FViE">范围：全部</option>
-        <option value="weak" data-page-node-id="V11EyBMF4ilL02fzlHxvOu">范围：未掌握</option>
-        <option value="wrong" data-page-node-id="DQBMbevSWZVduyrRUtGAYp">范围：错题</option>
-        <option value="new" data-page-node-id="64ZpGOh1QcXUjHERTc4wfB">范围：没练过</option>
-        <option value="fav">范围：只看收藏</option>
-      </select>
-      <select id="rOrder" class="select" data-page-node-id="zrB5IjzhwgjgVnPkJK6W0g">
-        <option value="seq" data-page-node-id="NQCBGAuCHmYrTzI9mgkRos">顺序：跟着笔记走</option>
-        <option value="rand" data-page-node-id="iRLe2iXXqkYb3VI4WSo1FE">顺序：随机乱序</option>
-      </select>
-      <select id="rForm" class="select" title="背知识点这一步怎么考：默写（填空）最考验回忆，给选项轻松一些。名词解释、简答、以及卷子上没有选项的题，永远是自己写">
-        <option value="fill" selected>形式：全部考填空</option>
-        <option value="choice">形式：全部给选项</option>
-        <option value="mix">形式：混合（熟的填空、生的给选项）</option>
-      </select>
+      <label class="tfield"><span class="tl">范围</span><select id="rRange" class="select" data-page-node-id="CP8tariVXs63DPhPmOoG14">
+        <option value="all" data-page-node-id="O0vF1CuXH75t39phQ4FViE">全部</option>
+        <option value="weak" data-page-node-id="V11EyBMF4ilL02fzlHxvOu">未掌握</option>
+        <option value="wrong" data-page-node-id="DQBMbevSWZVduyrRUtGAYp">错题</option>
+        <option value="new" data-page-node-id="64ZpGOh1QcXUjHERTc4wfB">没练过</option>
+        <option value="fav">只看收藏</option>
+      </select></label>
+      <label class="tfield"><span class="tl">顺序</span><select id="rOrder" class="select" data-page-node-id="zrB5IjzhwgjgVnPkJK6W0g">
+        <option value="seq" data-page-node-id="NQCBGAuCHmYrTzI9mgkRos">跟着笔记走</option>
+        <option value="rand" data-page-node-id="iRLe2iXXqkYb3VI4WSo1FE">随机乱序</option>
+      </select></label>
+      <label class="tfield"><span class="tl">形式</span><select id="rForm" class="select" title="背知识点这一步怎么考：默写（填空）最考验回忆，给选项轻松一些。名词解释、简答、以及卷子上没有选项的题，永远是自己写">
+        <option value="fill" selected>全部考填空</option>
+        <option value="choice">全部给选项</option>
+        <option value="mix">混合</option>
+      </select></label>
       <label class="switch" data-page-node-id="zzmReE32IAPfhm7dMDbOj8"><input type="checkbox" id="rHint" data-page-node-id="yx3FyUTg9R1RQIF565heH9"> 给首字提示</label>
       <div class="grow" data-page-node-id="CUAs99EeS52k0DFX57TDbV"></div>
       <button class="btn primary" id="reciteStartBtn" data-page-node-id="4g1nOQ3hnDu0iGrJDaEnBO">开始看知识点</button>
@@ -282,11 +269,11 @@ A.安全  B.有效  C.经济  D.适当
   <!-- ============ 错题本 ============ -->
   <section class="view" id="view-wrong" hidden="" data-page-node-id="shut4dyKyfBLfk02MfzlyY">
     <div class="toolbar" data-page-node-id="rT8uF3ecpNbhKvP78VqRWB">
-      <select id="wFilter" class="select" data-page-node-id="FxUqpYZ326eCrqBRnSQfFb">
+      <label class="tfield"><span class="tl">显示</span><select id="wFilter" class="select" data-page-node-id="FxUqpYZ326eCrqBRnSQfFb">
         <option value="wrong" data-page-node-id="i9RfEticfGzptfduo2iM1u">只看错题</option>
         <option value="weak" data-page-node-id="LdsSARh6aAYj9Ei0jNVu6O">未掌握（含错题）</option>
         <option value="all" data-page-node-id="mMa2O6MacCXFY5f0Tsakcb">全部题目</option>
-      </select>
+      </select></label>
       <div class="grow" data-page-node-id="lnsgNKj8BngnJVxnXFnJYk"></div>
       <button class="btn primary" id="wrongDrillBtn" data-page-node-id="frRyQ7W2Kn54urD3FIGKZx">错题特训</button>
       <button class="btn ghost" id="clearWrongBtn" data-page-node-id="4Ceahh5vRAOmzQBNHUarue">清空错题记录</button>
@@ -297,14 +284,14 @@ A.安全  B.有效  C.经济  D.适当
   <!-- ============ 收藏夹 ============ -->
   <section class="view" id="view-fav" hidden>
     <div class="toolbar">
-      <select id="favScope" class="select" title="题目收藏在各自的题集里；想看所有题集的收藏就切「全部题集」">
-        <option value="bank">范围：当前题集</option>
-        <option value="all">范围：全部题集</option>
-      </select>
-      <select id="favSort" class="select">
-        <option value="new">排序：收藏时间（新→旧）</option>
-        <option value="mastery">排序：掌握度低的在前</option>
-      </select>
+      <label class="tfield"><span class="tl">范围</span><select id="favScope" class="select" title="题目收藏在各自的题集里；想看所有题集的收藏就切「全部题集」">
+        <option value="bank">当前题集</option>
+        <option value="all">全部题集</option>
+      </select></label>
+      <label class="tfield"><span class="tl">排序</span><select id="favSort" class="select">
+        <option value="new">最近收藏</option>
+        <option value="mastery">最不熟在前</option>
+      </select></label>
       <div class="grow"></div>
       <button class="btn primary" id="favDrillBtn">刷收藏的题</button>
       <button class="btn ghost" id="favClearBtn">清空收藏</button>
@@ -328,7 +315,7 @@ A.安全  B.有效  C.经济  D.适当
     </div>
 
     <div class="card" data-page-node-id="Y6XzC1kr64G6ZqBxYICZWw">
-      <div class="card-head" data-page-node-id="itdr7ADGZCJ3GJd824Q6Dg"><h3 data-page-node-id="lft0PmjSf0bvcJWWKIu0In">最该再背一遍的知识点</h3><span class="hint" data-page-node-id="931dec6aXJhlOIaebaBRP1">按掌握度从低到高</span></div>
+      <div class="card-head"><h3>最该再背一遍的知识点</h3></div>
       <div id="weakList" class="list" data-page-node-id="4yJRSX5haCDNZtR74kC9w2"></div>
     </div>
 
@@ -351,7 +338,7 @@ A.安全  B.有效  C.经济  D.适当
     </div>
 
     <div class="card" id="adminCard" hidden>
-      <div class="card-head"><h3>站点使用情况</h3><span class="hint">只有站长（第一个注册的账号）能看到这一块</span></div>
+      <div class="card-head"><h3>站点使用情况</h3></div>
       <div class="kpis small" id="adminKpis"></div>
       <div class="table-wrap"><table class="tbl" id="adminTable"><thead><tr>
         <th>昵称</th><th>注册时间</th><th>最近活跃</th><th>登录</th><th>题集</th><th>题目</th><th>答题</th><th>正确率</th><th>同步时间</th>
@@ -378,7 +365,6 @@ A.安全  B.有效  C.经济  D.适当
     <div class="card">
       <div class="card-head">
         <h2>题集广场</h2>
-        <span class="hint">同学们分享的题集，按专业和科目挑，点一下就加成自己的</span>
         <div class="grow"></div>
         <button class="btn primary" id="plazaShareBtn">分享我的题集</button>
       </div>
@@ -402,7 +388,7 @@ A.安全  B.有效  C.经济  D.适当
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.15.0</span>
+    <span id="appVer">期末刷题站 v1.16.0</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -507,7 +493,7 @@ A.安全  B.有效  C.经济  D.适当
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.15.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="app.js?v=1.16.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

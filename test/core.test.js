@@ -266,7 +266,9 @@ const NOTE = [
   b.setVal('#qOrder', 'seq');
   b.click('#quizStartBtn');
   await sleep(150);
-  ok(/顺序：跟着笔记走/.test(b.text('#qOrder')), '默认顺序是「跟着笔记走」');
+  // 标签已移出选项：下拉只写值，「顺序」由外层的 .tfield label 承担
+  ok(/跟着笔记走/.test(b.text('#qOrder')), '默认顺序是「跟着笔记走」');
+  ok(!/顺序：/.test(b.text('#qOrder')), '选项里不再重复「顺序：」前缀');
 
   /* ---------- 8. 形式切换 ---------- */
   console.log('\n[8] 出题形式');

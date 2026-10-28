@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.15.0';
+  var FQ_VERSION = '1.16.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1924,7 +1924,6 @@
       '<button class="btn primary tiny" data-memo-save type="button">保存批注</button>' +
       (t ? '<button class="btn ghost tiny" data-memo-del type="button">删掉</button>' : '') +
       '<button class="btn ghost tiny" data-memo-cancel type="button">取消</button>' +
-      '<span class="muted">答完题才显示，不会提前露出来</span>' +
       '</div>';
   }
 
@@ -2968,15 +2967,14 @@
     if (pool.length) {
       bar.className = 'step-note ok';
       bar.innerHTML = '<b>真题库：' + pool.length + ' 道原卷题</b>' +
-        (cn ? '，来自 ' + cn + ' 个章节' : '') +
-        '。第二步解析笔记时，卷子里考过的内容直接出这些原题 —— 题干、选项、答案都照卷子来，系统不自己编选项。' +
-        (info ? '<br>这次新增 ' + info.added + ' 道' + (info.dup ? '，' + info.dup + ' 道题库里已有' : '') + '。' : '');
+        (cn ? '，来自 ' + cn + ' 个章节' : '') + '。' +
+        (info ? '<br>这次新增 ' + info.added + ' 道' + (info.dup ? '，' + info.dup + ' 道已有' : '') + '。' : '');
       if (step) step.classList.add('done');
       var sub = $('#flowPaperSub');
       if (sub) sub.textContent = '已知 ' + pool.length + ' 道真题' + (cn ? ' · ' + cn + ' 个章节' : '');
     } else {
       bar.className = 'step-note';
-      bar.textContent = '这一步可以跳过 —— 没有原卷也能直接做第二步，只是卷子里没考过的内容会按笔记挖空出填空题，不会给你编选择题';
+      bar.textContent = '这一步可以跳过 —— 没有原卷也能直接做第二步';
       if (step) step.classList.remove('done');
       var s2 = $('#flowPaperSub');
       if (s2) s2.textContent = '先做这步，选择题才有真题可出；不做也行';
@@ -3350,11 +3348,11 @@
     var title = $('#previewTitle'), hint = $('#previewHint'), btn = $('#saveBankBtn');
     if (mode === 'sup') {
       if (title) title.textContent = '补导入预览' + (course ? '：' + course : '');
-      if (hint) hint.textContent = '标「已有」的题目这个题集里本来就考过，默认不勾；调好顺序点右边「追加到当前题集」';
+      if (hint) hint.textContent = '「已有」= 题集里本来就有，默认不勾';
       if (btn) btn.textContent = '追加到当前题集';
     } else {
       if (title) title.textContent = '核对题目，确认后保存';
-      if (hint) hint.textContent = '标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选';
+      if (hint) hint.textContent = '↑↓ 调顺序 · 取消勾选即不要';
       if (btn) btn.textContent = '保存到题集';
     }
   }
@@ -4104,8 +4102,7 @@
 
     box.innerHTML =
       '<div class="fix-head">' +
-      '<div class="fix-title"><b>教它怎么出这道题</b>' +
-      '<span class="muted">改完以后，这个知识点每次都按你这一版出</span></div>' +
+      '<div class="fix-title"><b>教它怎么出这道题</b></div>' +
       '<button class="mini-btn" id="fixClose" title="关闭">✕</button>' +
       '</div>' +
       '<div class="fix-now">系统现在这么出：<span class="pill">' + typeLabel(q) + '</span>' +
@@ -4121,7 +4118,6 @@
       '<textarea id="fixStem" class="fix-textarea" rows="4" spellcheck="false">' + esc(q.stem) + '</textarea></label>' +
       '<div class="fix-tools">' +
       '<button class="btn ghost tiny" id="fixBlankBtn" type="button">✂ 把选中的字挖成空</button>' +
-      '<span class="muted">在题干里选中要考的那几个字，点一下，答案会自动填到下面</span>' +
       '</div>' +
       '<div class="fix-opts" id="fixOptsWrap"' + (isChoice ? '' : ' hidden') + '>' +
       '<div class="fld-head"><span>③ 选项</span>' +
@@ -4539,8 +4535,7 @@
       ? '<div class="typed-row">' +
         '<textarea class="typed-input" id="fillInput" rows="' + (q.type === 'short' ? 6 : 4) + '" placeholder="' +
         (q.type === 'short' ? '一条一条写要点，能写几条写几条' : '把解释写下来，记得多少写多少') + '"></textarea>' +
-        '<div class="row" style="margin-top:10px"><button class="btn primary" id="fillSubmit">提交（Ctrl+Enter）</button>' +
-        '<span class="muted">' + (q.type === 'short' ? '答中几条要点算几条' : '按关键内容给分，不用一字不差') + '</span></div></div>'
+        '<div class="row" style="margin-top:10px"><button class="btn primary" id="fillSubmit">提交（Ctrl+Enter）</button></div></div>'
       : isFill
       ? '<div class="recite-input-row">' +
         '<input class="recite-input" id="fillInput" autocomplete="off" placeholder="把空填上，Enter 提交">' +
@@ -4550,7 +4545,7 @@
           return '<button class="opt" data-v="' + esc(o) + '"><span class="key">' + String.fromCharCode(65 + i) + '</span><span class="opt-text">' + esc(o) + '</span></button>';
         }).join('') +
         '</div>' +
-        (isMulti ? '<div class="row" style="margin-top:14px"><button class="btn primary" id="multiSubmit">提交答案</button><span class="muted">可多选</span></div>' : '');
+        (isMulti ? '<div class="row" style="margin-top:14px"><button class="btn primary" id="multiSubmit">提交答案</button></div>' : '');
 
     var html = '<div class="quiz-card">' +
       '<div class="progress"><i style="width:' + (st.idx / st.list.length * 100) + '%"></i></div>' +
@@ -4941,8 +4936,14 @@
       var lab = el.closest('label');
       if (lab) lab.hidden = cards;
     });
-    // 卡片阶段还没开始考，「形式」在那儿只会让人以为卡片会变样
-    if ($('#rForm')) $('#rForm').hidden = cards;
+    // 卡片阶段还没开始考，「形式」在那儿只会让人以为卡片会变样。
+    // 标签和下拉是一组，隐藏要连外层一起，否则只剩一个孤零零的「形式」二字
+    var rf = $('#rForm');
+    if (rf) {
+      rf.hidden = cards;
+      var rfLab = rf.closest ? rf.closest('.tfield') : null;
+      if (rfLab) rfLab.hidden = cards;
+    }
   }
 
   function renderReciteCards() {
@@ -5041,8 +5042,7 @@
             '</span><span class="opt-text">' + esc(o) + '</span></button>';
         }).join('') +
         '</div>' +
-        (multiChoice ? '<div class="row" style="margin-top:14px"><button class="btn primary" id="reciteSubmit">提交答案</button>' +
-          '<span class="muted">可多选</span></div>' : '')
+        (multiChoice ? '<div class="row" style="margin-top:14px"><button class="btn primary" id="reciteSubmit">提交答案</button></div>' : '')
       : '<div class="recite-input-row">' +
         '<input class="recite-input" id="reciteInput" autocomplete="off" placeholder="' + (isMulti ? '多项之间用顿号或空格隔开' : '把空填上，Enter 提交') + '">' +
         '<button class="btn primary" id="reciteSubmit">作答</button>' +
@@ -5125,8 +5125,7 @@
     $('#reciteVb').innerHTML = choiceVerdictHtml(q, picked, right, isMulti) +
       '<div class="row" style="margin-top:12px"><button class="btn primary" id="reciteNext">' +
       (st.idx + 1 >= st.list.length ? '这一轮结束' : '下一问 →') + '</button>' +
-      fixBtnHtml(q, '✎ 这题出得不对？') +
-      '<span class="muted">看完答案再点</span></div>';
+      fixBtnHtml(q, '✎ 这题出得不对？') + '</div>';
     scrollToFb($('#reciteVb'));
     bindFixButtons();
     bindFavButtons();
@@ -5383,7 +5382,7 @@
     });
     if (!rows.length) {
       $('#favList').innerHTML = '<div class="empty">收藏夹是空的 —— 刷题时遇到值得反复记的题，点卡片右上角的「☆ 收藏」，它就会出现在这里。<br>' +
-        '收藏跟着题目走：换题集、导出再导入、登录后换设备都还在；题目删了收藏才会跟着没。</div>';
+        '</div>';
       return;
     }
     $('#favList').innerHTML = rows.map(function (r) {

@@ -188,7 +188,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 
@@ -208,7 +208,7 @@ body {
 
 /* ============ 控件 ============ */
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.row.right { justify-content: flex-end; }
+.row.right { justify-content: flex-end; margin-top: 12px; }
 
 .input, .select, .textarea, .textarea-inner {
   font-family: inherit;
@@ -226,8 +226,23 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
 }
 
-.input { min-width: 220px; }
+.input { min-width: 220px; flex: 1 1 260px; max-width: 420px; }
 .select.mini { max-width: 190px; padding: 6px 8px; font-size: 13px; }
+
+/* 工具栏里「标签 + 下拉」成对出现：标签固定、值变化，靠排布说明含义，
+   不再把「范围：」重复写进每一个选项里 */
+.tfield {
+  display: inline-flex; flex-direction: column; align-items: stretch;
+  gap: 4px; min-width: 0;
+}
+.tfield > .tl {
+  font-size: 11.5px; color: var(--muted); white-space: nowrap;
+  letter-spacing: .3px; user-select: none; padding-left: 2px;
+}
+.tfield > .select {
+  width: 124px; max-width: 124px; padding: 6px 9px; font-size: 13px;
+  text-overflow: ellipsis;
+}
 
 .textarea { position: relative; padding: 0; overflow: hidden; }
 .textarea-inner {
@@ -297,7 +312,7 @@ body {
 
 .toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 12px;
   flex-wrap: wrap;
   background: var(--panel);
