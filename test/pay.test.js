@@ -14,9 +14,12 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'fqpay-'));
 const ROOT = path.resolve(__dirname, '..');
 const BASE = 'http://127.0.0.1:' + PORT;
 
-/* 把真实配置复制进临时目录，密钥不进日志 */
-const cfgSrc = path.join(ROOT, 'data', 'pay.config.json');
-if (fs.existsSync(cfgSrc)) fs.copyFileSync(cfgSrc, path.join(DATA, 'pay.config.json'));
+/* 把真实配置复制进临时目录，密钥不进日志。
+   优先用沙箱配置：正式配置会生成真实可付款的链接，测试不该碰。 */
+const cfgSandbox = path.join(ROOT, 'data', 'pay.sandbox.config.json');
+const cfgMain = path.join(ROOT, 'data', 'pay.config.json');
+const cfgPick = fs.existsSync(cfgSandbox) ? cfgSandbox : cfgMain;
+if (fs.existsSync(cfgPick)) fs.copyFileSync(cfgPick, path.join(DATA, 'pay.config.json'));
 
 let pass = 0, fail = 0;
 function ok(cond, msg, extra) {

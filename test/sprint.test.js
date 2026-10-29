@@ -161,12 +161,19 @@ function clickTab(win, view) {
     status: { ok: true, enabled: true, price: '¥9.90', loggedIn: true, environment: 'live' },
     access: {
       ok: true, access: 'purchase_required', entitlement: { type: 'permanent' },
-      purchase: { url: 'https://pay.example/purchase?ticket=t', qr_code_url: 'https://pay.example/qr.png?x=1' }
+      purchase: {
+        url: 'alipays://platformapi/startapp?appId=2021006180624128&page=pages/order/index?purchaseLinkId=X',
+        qr_code_url: 'https://mobilecodec.alipay.com/show.htm?code=abc'
+      }
     }
   });
   clickTab(w5, 'sprint');
   await tick();
   ok(w5.document.getElementById('sprintEnv').hidden === true, '正式环境不显示沙箱提示');
+  ok(w5.document.getElementById('sprintScanTip').hidden === false, '支付宝深链时提示改用扫码');
+  ok(w5.document.getElementById('sprintBuyBtn').textContent.indexOf('扫') >= 0, '按钮文案引导扫码而不是点链接',
+    w5.document.getElementById('sprintBuyBtn').textContent);
+  ok(w5.document.getElementById('sprintQrImg').getAttribute('src').indexOf('mobilecodec') > 0, '二维码用的是支付宝官方地址');
 
   console.log('\n— 未开通付费：降级不报错 —');
   const w4 = boot(seed, {

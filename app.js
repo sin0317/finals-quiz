@@ -5673,7 +5673,7 @@
      · 付款链接和二维码都用平台返回的，不自己拼
      ========================================================= */
 
-  var SPRINT = { price: '¥9.90', purchase: null, busy: false };
+  var SPRINT = { price: '¥9.90', purchase: null, busy: false, deepLink: false };
 
   function byId(id) { return document.getElementById(id); }
 
@@ -5845,10 +5845,23 @@
     } else {
       qrBox.hidden = true;
     }
-    byId('sprintBuyBtn').disabled = !(purchase && purchase.url);
-    byId('sprintBuyBtn').textContent = purchase && purchase.url
-      ? (SPRINT.price + ' 解锁冲刺报告')
-      : '暂时打不开支付页，稍后再试';
+
+    /* 正式环境的购买链接是 alipays:// 深链：手机上点能唤起支付宝，电脑上点没有反应。
+       所以这类链接不引导「点按钮」，直接引导扫码。 */
+    var isAppLink = !!(purchase && purchase.url && String(purchase.url).indexOf('alipays://') === 0);
+    SPRINT.deepLink = isAppLink;
+    var btn = byId('sprintBuyBtn');
+    btn.disabled = !(purchase && purchase.url);
+    btn.textContent = isAppLink
+      ? '用支付宝扫下方二维码'
+      : (purchase && purchase.url ? (SPRINT.price + ' 解锁冲刺报告') : '暂时打不开支付页，稍后再试');
+    if (isAppLink) {
+      var tip = byId('sprintScanTip');
+      if (tip) tip.hidden = false;
+    } else {
+      var tip2 = byId('sprintScanTip');
+      if (tip2) tip2.hidden = true;
+    }
   }
 
   async function renderSprint() {
@@ -5914,6 +5927,13 @@
     var buy = byId('sprintBuyBtn');
     if (buy) buy.addEventListener('click', function () {
       if (!SPRINT.purchase || !SPRINT.purchase.url) return;
+      /* 支付宝深链（alipays://）在电脑浏览器里唤不起 App，改成引导扫码 */
+      if (SPRINT.deepLink) {
+        toast('请用支付宝扫描下方二维码支付');
+        var qr = byId('sprintQr');
+        if (qr) qr.scrollIntoView({ block: 'center' });
+        return;
+      }
       window.open(SPRINT.purchase.url, '_blank', 'noopener');
       /* 打开支付页后把二维码也亮出来：手机上换设备扫更方便 */
       if (SPRINT.purchase.qr_code_url) {
