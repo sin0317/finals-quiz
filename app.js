@@ -5917,6 +5917,20 @@
       return;
     }
 
+    /* 分享体验权不是买的，得写清楚是限时免费、还剩几天 */
+    var bel = byId('sprintBonus');
+    if (bel) {
+      if (ac.source === 'bonus' && ac.bonus) {
+        bel.hidden = false;
+        var leftDays = Math.max(0, Math.ceil((ac.bonus.expiresAt - Date.now()) / 86400000));
+        bel.textContent = '免费体验中：' + (ac.bonus.fromName || '同学') +
+          ' 分享的题集带给你的，还剩 ' + leftDays + ' 天。这段时间冲刺报告随便看。';
+      } else {
+        bel.hidden = true;
+        bel.textContent = '';
+      }
+    }
+
     report.innerHTML = sprintReportHtml(buildSprintModel());
     bindSprintReport();
   }
@@ -6504,7 +6518,14 @@
      ⑦ 题集广场：别人分享的题集，按专业 / 科目筛，一键复制成自己的
      只有浏览需要联网；本地刷题完全不受影响。
      ========================================================= */
-  var Plaza = { items: [], majors: [], subjects: [], loaded: false, loading: false, mine: false, err: null };
+  var Plaza = { items: [], majors: [], subjects: [], loaded: false, loading: false, mine: false, err: null, focus: '' };
+
+  /* 分享链接 ?p=<题集 id>：别让对方自己翻广场，直接把人带到那一份上 */
+  try {
+    var pUrl = new URL(window.location.href);
+    var pFocus = String(pUrl.searchParams.get('p') || '').trim();
+    if (pFocus) { Plaza.focus = pFocus; switchView('plaza'); }
+  } catch (e) { /* 老浏览器 */ }
   var plazaSearchTimer = null;
 
   function plazaQuery() {
@@ -6549,11 +6570,11 @@
       fillDatalist('#majorList', Plaza.majors);
       fillDatalist('#subjectList', Plaza.subjects);
       renderPlazaList();
+      if (Plaza.focus) focusPlaza(Plaza.focus);
     }).catch(function (e) {
       Plaza.err = (e && e.message) || '连不上服务器';
       Plaza.items = [];
-      renderPlazaList();
-    }).then(function () { Plaza.loading = false; });
+      renderPlazaList();    }).then(function () { Plaza.loading = false; });
   }
 
   function renderPlazaList() {
@@ -6597,13 +6618,63 @@
         (it.note ? '<div class="plaza-note">' + esc(it.note) + '</div>' : '') +
         '</div>' +
         '<button class="btn primary" data-take="' + esc(it.id) + '">加入我的题集</button>' +
+        '<button class="mini-btn plaza-share" data-share="' + esc(it.id) +
+        '" title="复制分享链接：对方加入即解锁 7 天冲刺报告体验">🔗 分享</button>' +
         (it.mine ? '<button class="mini-btn" data-unshare="' + esc(it.id) +
           '" title="从广场撤下">✕</button>' : '') +
         '</div>';
     }).join('');
   }
 
-  // 同一个人重复点同一份：已有就直接切过去，别叠出一堆副本
+  /* 分享链接带来的那一份：圈出来，并说清楚怎么用 */
+  function focusPlaza(id) {
+    var it = Plaza.items.filter(function (x) { return x.id === id; })[0];
+    var el = document.querySelector('.plaza-item[data-id="' + id + '"]');
+    if (el) {
+      el.classList.add('plaza-focus');
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+    if (it) toast(it.author + ' 分享了「' + it.course + '」给你 · 加入题集就能解锁 7 天冲刺报告体验');
+    else toast('这份题集可能已经被撤下了，看看广场里别的');
+  }
+
+  /* 复制到剪贴板：优先 Clipboard API，不行退回老办法 */
+  function legacyCopy(txt) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var done = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return done;
+    } catch (e) { return false; }
+  }
+  function copyText(txt) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(txt).then(function () { return true; })
+        .catch(function () { return legacyCopy(txt); });
+    }
+    return Promise.resolve(legacyCopy(txt));
+  }
+
+  /* 分享链接：带当前站点的访问码 + 题集 id。
+     对方点开直接落到广场这一份，加入即解锁 7 天冲刺报告体验。 */
+  function sharePlazaLink(id) {
+    var u;
+    try { u = new URL(window.location.href); } catch (e) { u = new URL('/'); }
+    u.searchParams.set('p', id);
+    var link = u.toString();
+    copyText(link).then(function (okc) {
+      if (okc) toast('分享链接已复制 · 对方加入题集就能解锁 7 天冲刺报告体验');
+      else window.prompt('复制这个链接发给同学（对方加入即解锁冲刺报告体验）', link);
+    });
+    return link;
+  }
+
+  /* 同一个人重复点同一份：已有就直接切过去，别叠出一堆副本 */
   function bankFromPlaza(plazaId) {
     return S.banks.filter(function (b) { return b.from && b.from.plazaId === plazaId; })[0] || null;
   }
@@ -6634,7 +6705,10 @@
       renderBankSelect();
       it.downloads = (it.downloads || 0) + 1;
       renderPlazaList();
-      toast('已加入「' + bank.course + '」，共 ' + qs.length + ' 题');
+      var extra = '';
+      if (j.bonus && j.bonus.active) extra = ' · 还解锁了 ' + (j.bonus.days || 7) + ' 天冲刺报告体验';
+      else if (j.needLoginForBonus) extra = ' · 登录后可领这份题集的冲刺报告体验';
+      toast('已加入「' + bank.course + '」，共 ' + qs.length + ' 题' + extra);
     }).catch(function (e) {
       toast('取用失败：' + ((e && e.message) || '未知错误'));
     }).then(function () { if (btn) btn.disabled = false; });
@@ -6752,6 +6826,8 @@
   $('#plazaList').addEventListener('click', function (e) {
     var take = e.target.closest('[data-take]');
     if (take) { takePlaza(take.dataset.take, take); return; }
+    var sh = e.target.closest('[data-share]');
+    if (sh) { sharePlazaLink(sh.dataset.share); return; }
     var un = e.target.closest('[data-unshare]');
     if (un) unsharePlaza(un.dataset.unshare);
   });

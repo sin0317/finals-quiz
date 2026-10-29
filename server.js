@@ -46,8 +46,24 @@ const store = {
   cloud: {},      // uid -> { banks, stats, log, updatedAt }
   guests: {},     // gid -> { gid, firstSeen, lastSeen, visits, ua }
   daily: {},      // 'YYYY-MM-DD' -> { g: 游客访问次数, u: 登录用户访问次数 }
-  plaza: {}       // pid -> { id, uid, author, course, major, subject, note, questions, createdAt, downloads }
+  plaza: {},      // pid -> { id, uid, author, course, major, subject, note, questions, createdAt, downloads }
+  bonus: {}       // uid -> { from, fromName, at, expiresAt } 分享带来的冲刺报告体验权
 };
+
+/* 分享体验权有效期：拿到的是「限时免费」，不是买断 */
+const BONUS_DAYS = 7;
+
+/* 当前用户有效的分享体验权；没有或已过期就顺手清掉，返回 null */
+function activeBonus(uid) {
+  const b = uid && store.bonus[uid];
+  if (!b || !b.expiresAt) return null;
+  if (b.expiresAt < Date.now()) {
+    delete store.bonus[uid];
+    markDirty('users');
+    return null;
+  }
+  return b;
+}
 
 const FILES = {
   users: path.join(DATA_DIR, 'users.json'),
@@ -70,6 +86,7 @@ function loadAll() {
   const u = readJson(FILES.users, {});
   store.users = (u.users && typeof u.users === 'object') ? u.users : {};
   store.sessions = (u.sessions && typeof u.sessions === 'object') ? u.sessions : {};
+  store.bonus = (u.bonus && typeof u.bonus === 'object') ? u.bonus : {};
   store.cloud = readJson(FILES.cloud, {}) || {};
   const s = readJson(FILES.stats, {});
   store.guests = (s.guests && typeof s.guests === 'object') ? s.guests : {};
@@ -110,7 +127,7 @@ async function flushAll() {
   flushing = true;
   const jobs = [];
   try {
-    if (dirty.users) { dirty.users = false; jobs.push(writeAtomic(FILES.users, { users: store.users, sessions: store.sessions })); }
+    if (dirty.users) { dirty.users = false; jobs.push(writeAtomic(FILES.users, { users: store.users, sessions: store.sessions, bonus: store.bonus })); }
     if (dirty.cloud) { dirty.cloud = false; jobs.push(writeAtomic(FILES.cloud, store.cloud)); }
     if (dirty.stats) { dirty.stats = false; jobs.push(writeAtomic(FILES.stats, { guests: store.guests, daily: store.daily })); }
     if (dirty.plaza) { dirty.plaza = false; jobs.push(writeAtomic(FILES.plaza, store.plaza)); }
@@ -733,13 +750,47 @@ const routes = {
     if (!it) return fail(res, 404, '这个题集已经不在广场上了');
     it.downloads = (it.downloads || 0) + 1;
     markDirty('plaza');
+
+    /* 分享裂变：取用别人分享的题集 → 送一份冲刺报告限时体验权。
+       自己取自己的不算；同一个人只送一次；游客没有稳定账号，先不给。 */
+    let bonus = null;
+    const u = userFromReq(req);
+    if (u && it.uid && it.uid !== u.id) {
+      const have = activeBonus(u.id);
+      if (!have) {
+        const now = Date.now();
+        store.bonus[u.id] = {
+          from: it.uid,
+          fromName: it.author || '同学',
+          at: now,
+          expiresAt: now + BONUS_DAYS * 86400 * 1000
+        };
+        markDirty('users');
+        bonus = {
+          active: true,
+          days: BONUS_DAYS,
+          expiresAt: store.bonus[u.id].expiresAt,
+          fromName: store.bonus[u.id].fromName
+        };
+      } else {
+        bonus = {
+          active: true,
+          days: BONUS_DAYS,
+          expiresAt: have.expiresAt,
+          fromName: have.fromName
+        };
+      }
+    }
+
     ok(res, {
       course: it.course,
       major: it.major,
       subject: it.subject,
       author: it.author || '同学',
       plazaId: it.id,
-      questions: it.questions || []
+      questions: it.questions || [],
+      bonus: bonus,
+      needLoginForBonus: !!(!u && it.uid)
     });
   },
 
@@ -772,19 +823,64 @@ const routes = {
     });
   },
 
-  /* 查当前用户的权益：granted / purchase_required / unavailable */
+  /* 查权益。买断权益和「分享体验权」都算数，但来源要分清：
+     source=paid 是真金白银买的（永久），source=bonus 是分享裂变送的（限时）。 */
   'POST /api/pay/access': async function (req, res) {
     const u = userFromReq(req);
     if (!u) return fail(res, 401, '请先登录');
     const r = await pay.access(u.id);
+    const b = activeBonus(u.id);
+
+    if (r.ok && r.access === 'granted') {
+      return ok(res, {
+        access: 'granted',
+        source: 'paid',
+        entitlement: r.entitlement,
+        purchase: r.purchase || null,
+        reason: r.reason || null
+      });
+    }
+
+    /* 平台那边还没买，但本地有分享体验权 → 照样能看报告 */
+    if (b) {
+      return ok(res, {
+        access: 'granted',
+        source: 'bonus',
+        entitlement: { type: 'bonus' },
+        purchase: r.ok ? (r.purchase || null) : null,
+        reason: r.reason || null,
+        bonus: {
+          active: true,
+          days: BONUS_DAYS,
+          expiresAt: b.expiresAt,
+          fromName: b.fromName || '同学'
+        }
+      });
+    }
+
     if (!r.ok) {
       return fail(res, 503, '暂时查不到权益，稍后再试', { code: r.code, detail: r.detail || null });
     }
     ok(res, {
       access: r.access,
+      source: 'none',
       entitlement: r.entitlement,
       purchase: r.purchase,
       reason: r.reason
+    });
+  },
+
+  /* 只看分享体验权状态：前端用来在页面上写明「免费体验还剩几天」 */
+  'GET /api/pay/bonus': function (req, res) {
+    const u = userFromReq(req);
+    if (!u) return fail(res, 401, '请先登录');
+    const b = activeBonus(u.id);
+    if (!b) return ok(res, { active: false });
+    ok(res, {
+      active: true,
+      days: BONUS_DAYS,
+      expiresAt: b.expiresAt,
+      fromName: b.fromName || '同学'
     });
   },
 

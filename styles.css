@@ -1356,3 +1356,19 @@ strong, b { font-weight: 800; }
   font-size: 12.5px;
   line-height: 1.7;
 }
+
+/* ---- 分享裂变：广场分享按钮 + 分享带过来的那一份 ---- */
+.plaza-share { color: var(--brand); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; }
+.plaza-share:hover { background: var(--brand-soft); color: var(--brand); }
+.plaza-item.plaza-focus { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 12px; }
+
+.sprint-bonus {
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 13px;
+  line-height: 1.7;
+  font-weight: 500;
+}
