@@ -14,12 +14,12 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'fqpay-'));
 const ROOT = path.resolve(__dirname, '..');
 const BASE = 'http://127.0.0.1:' + PORT;
 
-/* 把真实配置复制进临时目录，密钥不进日志。
-   优先用沙箱配置：正式配置会生成真实可付款的链接，测试不该碰。 */
+/* 把沙箱配置复制进临时目录，密钥不进日志。
+   只用沙箱：正式配置会生成真实可付款的链接，测试不该碰。
+   找不到沙箱配置就只跑不碰平台的那几项，然后跳过。 */
 const cfgSandbox = path.join(ROOT, 'data', 'pay.sandbox.config.json');
-const cfgMain = path.join(ROOT, 'data', 'pay.config.json');
-const cfgPick = fs.existsSync(cfgSandbox) ? cfgSandbox : cfgMain;
-if (fs.existsSync(cfgPick)) fs.copyFileSync(cfgPick, path.join(DATA, 'pay.config.json'));
+const hasSandbox = fs.existsSync(cfgSandbox);
+if (hasSandbox) fs.copyFileSync(cfgSandbox, path.join(DATA, 'pay.config.json'));
 
 let pass = 0, fail = 0;
 function ok(cond, msg, extra) {
@@ -89,6 +89,14 @@ function cookieFrom(res) {
     const reg = await req('POST', '/api/register', { username: 'paytester', password: 'test123456' });
     ok(reg.status === 200 && reg.json && reg.json.ok, '注册测试账号', reg.json);
     const cookie = cookieFrom(reg);
+
+    if (!hasSandbox) {
+      console.log('  ! 没有沙箱配置（data/pay.sandbox.config.json），跳过会调平台的断言。');
+      console.log('    正式配置会生成真实可付款的链接，测试不碰。');
+      console.log('\n通过 ' + pass + '，失败 ' + fail);
+      child.kill();
+      process.exit(fail ? 1 : 0);
+    }
 
     const st = await req('GET', '/api/pay/status', null, cookie);
     ok(st.status === 200 && st.json.enabled === true, '付费开关已开启（配置读取成功）', st.json);
