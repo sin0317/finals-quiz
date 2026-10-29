@@ -121,7 +121,7 @@ function clickTab(win, view) {
 
   console.log('\n— 已登录未购买：付费墙 —');
   const w2 = boot(seed, {
-    status: { ok: true, enabled: true, price: '¥9.90', loggedIn: true },
+    status: { ok: true, enabled: true, price: '¥9.90', loggedIn: true, environment: 'sandbox' },
     access: {
       ok: true, access: 'purchase_required', entitlement: { type: 'permanent' },
       purchase: { url: 'https://pay.example/purchase?ticket=t', qr_code_url: 'https://pay.example/qr.png?x=1' }
@@ -136,6 +136,9 @@ function clickTab(win, view) {
   ok(w2.document.getElementById('sprintQrImg').getAttribute('src').indexOf('qr.png') > 0, '二维码用的是平台返回的地址');
   ok(w2.document.getElementById('sprintReport').innerHTML.trim() === '', '未购买时不渲染报告');
   ok(w2.document.getElementById('sprintBuyBtn').disabled === false, '购买按钮可点');
+  const env2 = w2.document.getElementById('sprintEnv');
+  ok(env2.hidden === false, '沙箱环境会标出「不会真实扣款」');
+  ok(env2.textContent.indexOf('不会真实扣款') >= 0, '环境提示写明不扣款', env2.textContent);
 
   console.log('\n— 已购买：报告内容 —');
   const w3 = boot(seed, {
@@ -152,6 +155,18 @@ function clickTab(win, view) {
   ok(html.indexOf('青霉素的抗菌机制') > 0, '薄弱章节下列出具体题目');
   ok(html.indexOf('已经掌握的那道题') < 0, '已掌握的题不列进薄弱清单');
   ok(w3.document.getElementById('sprintGoQuiz') !== null, '报告底部有去刷题的入口');
+
+  console.log('\n— 正式环境：环境提示不出现 —');
+  const w5 = boot(seed, {
+    status: { ok: true, enabled: true, price: '¥9.90', loggedIn: true, environment: 'live' },
+    access: {
+      ok: true, access: 'purchase_required', entitlement: { type: 'permanent' },
+      purchase: { url: 'https://pay.example/purchase?ticket=t', qr_code_url: 'https://pay.example/qr.png?x=1' }
+    }
+  });
+  clickTab(w5, 'sprint');
+  await tick();
+  ok(w5.document.getElementById('sprintEnv').hidden === true, '正式环境不显示沙箱提示');
 
   console.log('\n— 未开通付费：降级不报错 —');
   const w4 = boot(seed, {

@@ -1346,3 +1346,13 @@ strong, b { font-weight: 800; }
 @media print {
   .tabs, .topbar-right, .sprint-hero .sprint-sub, #sprintPrint { display: none !important; }
 }
+
+.sprint-env {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12.5px;
+  line-height: 1.7;
+}

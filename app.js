@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.19.0';
+  var FQ_VERSION = '1.20.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -3968,9 +3968,14 @@
     var rn = (SR.round || 0) + 1;
     var got = pickBatch(batchOpt({ round: rn }));
     if (!got.list.length) {
-      toast(got.why === 'mastered'
-        ? '这个范围里的题都到 ' + MASTER_PCT + '% 了，取消勾选「刷到 90% 才换新题」就能继续刷'
-        : '这个范围里的题这场都刷完且答对过了，换个范围（比如「未掌握」）再刷');
+      // 光弹个 toast 不够：页面还停在「题库还没有题目」，让人以为题库是空的。
+      // 实际是「这个范围里没题」，两回事，得在页面上说清楚。
+      var why = got.why === 'mastered'
+        ? '这个范围里的题掌握度都到 ' + MASTER_PCT + '% 了，把「抽题」换成「一路推新题」就能继续刷'
+        : '这个范围里没有可刷的题了：做过的都答对过了。';
+      toast(why);
+      $('#quizBody').innerHTML = '<div class="empty">' + esc(why) +
+        '<br>上面把「范围」换成别的（比如「全部」），再点「开始刷题」。</div>';
       return;
     }
     SR.round = rn;                                  // 真开工了才推进时钟
@@ -5328,10 +5333,31 @@
       '</div>' +
       '<div class="row" style="margin-top:18px;justify-content:center">' +
       '<button class="btn primary" id="reciteAgain">再背一轮</button>' +
+      '<button class="btn ghost" id="reciteToQuiz">继续刷题</button>' +
       '<button class="btn ghost" id="reciteToWrong">去背错题</button>' +
       '<button class="btn ghost" id="reciteToStats">看看统计</button>' +
       '</div></div>';
     $('#reciteAgain').addEventListener('click', function () { $('#reciteStartBtn').click(); });
+    /* 背完一轮接着刷：范围跟着刚才背的一致（背的是错题，刷的就也是错题），
+       题型和抽题方式仍用刷题页自己那一套，不动。跟刷题页「马上背这些错题」
+       是反过来的一条路。 */
+    $('#reciteToQuiz').addEventListener('click', function () {
+      var qr = $('#qRange'), rr = $('#rRange');
+      if (qr && rr) {
+        var has = Array.prototype.some.call(qr.options, function (o) { return o.value === rr.value; });
+        if (has) {
+          qr.value = rr.value;
+          // 范围本身一道题都没有（比如错题刚被这轮背完、全部订正出列了），
+          // 就别把人丢到一个空白的刷题页 —— 退到「全部」照样能接着刷。
+          if (rr.value !== 'all' && !filterPool(getQs(), rr.value, 'all').length) {
+            qr.value = 'all';
+            toast('这个范围里已经没题了，改刷全部');
+          }
+        }
+      }
+      switchView('quiz');
+      startQuiz(false);
+    });
     $('#reciteToWrong').addEventListener('click', function () {
       $('#rRange').value = 'wrong';
       $('#reciteStartBtn').click();
@@ -5845,6 +5871,18 @@
 
     if (st.price) SPRINT.price = st.price;
     byId('sprintPrice').textContent = SPRINT.price;
+
+    /* 沙箱环境要说明白：支付是模拟的，不会真扣钱。不写清楚就是在骗用户 */
+    var env = byId('sprintEnv');
+    if (env) {
+      if (st.environment === 'sandbox') {
+        env.hidden = false;
+        env.textContent = '当前是沙箱演示环境：点「解锁」走完的是模拟支付，不会真实扣款。正式环境上线后此处会自动关闭。';
+      } else {
+        env.hidden = true;
+        env.textContent = '';
+      }
+    }
 
     if (!st.loggedIn) { need.hidden = false; return; }
 
@@ -6780,6 +6818,8 @@
     /* 背知识点的形式选择 */
     reciteForm: reciteForm,
     answerRecite: answerRecite,
+    /* 背诵结算页（测试用） */
+    renderReciteEnd: renderReciteEnd,
     /* 改题后重答 */
     resetQuizItem: resetQuizItem,
     /* 收藏 */
