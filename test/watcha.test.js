@@ -7,8 +7,9 @@
      · PKCE 是真的在用：换 token 时带的 code_verifier 必须能对上授权时的 code_challenge
      · state 一次性：用过就废，挡住 CSRF 与重放
      · 同一个观猹 user_id 反复登录认回同一个账号，不重复建号
-     · 观猹那边出错时不能崩，要给用户看得懂的话，且不发放会话
-     · 没配 client_id 时入口要关掉，不能让人点了才报错
+   · 观猹那边出错时不能崩，要给用户看得懂的话，且不发放会话
+   · 没配 client_id 时入口要关掉，不能让人点了才报错
+   · 回调地址只能认同源的；缺分享码时不能跳转（平台网关会剥掉分享码，跳了就是死循环）
 
    做法：起一个桩服务器冒充观猹（/oauth/api/token、/oauth/api/userinfo），
         再起真的 server.js，把 WATCHA_OAUTH_BASE_URL 指到桩上。 */
@@ -333,12 +334,11 @@ function startServer(port, extraEnv) {
     ok(u.searchParams.get('redirect_uri') === 'https://finals-quiz.test/?sharecode=SC123',
       '兜底回调地址带上分享码', u.searchParams.get('redirect_uri'));
 
-    // 回调没带分享码时，服务端自己补一个再跳（平台门禁会拦掉没分享码的页面）
+    // 回调缺分享码时不能乱跳：平台网关会把分享码从转发过来的请求里剥掉，
+    // 服务端永远看不到它。要是这里再跳一次，就会变成死循环。
     const cb = await req('GET', '/?code=ABC&state=ST', null, null, 'http://127.0.0.1:' + PORT3);
-    const loc = String(cb.headers.location || '');
-    ok(cb.status === 302, '回调缺分享码时给 302', cb.status);
-    ok(loc.indexOf('sharecode=SC123') >= 0 && loc.indexOf('code=ABC') >= 0,
-      '跳转地址补上了分享码，又保住 code', loc);
+    ok(cb.status === 200, '回调缺分享码时直接给页面，不跳转（防死循环）', cb.status);
+    ok(!cb.headers.location, '没有 Location 头', cb.headers.location);
 
     // 带分享码的正常访问不受影响
     const okp = await req('GET', '/?sharecode=SC123', null, null, 'http://127.0.0.1:' + PORT3);
