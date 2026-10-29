@@ -158,11 +158,11 @@ PORT=8080 npm start    # 换端口
 
 没有 Node 也能用：直接双击 `index.html`，出题、刷题、背知识点、错题本、统计全部照常，只是没有登录和云同步（页面显示「离线模式」）。
 
-登录支持两种方式：WorkBuddy OAuth 一键登录（需要从已注册的线上域名打开，本地 localhost 用不了）、昵称 + 密码（本地可用）。
+登录支持三种方式：观猹 OAuth 一键登录、WorkBuddy OAuth 一键登录（这两个都需要从已注册的线上域名打开，本地 localhost 用不了）、昵称 + 密码（本地可用）。
 
 ## 测试
 
-19 套脚本、993 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先（笔记命中原卷）、加粗识别、广场、作答与回看、用户改题（含选项编辑、改完重答）、题目批注、背诵形式、收藏夹、补充导入、分组推进与间隔复习、刷新续答：
+27 套脚本、1160 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先（笔记命中原卷）、加粗识别、广场、作答与回看、用户改题（含选项编辑、改完重答）、题目批注、背诵形式、收藏夹、补充导入、分组推进与间隔复习、刷新续答、观猹登录：
 
 ```bash
 node test/api.test.js       # 56 项，起临时端口 + 临时数据目录，跑完整接口链路
@@ -184,6 +184,8 @@ node test/sup.test.js       # 49 项，补充导入：自动分辨卷子/笔记�
 node test/memo.test.js      # 46 项，批注：答题前不露、答完跟正确答案一起显示、就地增改删、错题本/收藏夹可改、导出导入都带着
 node test/refix.test.js     # 32 项，改完题回到初见：清掉本次作答、重新判分、结账不翻倍、不误伤别的题
 node test/reciteform.test.js # 49 项，背诵形式：全部考填空/全部给选项/混合、单选多选判定、手打题永远手打
+node test/watcha.test.js    # 43 项，观猹登录：授权地址参数、PKCE 校验、state 拦截与重放、账号复用、错误分支
+node test/watchaui.test.js   # 16 项，观猹登录前端：入口显隐、发起登录、回调换号、不抢 WorkBuddy 的回调
 ```
 
 前端几套用 [happy-dom](https://github.com/capricorn86/happy-dom) 跑，需先 `npm i -D happy-dom`（或全局装好再把 `NODE_PATH` 指过去）。
@@ -196,6 +198,7 @@ styles.css   样式（深浅色）
 app.js       全部前端逻辑：出题、判分、刷题、背诵、统计、云同步、题库还原、原卷照抄
 server.js    后端，只用 Node 自带模块（http / fs / crypto）
 pay.js       爱猹收（观猹支付）接入层：查权益 / 扣额度，失败一律关闭
+watcha-oauth.js  观猹 OAuth2 接入层：授权码 + PKCE、换 token、取用户信息
 vendor/      WorkBuddy 登录 SDK（本地托管，不走外网 CDN）
 data/        运行时生成的数据（users.json / cloud.json / stats.json / plaza.json），不进版本库
 test/        测试脚本
@@ -207,9 +210,16 @@ test/        测试脚本
 也可以用环境变量 `WATCHA_PAY_API_KEY` / `WATCHA_PAY_ENTITLEMENT_ID` / `WATCHA_PAY_BASE_URL` 覆盖。
 **密钥只放服务端**，前端只跟后端自己的三个接口对话，永远拿不到 Key。
 
+观猹登录的配置放在 `data/watcha-oauth.config.json`（同样不进版本库）：`clientId`、`redirectUri`、
+`scope`（默认 `read`）、`baseUrl`，公开客户端还可以不填 `clientSecret`。
+也可以用环境变量 `WATCHA_OAUTH_CLIENT_ID` / `WATCHA_OAUTH_CLIENT_SECRET` /
+`WATCHA_OAUTH_REDIRECT_URI` / `WATCHA_OAUTH_SCOPE` / `WATCHA_OAUTH_BASE_URL` 覆盖。
+`redirectUri` 必须和观猹后台登记的回调地址完全一致。
+
 > ⚠️ **发版前先挪一下 `data/`**。发版会把整个目录打包上传，`data/` 里除了运行数据，还可能有
 > 本地快照和各种令牌。直接发布会用本地 `stats.json` 覆盖线上的真实访问数据，也可能把不该上服务器的
-> 文件带上去。稳妥做法：发版前把 `data/` 挪到目录外，只放一份 `pay.config.json` 进去，发完再挪回来。
+> 文件带上去。稳妥做法：发版前把 `data/` 挪到目录外，只放一份 `pay.config.json` 和一份
+> `watcha-oauth.config.json` 进去，发完再挪回来。
 
 ## 已知限制
 
@@ -221,4 +231,4 @@ test/        测试脚本
 - 括号里写的词当答案有个前提：这一行得有题号（`1.` / `2、`），或者它前面没有正在收的题。否则一行没标号的选项（`药品（包括中药）说明书`）容易被误当成一道填空题
 - 填空题区里，括号空着、答案也没写在旁边的题会被跳过（卷子本身没给答案，抄下来也没法判分）
 - 广场没有点赞/评论，只有分享、取用、删除
-- 登录只接了 WorkBuddy OAuth 和昵称密码，微信/QQ 需要备案域名与资质，暂未接
+- 登录接了观猹 OAuth、WorkBuddy OAuth 和昵称密码，微信/QQ 需要备案域名与资质，暂未接

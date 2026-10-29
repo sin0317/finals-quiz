@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { createPayService } = require('./pay');
+const { createWatchaOAuth } = require('./watcha-oauth');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
@@ -102,6 +103,9 @@ loadAll();
 
 /* 爱猹收：查权益与扣额度。配置缺失时 enabled=false，前端据此隐藏付费入口 */
 const pay = createPayService(DATA_DIR);
+
+/* 观猹 OAuth2：授权码 + PKCE。配置缺失时 enabled=false，前端据此隐藏登录入口 */
+const watcha = createWatchaOAuth(DATA_DIR);
 
 // 防抖写盘：同一次 flush 内多个文件串行写，避免并发 rename 冲突
 const dirty = { users: false, cloud: false, stats: false, plaza: false };
@@ -325,7 +329,7 @@ function serveStatic(req, res, urlPath) {
   const topDir = relToRoot.split(path.sep)[0];
   if (topDir === 'data') return fail(res, 403, '禁止访问');
   if (RETIRED_DIRS.indexOf(topDir) >= 0) return fail(res, 404, '该功能已下线');
-  if (['server.js', 'package.json', 'package-lock.json'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
+  if (['server.js', 'package.json', 'package-lock.json', 'pay.js', 'watcha-oauth.js'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
 
   fs.stat(abs, function (err, st) {
     if (err || !st.isFile()) return fail(res, 404, '找不到 ' + rel);
@@ -414,6 +418,58 @@ function briefPlaza(it, u) {
 
 function tagRank(map) {
   return Object.keys(map).sort(function (a, b) { return map[b] - map[a] || a.localeCompare(b, 'zh'); });
+}
+
+/* ---- 观猹账号：用观猹的 user_id 当稳定主键，同一个人换设备登录能认回同一个账号 ---- */
+function watchaUsername(info) {
+  const raw = String(info.nickname || '').trim();
+  // 昵称里可能有空格、颜文字，账号名只留能显示的字符
+  let base = raw.replace(/[^A-Za-z0-9_\-.·一-龥]/g, '').slice(0, 20);
+  if (base.length < 2) base = ('观猹' + String(info.userId).slice(-4)).slice(0, 20);
+  return base;
+}
+
+function upsertWatchaUser(info) {
+  const watchaId = String(info.userId);
+  const now = Date.now();
+  let user = null;
+  Object.keys(store.users).forEach(function (k) {
+    if (store.users[k].watchaId === watchaId) user = store.users[k];
+  });
+  const isNew = !user;
+  if (user) {
+    user.lastLoginAt = now;
+    user.lastSeenAt = now;
+    user.loginCount = (user.loginCount || 0) + 1;
+    if (info.nickname) user.name = info.nickname.slice(0, 20);
+    if (info.avatarUrl) user.avatar = info.avatarUrl;
+  } else {
+    const id = uid('u');
+    const base = watchaUsername(info);
+    let nick = base;
+    let n = 1;
+    while (n <= 99 && Object.keys(store.users).some(function (k) { return store.users[k].username === nick; })) {
+      n += 1;
+      nick = base + n;
+    }
+    if (n > 99) nick = base + '_' + id.slice(-4);
+    const hasAdmin = Object.keys(store.users).some(function (k) { return store.users[k].role === 'admin'; });
+    user = {
+      id: id,
+      username: nick,
+      name: info.nickname ? info.nickname.slice(0, 20) : nick,
+      avatar: info.avatarUrl || '',
+      watchaId: watchaId,
+      provider: 'watcha',
+      role: hasAdmin ? 'user' : 'admin',
+      createdAt: now,
+      lastLoginAt: now,
+      lastSeenAt: now,
+      loginCount: 1
+    };
+    store.users[id] = user;
+  }
+  return { user: user, isNew: isNew };
 }
 
 /* ========================= 接口 ========================= */
@@ -512,7 +568,10 @@ const routes = {
       if (store.users[k].username.toLowerCase() === key) found = store.users[k];
     });
     if (!found) return fail(res, 401, '昵称或密码不对');
-    if (!found.hash || !found.salt) return fail(res, 400, '这个账号是用 WorkBuddy 登录的，请点「使用 WorkBuddy 登录」');
+    if (!found.hash || !found.salt) {
+      const via = found.provider === 'watcha' ? '观猹' : (found.provider === 'workbuddy' ? 'WorkBuddy' : '第三方');
+      return fail(res, 400, '这个账号是用' + via + '登录的，请点「使用' + via + '登录」');
+    }
     if (!verifyPassword(password, found)) return fail(res, 401, '昵称或密码不对');
 
     const now = Date.now();
@@ -586,6 +645,55 @@ const routes = {
     markDirty('users');
     setSessionCookie(res, token, true);
     ok(res, { user: publicUser(user), isNew: isNew });
+  },
+
+  /* ---- 观猹账号登录：标准 OAuth2 授权码 + PKCE ---- */
+
+  /* 前端先问一句「观猹登录配好了没」，没配好就把入口藏起来，别让人点了才报错 */
+  'GET /api/watcha/config': function (req, res) {
+    ok(res, { enabled: watcha.enabled });
+  },
+
+  /* 发起登录：生成 state + PKCE 校验串（都留在服务端），返回观猹授权页地址 */
+  'GET /api/watcha/auth': function (req, res) {
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').toString();
+    if (!throttle('wauth:' + ip, 30, 10 * 60 * 1000)) return fail(res, 429, '操作太频繁了，歇一会儿再试');
+    if (!watcha.enabled) return fail(res, 503, '观猹登录还没配置好');
+    const redirectUri = watcha.resolveRedirectUri(req);
+    if (!redirectUri) return fail(res, 500, '回调地址算不出来，请稍后再试');
+    const a = watcha.beginAuth(redirectUri);
+    ok(res, { url: a.url, state: a.state });
+  },
+
+  /* 回调换号：验 state → code 换 token → 取用户信息 → 建本站会话 */
+  'POST /api/watcha/exchange': async function (req, res) {
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').toString();
+    if (!throttle('wex:' + ip, 20, 10 * 60 * 1000)) return fail(res, 429, '操作太频繁了，歇一会儿再试');
+    if (!watcha.enabled) return fail(res, 503, '观猹登录还没配置好');
+    let body;
+    try { body = parseJsonBody(await readBody(req)); } catch (e) { return fail(res, 400, '请求格式不对'); }
+    const code = String(body.code || '').trim();
+    const state = String(body.state || '').trim();
+    if (!code || !state) return fail(res, 400, '回调参数不全，请重新登录');
+
+    // state 一次性，用过就没了：挡 CSRF 和重放
+    const st = watcha.consumeState(state);
+    if (!st) return fail(res, 400, '登录状态已过期，请重新发起登录');
+
+    let info;
+    try {
+      const tk = await watcha.exchangeCode({ code: code, codeVerifier: st.verifier, redirectUri: st.redirectUri });
+      info = await watcha.fetchUserInfo(tk.accessToken);
+    } catch (e) {
+      return fail(res, 502, '观猹登录失败：' + ((e && e.message) || '未知错误'));
+    }
+
+    const made = upsertWatchaUser(info);
+    const token = crypto.randomBytes(32).toString('hex');
+    store.sessions[token] = { uid: made.user.id, exp: Date.now() + SESSION_DAYS * 86400 * 1000 };
+    markDirty('users');
+    setSessionCookie(res, token, true);
+    ok(res, { user: publicUser(made.user), isNew: made.isNew });
   },
 
   'POST /api/logout': function (req, res) {

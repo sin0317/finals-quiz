@@ -14,6 +14,7 @@
   --brand: #4f46e5;
   --brand-2: #6366f1;
   --brand-soft: #eef0ff;
+  --watcha: #ff7a45;
   --ok: #15a34a;
   --ok-soft: #e8f7ee;
   --warn: #d97706;
@@ -35,6 +36,7 @@
   --brand: #8b87ff;
   --brand-2: #a5a1ff;
   --brand-soft: #232340;
+  --watcha: #ff8f5e;
   --ok: #4ade80;
   --ok-soft: #14301f;
   --warn: #fbbf24;
@@ -974,6 +976,31 @@ strong, b { font-weight: 800; }
   margin-bottom: 4px;
 }
 .wb-btn:hover { border-color: var(--brand); color: var(--brand); }
+
+/* 观猹登录：跟 WorkBuddy 按钮并排，logo 用文字标（官方图外链已失效，不依赖外网） */
+.watcha-btn {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.watcha-btn:hover { border-color: var(--watcha); color: var(--watcha); }
+.watcha-mark {
+  width: 19px; height: 19px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--watcha);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  flex: 0 0 auto;
+}
 .wb-mark {
   width: 19px; height: 19px;
   display: inline-flex; align-items: center; justify-content: center;
