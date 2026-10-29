@@ -486,6 +486,10 @@ test/        测试脚本
 版本号右边还有一个「★ 给我 Star」小按钮，点了会在新窗口打开 GitHub 仓库，
 想收藏或提 issue 都从那里去。二维码、微信群之类要加也可以，说一声就行。
 
+那行下面挂着观猹（watcha.cn）的「欢迎来观猹点评」徽章，点了会打开本站的观猹产品页，
+想吐槽、想夸、想给个评分都从那儿去。徽章图片存在 assets/watcha-badge.png，
+不走观猹图床 —— 官方图链以前挂过一次，外链一断页脚就空一块。
+
 六、数据存在哪
 ------------------------------------------------
 服务端：./data/ 目录下三个 JSON 文件
@@ -499,7 +503,7 @@ test/        测试脚本
 ------------------------------------------------
     node test/api.test.js       后端接口 56 项（含 /api/version）
     node test/browser.test.js   前端全流程 63 项（需要 happy-dom）
-    node test/core.test.js      核心引擎回归 79 项（含页脚版本号与 Star 链接）
+    node test/core.test.js      核心引擎回归 92 项（含页脚版本号、Star 链接与观猹徽章）
     node test/bank.test.js      题库还原 31 项（样本内联，不依赖外部文件）
     node test/plaza.test.js     题集广场 64 项（接口 + 前端）
     node test/bold.test.js      加粗标记与「识别不出转填空」49 项

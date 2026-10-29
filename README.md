@@ -4,6 +4,8 @@
 
 在线试用：<https://finals-quiz.app.workbuddy.host/?sharecode=LKWARVTOI6>
 
+<a href="https://watcha.cn/products/qi-mo-shua-ti-zhan?utm_source=product-badge&utm_content=invite" target="_blank" rel="noopener noreferrer"><img src="assets/watcha-badge.png" alt="期末刷题站 观猹徽章" width="216"></a>
+
 纯前端 + 零第三方依赖的 Node 后端，`npm start` 就能跑，不装数据库。
 
 ## 它做什么
@@ -162,12 +164,12 @@ PORT=8080 npm start    # 换端口
 
 ## 测试
 
-27 套脚本、1171 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先（笔记命中原卷）、加粗识别、广场、作答与回看、用户改题（含选项编辑、改完重答）、题目批注、背诵形式、收藏夹、补充导入、分组推进与间隔复习、刷新续答、观猹登录：
+27 套脚本、1183 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先（笔记命中原卷）、加粗识别、广场、作答与回看、用户改题（含选项编辑、改完重答）、题目批注、背诵形式、收藏夹、补充导入、分组推进与间隔复习、刷新续答、观猹登录：
 
 ```bash
 node test/api.test.js       # 56 项，起临时端口 + 临时数据目录，跑完整接口链路
 node test/browser.test.js   # 63 项
-node test/core.test.js      # 79 项，含逐页切换、知识卡片、页脚版本号、Star 链接、右键菜单
+node test/core.test.js      # 92 项，含逐页切换、知识卡片、页脚版本号、Star 链接、观猹徽章、右键菜单
 node test/bank.test.js      # 31 项，题库还原、分区题型、挖空粒度
 node test/bold.test.js      # 49 项，加粗识别、兜底不丢句、挖空边界
 node test/plaza.test.js     # 64 项，广场接口 + 前端

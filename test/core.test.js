@@ -344,6 +344,31 @@ const NOTE = [
     return /noopener/.test(el.getAttribute('rel') || '');
   }), '页面上所有外链都带 noopener');
 
+  console.log('\n[13] 观猹上架徽章');
+  const badge = a.$('#watchaBadge');
+  ok(!!badge, '页脚有一枚观猹徽章');
+  ok(badge.tagName === 'A' && /watcha\.cn\/products\/qi-mo-shua-ti-zhan/.test(badge.getAttribute('href') || ''),
+    '指向观猹产品页', badge && badge.getAttribute('href'));
+  ok(/utm_source=product-badge/.test(badge.getAttribute('href') || ''),
+    '保留了官方给的 utm 参数', badge.getAttribute('href'));
+  ok(badge.getAttribute('target') === '_blank', '新窗口打开');
+  ok(/noopener/.test(badge.getAttribute('rel') || ''), '带 rel=noopener');
+  ok(badge.parentElement.className.indexOf('app-footer') >= 0, '徽章挂在页脚里', badge.parentElement.className);
+  const bimg = a.$('#watchaBadge img');
+  ok(!!bimg, '徽章是一张图片');
+  ok((bimg.getAttribute('src') || '') === 'assets/watcha-badge.png',
+    '图片收在本地，不依赖外链（观猹官方图床挂过一次）', bimg && bimg.getAttribute('src'));
+  ok(/观猹/.test(bimg.getAttribute('alt') || ''), 'alt 说清了是什么', bimg && bimg.getAttribute('alt'));
+  const badgeFile = path.join(ROOT, 'assets', 'watcha-badge.png');
+  ok(fs.existsSync(badgeFile), 'assets/watcha-badge.png 真的在仓库里');
+  if (fs.existsSync(badgeFile)) {
+    const bsz = fs.statSync(badgeFile).size;
+    ok(bsz < 40 * 1024, '图片压在 40KB 以内，不拖慢首屏', Math.round(bsz / 1024) + 'KB');
+    const bb = fs.readFileSync(badgeFile);
+    ok(bb.toString('ascii', 1, 4) === 'PNG' && bb[25] === 6,
+      '是带透明通道的 PNG（深色主题下四角不会留白块）', 'colorType=' + bb[25]);
+  }
+
   console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
   process.exit(fail ? 1 : 0);
 })().catch(function (e) {

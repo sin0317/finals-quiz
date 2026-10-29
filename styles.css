@@ -172,6 +172,27 @@ body {
 .app-footer .star-link:hover svg { transform: rotate(-14deg) scale(1.14); }
 .app-footer .star-link:active { transform: translateY(1px); }
 
+/* 观猹上架徽章：图是白底，深色主题下压一点亮度，免得像块灯牌 */
+.app-footer .watcha-badge {
+  display: block;
+  width: -webkit-fit-content;
+  width: fit-content;
+  margin: 13px auto 4px;
+  line-height: 0;
+  border-radius: 9px;
+  transition: transform .18s ease, opacity .18s ease;
+}
+.app-footer .watcha-badge img { display: block; width: 216px; height: auto; }
+.app-footer .watcha-badge:hover,
+.app-footer .watcha-badge:focus-visible {
+  transform: translateY(-1px);
+  opacity: 1;
+  outline: none;
+}
+[data-theme="dark"] .app-footer .watcha-badge { opacity: .9; }
+[data-theme="dark"] .app-footer .watcha-badge:hover,
+[data-theme="dark"] .app-footer .watcha-badge:focus-visible { opacity: 1; }
+
 .view { display: none; animation: fade .22s ease; }
 .view.active { display: block; }
 
