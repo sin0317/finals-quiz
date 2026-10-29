@@ -5858,9 +5858,13 @@
     if (isAppLink) {
       var tip = byId('sprintScanTip');
       if (tip) tip.hidden = false;
+      var tip2 = byId('sprintQrHint');
+      if (tip2) tip2.hidden = true;   // 深链模式下「点按钮打开支付页」是句废话，还误导人
     } else {
-      var tip2 = byId('sprintScanTip');
-      if (tip2) tip2.hidden = true;
+      var tip3 = byId('sprintScanTip');
+      if (tip3) tip3.hidden = true;
+      var tip4 = byId('sprintQrHint');
+      if (tip4) tip4.hidden = false;
     }
   }
 
