@@ -129,7 +129,7 @@ function startServer(port, extraEnv) {
     PORT: String(port), FQ_DATA_DIR: DATA
   }, extraEnv || {});
   ['WATCHA_OAUTH_CLIENT_ID', 'WATCHA_OAUTH_CLIENT_SECRET', 'WATCHA_OAUTH_REDIRECT_URI',
-    'WATCHA_OAUTH_SCOPE', 'WATCHA_OAUTH_BASE_URL'].forEach(function (k) {
+    'WATCHA_OAUTH_SCOPE', 'WATCHA_OAUTH_BASE_URL', 'WATCHA_OAUTH_SHARECODE'].forEach(function (k) {
       if (extraEnv && Object.prototype.hasOwnProperty.call(extraEnv, k)) return;
       delete env[k];
     });
@@ -289,6 +289,61 @@ function startServer(port, extraEnv) {
     const ex = await req('POST', '/api/watcha/exchange', { code: 'x', state: 'y' }, null, 'http://127.0.0.1:' + PORT2);
     ok(ex.status === 503, '换号也 503', ex.status);
     srv2.child.kill();
+  }
+
+  /* ============ 10 回调地址的规矩 ============ */
+  console.log('\n[10] 回调地址');
+  {
+    // 同源、带分享码的地址要照用：线上有分享码门禁，回调不带会被平台拦在门外
+    const r = await req('GET', '/api/watcha/auth?redirectTo=' + encodeURIComponent('https://finals-quiz.test/?sharecode=ABC'));
+    const u = new URL(r.json.url);
+    ok(u.searchParams.get('redirect_uri') === 'https://finals-quiz.test/?sharecode=ABC',
+      '同源的回调地址照用（保住分享码）', u.searchParams.get('redirect_uri'));
+
+    // 回调参数不能带进 redirect_uri
+    const r2 = await req('GET', '/api/watcha/auth?redirectTo=' + encodeURIComponent('https://finals-quiz.test/?sharecode=ABC&code=OLD&state=OLD'));
+    const u2 = new URL(r2.json.url);
+    ok(u2.searchParams.get('redirect_uri') === 'https://finals-quiz.test/?sharecode=ABC',
+      '旧回调参数被摘掉了', u2.searchParams.get('redirect_uri'));
+
+    // 别人的地址不能拿去当跳板
+    const r3 = await req('GET', '/api/watcha/auth?redirectTo=' + encodeURIComponent('https://evil.test/steal'));
+    const u3 = new URL(r3.json.url);
+    ok(u3.searchParams.get('redirect_uri') === REDIRECT_URI, '不是同一个源的一律不用', u3.searchParams.get('redirect_uri'));
+
+    // 换 token 用的 redirect_uri 必须跟授权时一模一样
+    const a = await req('GET', '/api/watcha/auth?redirectTo=' + encodeURIComponent('https://finals-quiz.test/?sharecode=ABC'));
+    await req('POST', '/api/watcha/exchange', { code: 'C', state: a.json.state });
+    ok(stub.tokenForm.redirect_uri === 'https://finals-quiz.test/?sharecode=ABC',
+      '换 token 用的 redirect_uri 与授权时一致', stub.tokenForm.redirect_uri);
+  }
+
+  /* ============ 11 没带 redirectTo 时，兜底也要带分享码 ============ */
+  console.log('\n[11] 兜底回调地址');
+  {
+    const PORT3 = PORT + 60;
+    const srv3 = await startServer(PORT3, {
+      WATCHA_OAUTH_CLIENT_ID: 'f1HwJMQn9cRClA4v',
+      WATCHA_OAUTH_REDIRECT_URI: 'https://finals-quiz.test/',
+      WATCHA_OAUTH_SHARECODE: 'SC123',
+      WATCHA_OAUTH_BASE_URL: STUB
+    });
+    const r = await req('GET', '/api/watcha/auth', null, null, 'http://127.0.0.1:' + PORT3);
+    const u = new URL(r.json.url);
+    ok(u.searchParams.get('redirect_uri') === 'https://finals-quiz.test/?sharecode=SC123',
+      '兜底回调地址带上分享码', u.searchParams.get('redirect_uri'));
+
+    // 回调没带分享码时，服务端自己补一个再跳（平台门禁会拦掉没分享码的页面）
+    const cb = await req('GET', '/?code=ABC&state=ST', null, null, 'http://127.0.0.1:' + PORT3);
+    const loc = String(cb.headers.location || '');
+    ok(cb.status === 302, '回调缺分享码时给 302', cb.status);
+    ok(loc.indexOf('sharecode=SC123') >= 0 && loc.indexOf('code=ABC') >= 0,
+      '跳转地址补上了分享码，又保住 code', loc);
+
+    // 带分享码的正常访问不受影响
+    const okp = await req('GET', '/?sharecode=SC123', null, null, 'http://127.0.0.1:' + PORT3);
+    ok(okp.status === 200, '带分享码的访问照常返回页面', okp.status);
+    srv3.child.kill();
   }
 
   srv.child.kill();

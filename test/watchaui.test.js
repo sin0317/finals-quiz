@@ -119,12 +119,29 @@ function called(calls, frag) {
   /* ============ 3 点按钮 → 问服务端要地址 → 跳转 ============ */
   console.log('\n[3] 发起登录');
   {
-    const t = open();
+    const t = open({ url: 'http://localhost/?sharecode=ABC' });
     await settle();
     t.d.getElementById('watchaLoginBtn').click();
     await settle();
-    ok(called(t.calls, '/api/watcha/auth').length === 1, '向服务端要了授权地址', t.calls.map(function (c) { return c.url; }));
+    const authReq = called(t.calls, '/api/watcha/auth');
+    ok(authReq.length === 1, '向服务端要了授权地址', t.calls.map(function (c) { return c.url; }));
     ok(t.assigned.length === 1 && /watcha\.cn\/oauth\/authorize/.test(t.assigned[0]), '跳到观猹授权页', t.assigned);
+    // 回调地址要带着当前页的分享码：线上有分享码门禁，回调不带会被平台拦掉
+    ok(authReq.length === 1 && /redirectTo=/.test(authReq[0].url), '把当前地址带上了', authReq[0] && authReq[0].url);
+    ok(authReq.length === 1 && decodeURIComponent((authReq[0].url.match(/redirectTo=([^&]+)/) || [])[1] || '') === 'http://localhost/?sharecode=ABC',
+      '带的是当前地址（含分享码）', authReq[0] && decodeURIComponent((authReq[0].url.match(/redirectTo=([^&]+)/) || [])[1] || ''));
+  }
+
+  /* ============ 3b 旧回调参数不能混进 redirectTo ============ */
+  console.log('\n[3b] redirectTo 要摘掉旧回调参数');
+  {
+    const t = open({ url: 'http://localhost/?sharecode=ABC&code=OLD&state=OLD' });
+    await settle();
+    t.d.getElementById('watchaLoginBtn').click();
+    await settle();
+    const authReq = called(t.calls, '/api/watcha/auth');
+    const rt = decodeURIComponent((authReq[0].url.match(/redirectTo=([^&]+)/) || [])[1] || '');
+    ok(rt === 'http://localhost/?sharecode=ABC', '旧 code/state 没被带进去', rt);
   }
 
   /* ============ 4 回调换号 ============ */

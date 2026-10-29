@@ -6347,11 +6347,26 @@
     });
   }
 
+  /* 发起登录前把当前地址带上：线上有分享码门禁，回调地址不带 sharecode
+     会被平台拦在门外，所以要用带着分享码的这个地址当 redirect_uri。
+     回调参数要先摘掉，hash 也不带（OAuth 不许 redirect_uri 带 fragment）。 */
+  function watchaRedirectTo() {
+    try {
+      var u = new URL(window.location.href);
+      ['code', 'state', 'provider', 'error', 'error_description'].forEach(function (k) {
+        u.searchParams.delete(k);
+      });
+      u.hash = '';
+      return u.toString();
+    } catch (e) { return ''; }
+  }
+
   function watchaSignIn() {
     if (!Cloud.online) return authErr('现在是纯本地模式，无法登录 —— 需要通过服务端地址打开本页');
     var btn = $('#watchaLoginBtn');
     if (btn) btn.disabled = true;
-    api('GET', '/api/watcha/auth').then(function (j) {
+    var q = '/api/watcha/auth?redirectTo=' + encodeURIComponent(watchaRedirectTo());
+    api('GET', q).then(function (j) {
       if (!j || !j.url) throw new Error('没拿到授权地址，请稍后再试');
       window.location.assign(j.url);
     }).catch(function (e) {

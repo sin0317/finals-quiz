@@ -659,7 +659,7 @@ const routes = {
     const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').toString();
     if (!throttle('wauth:' + ip, 30, 10 * 60 * 1000)) return fail(res, 429, '操作太频繁了，歇一会儿再试');
     if (!watcha.enabled) return fail(res, 503, '观猹登录还没配置好');
-    const redirectUri = watcha.resolveRedirectUri(req);
+    const redirectUri = watcha.resolveRedirectUri(req, queryOf(req).get('redirectTo'));
     if (!redirectUri) return fail(res, 500, '回调地址算不出来，请稍后再试');
     const a = watcha.beginAuth(redirectUri);
     ok(res, { url: a.url, state: a.state });
@@ -1087,6 +1087,24 @@ function pruneGuests() {
   for (let i = 0; i < drop; i++) delete store.guests[keys[i]];
 }
 
+/* 观猹回调没带分享码时，先补上再走。
+   线上有分享码门禁：少这个参数，平台会先把人拦在门外，页面根本打不开，
+   登录就断在半路。补一个 302 让浏览器自己带参数重进。 */
+function sharecodeRedirect(req, res, urlPath) {
+  try {
+    const u = new URL(req.url || '/', 'http://local');
+    if (u.pathname !== '/' && u.pathname !== '/index.html') return false;
+    if (!u.searchParams.get('code')) return false;
+    if (u.searchParams.get('sharecode')) return false;
+    const sc = watcha.cfg.sharecode;
+    if (!sc) return false;
+    u.searchParams.set('sharecode', sc);
+    res.writeHead(302, { 'Location': u.pathname + u.search, 'Cache-Control': 'no-store' });
+    res.end();
+    return true;
+  } catch (e) { return false; }
+}
+
 /* ========================= 服务器 ========================= */
 
 const server = http.createServer(async function (req, res) {
@@ -1096,7 +1114,10 @@ const server = http.createServer(async function (req, res) {
   }
 
   let urlPath = req.url || '/';
-  if (!urlPath.startsWith('/api/')) return serveStatic(req, res, urlPath);
+  if (!urlPath.startsWith('/api/')) {
+    if (sharecodeRedirect(req, res, urlPath)) return;
+    return serveStatic(req, res, urlPath);
+  }
 
   const key = req.method + ' ' + urlPath.split('?')[0];
   const fn = routes[key];

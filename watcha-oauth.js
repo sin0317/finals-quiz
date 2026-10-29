@@ -50,6 +50,8 @@ function loadConfig(dataDir, env) {
     clientId: pick('WATCHA_OAUTH_CLIENT_ID', f.clientId, ''),
     clientSecret: pick('WATCHA_OAUTH_CLIENT_SECRET', f.clientSecret, ''),
     redirectUri: pick('WATCHA_OAUTH_REDIRECT_URI', f.redirectUri, ''),
+    /* 站点分享码：线上有分享码门禁，回调地址不带它会被平台拦在门外 */
+    sharecode: pick('WATCHA_OAUTH_SHARECODE', f.sharecode, ''),
     baseUrl: pick('WATCHA_OAUTH_BASE_URL', f.baseUrl, DEFAULT_BASE).replace(/\/+$/, ''),
     scope: scope,
     scopeList: scope.split(/[\s+]+/).filter(Boolean)
@@ -58,6 +60,9 @@ function loadConfig(dataDir, env) {
   cfg.enabled = !!(cfg.clientId && cfg.redirectUri);
   return cfg;
 }
+
+/* 回调地址里不许带这些：它们是回调时才出现的参数，带进去会让 URL 打架 */
+const CB_PARAMS = ['code', 'state', 'provider', 'error', 'error_description'];
 
 /* 错误码 → 给用户看的中文话，别把观猹的原始报文直接甩出去 */
 function describeError(code, desc) {
@@ -84,13 +89,39 @@ function createWatchaOAuth(dataDir, env) {
   }
 
   /* 回调地址：优先用配置里的（必须和观猹后台登记的 domain 对得上），
-     没配就从请求头推一个（本地调试用；线上有 x-forwarded-* 反代头）。 */
-  function resolveRedirectUri(req) {
-    if (cfg.redirectUri) return cfg.redirectUri;
-    const h = req && req.headers ? req.headers : {};
-    const proto = String(h['x-forwarded-proto'] || 'http').split(',')[0].trim();
-    const host = String(h['x-forwarded-host'] || h.host || '').split(',')[0].trim();
-    return host ? (proto + '://' + host + '/') : '';
+     没配就从请求头推一个（本地调试用；线上有 x-forwarded-* 反代头）。
+
+     前端也可以把自己的当前地址带过来（requested），这样分享码不会丢 ——
+     线上有分享码门禁，回调地址不带 sharecode 会被平台拦在门外。
+     但只认跟配置同一个源（协议 + 域名 + 端口）的地址，防止被人拿去当跳板。 */
+  function resolveRedirectUri(req, requested) {
+    const base = cfg.redirectUri || '';
+    let fallback = base;
+    if (fallback && cfg.sharecode) {
+      try {
+        const u = new URL(fallback);
+        if (!u.searchParams.get('sharecode')) u.searchParams.set('sharecode', cfg.sharecode);
+        fallback = u.toString();
+      } catch (e) { /* 配的不是合法 URL，就原样用 */ }
+    }
+    if (!base) {
+      const h = req && req.headers ? req.headers : {};
+      const proto = String(h['x-forwarded-proto'] || 'http').split(',')[0].trim();
+      const host = String(h['x-forwarded-host'] || h.host || '').split(',')[0].trim();
+      return host ? (proto + '://' + host + '/') : '';
+    }
+    const want = String(requested || '').trim();
+    if (!want) return fallback;
+    try {
+      const u = new URL(want);
+      const b = new URL(base);
+      if (u.protocol !== b.protocol || u.host !== b.host) return fallback;
+      CB_PARAMS.forEach(function (k) { u.searchParams.delete(k); });
+      u.hash = '';
+      return u.toString();
+    } catch (e) {
+      return fallback;
+    }
   }
 
   function buildAuthorizeUrl(opts) {
