@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.18.0';
+  var FQ_VERSION = '1.19.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1887,6 +1887,7 @@
     if (name === 'fav') renderFav();
     if (name === 'stats') { renderStats(); loadAdmin(); }
     if (name === 'plaza') { renderPlazaList(); loadPlaza(); }
+    if (name === 'sprint') renderSprint();
     if (name === 'quiz' && !S.quiz) renderQuizEmpty();
     if (name === 'recite' && !S.recite) renderReciteEmpty();
   }
@@ -5638,6 +5639,261 @@
     return g;
   }
 
+  /* =========================================================
+     ⑧ 冲刺报告（付费）
+     ---------------------------------------------------------
+     · 数据全部来自本机已有的答题记录，不上传、不额外采集
+     · 权益由服务端 /api/pay/access 判定，前端只负责展示
+     · 付款链接和二维码都用平台返回的，不自己拼
+     ========================================================= */
+
+  var SPRINT = { price: '¥9.90', purchase: null, busy: false };
+
+  function byId(id) { return document.getElementById(id); }
+
+  /* 到底该补哪几章：错过、且掌握度没到 90% 的题，按「还差多少」排序 */
+  function buildSprintModel() {
+    var qs = getQs();
+    var map = {};
+    var untouched = {};
+
+    qs.forEach(function (q) {
+      var ch = String(q.chapter || '').trim() || '未标注章节';
+      if (!map[ch]) map[ch] = { ch: ch, total: 0, done: 0, bad: 0, weak: [] };
+      if (!untouched[ch]) untouched[ch] = { ch: ch, total: 0, done: 0 };
+      var row = map[ch];
+      var ut = untouched[ch];
+      row.total++;
+      ut.total++;
+
+      var st = getStat(q.id) || {};
+      var ok = st.ok || 0;
+      var bad = st.bad || 0;
+      var mastery = st.mastery || 0;
+      if (ok + bad > 0) { row.done++; ut.done++; }
+      row.bad += bad;
+
+      if (bad > 0 && mastery < 0.9) {
+        row.weak.push({
+          q: q,
+          mastery: mastery,
+          bad: bad,
+          /* 错得越多、掌握度越低越靠前；连错 5 次以上不再加分，避免一道题霸榜 */
+          score: (1 - mastery) * 2 + Math.min(bad, 5)
+        });
+      }
+    });
+
+    var rows = Object.keys(map).map(function (k) { return map[k]; })
+      .filter(function (r) { return r.weak.length > 0; });
+
+    rows.forEach(function (r) {
+      r.weak.sort(function (a, b) { return b.score - a.score; });
+      r.score = r.weak.reduce(function (s, w) { return s + w.score; }, 0);
+    });
+    rows.sort(function (a, b) { return b.score - a.score; });
+
+    var fresh = Object.keys(untouched).map(function (k) { return untouched[k]; })
+      .filter(function (r) { return r.done === 0; })
+      .sort(function (a, b) { return b.total - a.total; })
+      .slice(0, 3);
+
+    var weakTotal = rows.reduce(function (s, r) { return s + r.weak.length; }, 0);
+    var top = rows.slice(0, 5);
+
+    return {
+      all: rows,
+      top: top,
+      fresh: fresh,
+      weakTotal: weakTotal,
+      chapterCount: rows.length,
+      bankName: (getBank() && getBank().course) || '当前题集'
+    };
+  }
+
+  /* 把要补的题切成三份，对应考前三天的量 */
+  function splitPlan(rows) {
+    var flat = [];
+    rows.forEach(function (r) {
+      r.weak.forEach(function (w) { flat.push({ ch: r.ch, q: w.q }); });
+    });
+    var days = [[], [], []];
+    var per = Math.ceil(flat.length / 3) || 1;
+    flat.forEach(function (item, i) {
+      var d = Math.min(2, Math.floor(i / per));
+      days[d].push(item);
+    });
+    return days;
+  }
+
+  function sprintReportHtml(m) {
+    if (!m.weakTotal) {
+      return '<div class="card"><div class="card-head"><h3>暂时没有要补的</h3></div>' +
+        '<p class="hint">这个题集里还没有「答错过、且掌握度没到 90%」的题。先去刷几组，报告才有东西算。</p>' +
+        '<div class="row"><button class="btn primary" id="sprintGoQuiz">去刷题</button></div></div>';
+    }
+
+    var days = splitPlan(m.top);
+    var h = '';
+
+    h += '<div class="card">' +
+      '<div class="card-head"><h3>' + esc(m.bankName) + ' · 冲刺体检</h3>' +
+      '<span class="hint">依据：你在本机的答题记录</span></div>' +
+      '<div class="kpis">' +
+      '<div class="kpi"><b>' + m.weakTotal + '</b><span>道题还要补</span></div>' +
+      '<div class="kpi"><b>' + m.chapterCount + '</b><span>个章节在漏分</span></div>' +
+      '<div class="kpi"><b>3</b><span>天计划</span></div>' +
+      '</div></div>';
+
+    h += '<div class="card">' +
+      '<div class="card-head"><h3>72 小时怎么分</h3></div><div class="sprint-days">';
+    var labels = ['第一天 · 扫盲', '第二天 · 补漏', '第三天 · 收口'];
+    days.forEach(function (list, i) {
+      var chs = {};
+      list.forEach(function (it) { chs[it.ch] = (chs[it.ch] || 0) + 1; });
+      var names = Object.keys(chs).map(function (c) { return c + ' ' + chs[c] + ' 道'; });
+      h += '<div class="sprint-day">' +
+        '<div class="sprint-day-h">' + labels[i] + '</div>' +
+        '<div class="sprint-day-n">' + list.length + ' 道</div>' +
+        '<div class="sprint-day-l">' + (names.length ? esc(names.join('、')) : '把前两天的错题再过一遍') + '</div>' +
+        '</div>';
+    });
+    h += '</div></div>';
+
+    h += '<div class="card"><div class="card-head"><h3>最该补的 5 个章节</h3>' +
+      '<span class="hint">按还能补回多少分排</span></div>';
+
+    m.top.forEach(function (r, i) {
+      var showN = Math.min(3, r.weak.length);
+      h += '<div class="sprint-ch">' +
+        '<div class="sprint-ch-head">' +
+        '<span class="sprint-ch-rank">' + (i + 1) + '</span>' +
+        '<span class="sprint-ch-name">' + esc(r.ch) + '</span>' +
+        '<span class="sprint-ch-meta">' + r.weak.length + ' 道要补 / 共 ' + r.total + ' 道</span>' +
+        '</div><ol class="sprint-qs">';
+      for (var k = 0; k < showN; k++) {
+        var w = r.weak[k];
+        var pct = Math.round((w.mastery || 0) * 100);
+        h += '<li><span class="sprint-q-stem">' + esc(String(w.q.stem || '').slice(0, 60)) + '</span>' +
+          '<span class="sprint-q-tag">掌握 ' + pct + '% · 错 ' + w.bad + ' 次</span></li>';
+      }
+      h += '</ol>';
+      if (r.weak.length > showN) {
+        h += '<div class="sprint-more">还有 ' + (r.weak.length - showN) + ' 道在同章节里，按这个顺序往下刷就行</div>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+
+    if (m.fresh.length) {
+      h += '<div class="card"><div class="card-head"><h3>一次都没碰过的章节</h3></div>' +
+        '<p class="hint">这些章节没有答题记录，算不出薄弱点 —— 但期末最容易在这里翻车，建议优先扫一遍。</p><ul class="sprint-fresh">';
+      m.fresh.forEach(function (r) {
+        h += '<li>' + esc(r.ch) + ' · ' + r.total + ' 道</li>';
+      });
+      h += '</ul></div>';
+    }
+
+    h += '<div class="card"><div class="row"><button class="btn primary" id="sprintGoQuiz">按这个顺序去刷题</button>' +
+      '<button class="btn ghost" id="sprintPrint">打印这份报告</button></div></div>';
+
+    return h;
+  }
+
+  function bindSprintReport() {
+    var go = byId('sprintGoQuiz');
+    if (go) go.addEventListener('click', function () { switchView('quiz'); });
+    var pr = byId('sprintPrint');
+    if (pr) pr.addEventListener('click', function () { window.print(); });
+  }
+
+  function showSprintLocked(purchase) {
+    SPRINT.purchase = purchase || null;
+    byId('sprintLock').hidden = false;
+    byId('sprintReport').innerHTML = '';
+
+    var qrBox = byId('sprintQr');
+    if (purchase && purchase.qr_code_url) {
+      byId('sprintQrImg').src = purchase.qr_code_url;
+      qrBox.hidden = false;
+    } else {
+      qrBox.hidden = true;
+    }
+    byId('sprintBuyBtn').disabled = !(purchase && purchase.url);
+    byId('sprintBuyBtn').textContent = purchase && purchase.url
+      ? (SPRINT.price + ' 解锁冲刺报告')
+      : '暂时打不开支付页，稍后再试';
+  }
+
+  async function renderSprint() {
+    var report = byId('sprintReport');
+    var lock = byId('sprintLock');
+    var need = byId('sprintNeedLogin');
+    if (!report || !lock || !need) return;
+
+    report.innerHTML = '';
+    lock.hidden = true;
+    need.hidden = true;
+
+    var st = null;
+    try { st = await api('GET', '/api/pay/status'); } catch (e) { st = null; }
+
+    if (!st || !st.enabled) {
+      report.innerHTML = '<div class="card"><p class="hint">冲刺报告还没开放，先把刷题用起来。</p></div>';
+      return;
+    }
+
+    if (st.price) SPRINT.price = st.price;
+    byId('sprintPrice').textContent = SPRINT.price;
+
+    if (!st.loggedIn) { need.hidden = false; return; }
+
+    report.innerHTML = '<div class="card"><p class="hint">正在核对权益…</p></div>';
+
+    var ac = null;
+    try { ac = await api('POST', '/api/pay/access', {}); }
+    catch (e) {
+      report.innerHTML = '<div class="card"><p class="hint">查不到权益：' + esc(e.message) + '。刷新一下再试。</p></div>';
+      return;
+    }
+
+    if (ac.access !== 'granted') {
+      showSprintLocked(ac.purchase);
+      return;
+    }
+
+    report.innerHTML = sprintReportHtml(buildSprintModel());
+    bindSprintReport();
+  }
+
+  function initSprint() {
+    var login = byId('sprintLoginBtn');
+    if (login) login.addEventListener('click', function () {
+      var b = byId('acctBtn');
+      if (b) b.click();
+    });
+
+    var buy = byId('sprintBuyBtn');
+    if (buy) buy.addEventListener('click', function () {
+      if (!SPRINT.purchase || !SPRINT.purchase.url) return;
+      window.open(SPRINT.purchase.url, '_blank', 'noopener');
+      /* 打开支付页后把二维码也亮出来：手机上换设备扫更方便 */
+      if (SPRINT.purchase.qr_code_url) {
+        byId('sprintQrImg').src = SPRINT.purchase.qr_code_url;
+        byId('sprintQr').hidden = false;
+      }
+    });
+
+    var recheck = byId('sprintRecheckBtn');
+    if (recheck) recheck.addEventListener('click', function () {
+      if (SPRINT.busy) return;
+      SPRINT.busy = true;
+      renderSprint().then(function () { SPRINT.busy = false; }, function () { SPRINT.busy = false; });
+    });
+  }
+
+  initSprint();
+
   function api(method, path, body) {
     if (typeof fetch !== 'function') return Promise.reject(new Error('浏览器不支持 fetch'));
     return fetch(path, {
@@ -6557,6 +6813,9 @@
     buildQuestions: buildQuestions,
     splitSentences: splitSentences,
     cleanMark: cleanMark,
-    markBold: markBold
+    markBold: markBold,
+    /* 冲刺报告：给测试留一个算模型的口子 */
+    sprintModel: buildSprintModel,
+    renderSprint: renderSprint
   };
 })();

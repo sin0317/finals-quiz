@@ -1303,3 +1303,46 @@ strong, b { font-weight: 800; }
 .item .memo { margin-top: 7px; padding: 6px 9px 7px; }
 .item .memo-text { font-size: 13px; line-height: 1.55; }
 .item .memo-label { font-size: 12px; }
+
+/* =========================================================
+   ⑧ 冲刺报告（付费）
+   ========================================================= */
+.sprint-hero { margin: 4px 0 16px; }
+.sprint-title { font-size: 20px; margin: 0 0 6px; color: var(--ink); }
+.sprint-sub { margin: 0; color: var(--muted); font-size: 13px; }
+
+.sprint-price-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.sprint-amount { font-size: 34px; font-weight: 700; color: var(--ink); letter-spacing: -.5px; }
+.sprint-once { color: var(--muted); font-size: 13px; }
+
+.sprint-bullets { margin: 0 0 16px; padding-left: 20px; color: var(--ink-2); font-size: 13.5px; line-height: 1.9; }
+.sprint-bullets li::marker { color: var(--brand); }
+
+.sprint-qr { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); text-align: center; }
+.sprint-qr img { display: block; margin: 0 auto 8px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+
+.sprint-days { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 640px) { .sprint-days { grid-template-columns: 1fr; } }
+.sprint-day { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.sprint-day-h { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.sprint-day-n { font-size: 22px; font-weight: 700; color: var(--brand); }
+.sprint-day-l { font-size: 12px; color: var(--ink-2); margin-top: 6px; line-height: 1.6; }
+
+.sprint-ch { padding: 12px 0; border-top: 1px solid var(--line); }
+.sprint-ch:first-of-type { border-top: 0; }
+.sprint-ch-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sprint-ch-rank {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+  font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
+.sprint-ch-name { font-weight: 600; color: var(--ink); }
+.sprint-ch-meta { margin-left: auto; font-size: 12px; color: var(--muted); }
+.sprint-qs { margin: 8px 0 0; padding-left: 20px; }
+.sprint-qs li { font-size: 13px; color: var(--ink-2); line-height: 1.8; }
+.sprint-q-tag { display: inline-block; margin-left: 6px; font-size: 11.5px; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 1px 8px; }
+.sprint-more { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.sprint-fresh { margin: 8px 0 0; padding-left: 20px; font-size: 13px; color: var(--err); line-height: 1.9; }
+
+@media print {
+  .tabs, .topbar-right, .sprint-hero .sprint-sub, #sprintPrint { display: none !important; }
+}

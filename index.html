@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.18.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.19.0" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -20,6 +20,7 @@
     <button class="tab" data-view="fav" id="favTab">⑤ 收藏夹</button>
     <button class="tab" data-view="stats" data-page-node-id="1o8Ffh3dtIcMucePEy1mHg">⑥ 数据统计</button>
     <button class="tab" data-view="plaza">⑦ 题集广场</button>
+    <button class="tab" data-view="sprint">⑧ 冲刺报告</button>
   </nav>
   <div class="topbar-right" data-page-node-id="47nPBZ8RLH3nwh00L3NbRx">
     <button id="acctBtn" class="acct-btn" title="账号与同步">
@@ -386,9 +387,48 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
     </div>
   </section>
 
+  <!-- ============ 冲刺报告（付费功能） ============ -->
+  <section class="view" id="view-sprint" hidden>
+    <div class="sprint-hero">
+      <h2 class="sprint-title">考前 72 小时，只刷该刷的</h2>
+      <p class="sprint-sub">按你已经答过的题算：哪几个章节还在漏分、每个章节只补哪几道</p>
+    </div>
+
+    <!-- 未登录 -->
+    <div class="card" id="sprintNeedLogin" hidden>
+      <div class="card-head"><h3>先登录一下</h3></div>
+      <p class="hint">冲刺报告要挂在你自己的账号上，换设备打开也还在。刷题、导入、题集广场这些不登录照样能用。</p>
+      <div class="row"><button class="btn primary" id="sprintLoginBtn">去登录</button></div>
+    </div>
+
+    <!-- 未购买 -->
+    <div class="card sprint-lock" id="sprintLock" hidden>
+      <div class="sprint-price-row">
+        <span class="sprint-amount" id="sprintPrice">¥9.90</span>
+        <span class="sprint-once">一次买断 · 永久可看 · 不自动续费</span>
+      </div>
+      <ul class="sprint-bullets">
+        <li>薄弱章节 Top 5，按「还能补回多少分」排序，不是按章节顺序</li>
+        <li>每章只列必刷的题，附题干，不用再翻整本笔记</li>
+        <li>72 小时时间表：今天该刷哪几道，明天该回头背哪几个</li>
+      </ul>
+      <div class="row" id="sprintBuyRow">
+        <button class="btn primary" id="sprintBuyBtn">解锁冲刺报告</button>
+      </div>
+      <div class="sprint-qr" id="sprintQr" hidden>
+        <img id="sprintQrImg" alt="支付宝扫码支付" width="180" height="180">
+        <p class="hint">用支付宝扫一下，或者点上面的按钮直接打开支付页</p>
+        <button class="btn ghost" id="sprintRecheckBtn">我付好了，刷新一下</button>
+      </div>
+    </div>
+
+    <!-- 报告 -->
+    <div id="sprintReport"></div>
+  </section>
+
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.18.0</span>
+    <span id="appVer">期末刷题站 v1.19.0</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -493,7 +533,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.18.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="app.js?v=1.19.0" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

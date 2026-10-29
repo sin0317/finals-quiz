@@ -16,6 +16,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { createPayService } = require('./pay');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
@@ -81,6 +82,9 @@ function loadAll() {
   });
 }
 loadAll();
+
+/* 爱猹收：查权益与扣额度。配置缺失时 enabled=false，前端据此隐藏付费入口 */
+const pay = createPayService(DATA_DIR);
 
 // 防抖写盘：同一次 flush 内多个文件串行写，避免并发 rename 冲突
 const dirty = { users: false, cloud: false, stats: false, plaza: false };
@@ -751,6 +755,57 @@ const routes = {
     delete store.plaza[it.id];
     markDirty('plaza');
     ok(res, { removed: it.id });
+  },
+
+  /* ---------------- 冲刺报告：权益查询 / 额度扣减 ---------------- */
+
+  /* 前端启动时问一句：付费开关开没开、一次扣几点、我登录了没 */
+  'GET /api/pay/status': function (req, res) {
+    const u = userFromReq(req);
+    ok(res, {
+      enabled: pay.enabled,
+      environment: pay.environment,
+      cost: pay.reportCost,
+      price: pay.price ? ('¥' + pay.price) : '',
+      priceLabel: pay.priceLabel || '',
+      loggedIn: !!u
+    });
+  },
+
+  /* 查当前用户的权益：granted / purchase_required / unavailable */
+  'POST /api/pay/access': async function (req, res) {
+    const u = userFromReq(req);
+    if (!u) return fail(res, 401, '请先登录');
+    const r = await pay.access(u.id);
+    if (!r.ok) {
+      return fail(res, 503, '暂时查不到权益，稍后再试', { code: r.code, detail: r.detail || null });
+    }
+    ok(res, {
+      access: r.access,
+      entitlement: r.entitlement,
+      purchase: r.purchase,
+      reason: r.reason
+    });
+  },
+
+  /* 扣一次冲刺点。同一批报告重试必须复用同一个 idempotency_key */
+  'POST /api/pay/consume': async function (req, res) {
+    const u = userFromReq(req);
+    if (!u) return fail(res, 401, '请先登录');
+
+    let body;
+    try { body = parseJsonBody(await readBody(req)); } catch (e) { return fail(res, 400, '请求格式不对'); }
+
+    const clientKey = String(body.idempotency_key || '').trim();
+    if (!/^[A-Za-z0-9_\-.]{8,80}$/.test(clientKey)) return fail(res, 400, '缺少有效的幂等键');
+
+    /* 服务端强制加上用户前缀：不同用户的同名批次不会互相干扰 */
+    const r = await pay.consume(u.id, pay.reportCost, u.id + ':' + clientKey);
+    if (r.ok) return ok(res, { consumed: r.consumed, remaining: r.remaining });
+
+    if (r.code === 'insufficient_quota') return fail(res, 409, '冲刺点不够了', { code: r.code });
+    if (r.code === 'idempotency_conflict') return fail(res, 409, '这次扣减还在处理中，稍等一下再试', { code: r.code });
+    return fail(res, 503, '扣减没成功，稍后再试', { code: r.code, detail: r.detail || null });
   },
 
   /* 站长看板 */
