@@ -272,5 +272,34 @@ console.log('\n九、给选项的题答完，批注照样显示');
   ok(txt(box).indexOf('合理') >= 0, '内容在', txt(box));
 }
 
+/* ---------------- 十、原卷单选题的卡片要露出答案 ---------------- */
+console.log('\n十、原卷单选题：题干里没有空位，卡片也要有答案可背');
+{
+  // 卷子上的单选题常常写成「洋务运动的口号是（ ）」，圈掉以后题干里什么标记都不剩，
+  // 卡片阶段只摆一句题干等于没东西背
+  const q = {
+    id: 'c2', type: 'single', stem: '洋务运动的口号是', answer: '自强、求富',
+    opts: ['自强、求富', '民主、科学', '扶清灭洋', '师夷长技'], optsSrc: 'paper', order: 1
+  };
+  const { d } = open(q);
+  d.querySelector('.tab[data-view="recite"]').click();
+  d.querySelector('#reciteStartBtn').click();
+  const card = d.querySelector('#knCard');
+  ok(!!card, '进了卡片阶段');
+  const t = txt(card);
+  ok(t.indexOf('洋务运动的口号是') >= 0, '题干在', t);
+  ok(t.indexOf('自强、求富') >= 0, '正确项也露出来了，不是光一个题干', t);
+  ok(t.indexOf('正确答案') >= 0, '标了「正确答案」，一眼能看出这是答案不是选项', t);
+
+  // 题干里本来就有空位的（用户改题改成的单选），仍然走「填空 + 高亮」，不重复标答案
+  const q2 = Object.assign({}, SINGLE);
+  const r2 = open(q2);
+  r2.d.querySelector('.tab[data-view="recite"]').click();
+  r2.d.querySelector('#reciteStartBtn').click();
+  const c2 = r2.d.querySelector('#knCard');
+  ok(!!c2.querySelector('mark.kn-mark'), '带空位的单选：答案填回空里并高亮');
+  ok(txt(c2).indexOf('正确答案') < 0, '带空位的单选不再多标一行「正确答案」', txt(c2));
+}
+
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
 process.exit(fail ? 1 : 0);

@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.1';
+  var FQ_VERSION = '1.21.2';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4970,6 +4970,15 @@
       // 多选题的卡片：题干 + 所有正确项（没标答案的卷子就是全选）
       var items = (q.answer || []).map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('');
       return '<div class="kn-q">' + filled() + '</div><ol class="kn-points">' + items + '</ol>';
+    }
+    if (q.type === 'single') {
+      // 原卷的单选题题干里本来就没有空位（卷子上是「（　）」或者什么都不标），
+      // 只把题干摆出来等于没东西可背 —— 把正确项补在下面
+      var body = filled();
+      if (!/____|（　）/.test(stem) && ans) {
+        return '<div class="kn-q">' + body + '</div><div class="kn-def">正确答案：' + esc(ans) + '</div>';
+      }
+      return body;
     }
     return filled();
   }
