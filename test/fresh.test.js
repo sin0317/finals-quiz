@@ -132,5 +132,62 @@ console.log('\n六、随机乱序：不重复、不越界');
   ok(ids.length === 30, '全部模式把 30 道都给了', ids.length);
 }
 
+/* ---------------- 七、结算页的「这本扫到哪儿了」 ---------------- */
+console.log('\n七、结算页进度：12 / 20 道');
+
+function seedQuiz(n, mode, seenCount) {
+  const stats = {};
+  for (let i = 1; i <= seenCount; i++) {
+    stats['q' + i] = { ok: 1, bad: 0, streak: 1, mastery: 0.5, mastered: false, lastAt: 1 };
+  }
+  const ids = [];
+  for (let i = 1; i <= 8; i++) ids.push('q' + i);
+  const raw = {
+    v: 1, bank: 'b_fresh', at: 1, round: 1, idx: 8, mode: mode, remain: 20,
+    opt: { qRange: 'all', qType: 'all', qCount: '20', qOrder: 'seq', qForm: 'mix', qMode: mode },
+    forms: new Array(8).fill('fill'), draft: '', draftFor: '', ids: ids,
+    results: ids.map(function (id) { return { q: id, ok: true, partial: false, multi: false, input: 'x', picked: null }; }),
+    drill: { done: {}, served: {} }
+  };
+  const win = new Window({ url: 'http://localhost/' });
+  win.document.body.innerHTML = BODY;
+  win.crypto = require('crypto').webcrypto;
+  win.Element.prototype.scrollIntoView = function () {};
+  win.confirm = function () { return true; };
+  win.alert = function () {};
+  try { win.localStorage.clear(); } catch (e) {}
+  win.localStorage.setItem('fq_banks_v1', JSON.stringify(makeBank(n)));
+  win.localStorage.setItem('fq_current_v1', JSON.stringify('b_fresh'));
+  win.localStorage.setItem('fq_stats_v1', JSON.stringify(stats));
+  win.localStorage.setItem('fq_quiz_v1', JSON.stringify(raw));
+  const api = win.eval('(function(){' + APP_SRC + '; return window.FQInternals; })()');
+  return { win, api };
+}
+
+{
+  const { win, api } = seedQuiz(20, 'fresh', 12);
+  const box = win.document.querySelector('.fresh-progress');
+  ok(!!box, 'fresh 模式结算页有进度块');
+  const txt = box ? box.textContent.replace(/\s+/g, '') : '';
+  ok(txt.indexOf('这本已经扫完12/20道') === 0, '文案是「这本已经扫完 12 / 20 道」', txt);
+  ok(txt.indexOf('还剩8道没碰过') > 0, '说清还剩几道', txt);
+  const p = api.freshProgress();
+  ok(p.seen === 12 && p.total === 20, 'freshProgress 数对', p);
+}
+
+console.log('\n八、别的模式不显示这条进度');
+{
+  const { win } = seedQuiz(20, 'srs', 12);
+  ok(!win.document.querySelector('.fresh-progress'), '间隔复习的结算页没有这块');
+}
+
+console.log('\n九、整本扫完时说「整本都见过了」');
+{
+  const { win } = seedQuiz(20, 'fresh', 20);
+  const txt = win.document.querySelector('.fresh-progress').textContent.replace(/\s+/g, '');
+  ok(txt.indexOf('20/20道') > 0, '20 / 20', txt);
+  ok(txt.indexOf('整本都见过了') > 0, '收尾一句', txt);
+}
+
 console.log('\n' + (fail ? '✗' : '✓') + ' fresh: ' + pass + ' 通过 / ' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

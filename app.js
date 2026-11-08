@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.4';
+  var FQ_VERSION = '1.21.5';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4867,6 +4867,18 @@
     scrollToFb($('#quizFb'));
   }
 
+  /* 「只刷没见过的」扫到哪儿了。分母是整本的题（按题型过滤，不按范围），
+     分子是练过的题 —— 和 fresh 模式同一个口径：练过一次就算见过。 */
+  function freshProgress() {
+    var type = $('#qType') ? $('#qType').value : 'all';
+    var pool = filterPool(getQs().slice(), 'all', type);
+    var seen = pool.filter(function (q) {
+      var s = S.stats[q.id];
+      return s && (s.ok + s.bad);
+    }).length;
+    return { seen: seen, total: pool.length };
+  }
+
   /* 「下一组」到底给几道。
      题量是上限，不是承诺：范围里只剩 8 道的时候，说「从 8 道里抽 20 道」，
      再跟一句「不够再补新题」，等于骗人 —— 根本没有新题可补。
@@ -4945,6 +4957,19 @@
       '<div class="result-sub">第 ' + (st.round || 1) + ' 组 · ' + total + ' 题：完全正确 ' + ok + ' · 部分正确 ' + mid + ' · 答错 ' + (total - ok - mid) +
       '　' + (pct >= 90 ? '稳了，继续保持' : pct >= 60 ? '还行，错题再背两遍' : '别慌，先把下面的错题啃下来') + '</div>' +
       '</div>';
+    // 「只刷没见过的」才有的进度：扫书的人要知道自己扫到哪儿了，
+    // 不然刷完一组只看到 8 道，永远不知道整本还剩多少。
+    if (st.mode === 'fresh') {
+      var fp = freshProgress();
+      var fpPct = fp.total ? Math.round(fp.seen / fp.total * 100) : 0;
+      html += '<div class="fresh-progress">' +
+        '<div class="progress"><i style="width:' + fpPct + '%"></i></div>' +
+        '<div class="fresh-progress-txt">这本已经扫完 <strong>' + fp.seen + '</strong> / ' + fp.total + ' 道' +
+        (fp.seen >= fp.total
+          ? '，整本都见过了'
+          : '，还剩 ' + (fp.total - fp.seen) + ' 道没碰过') +
+        '</div></div>';
+    }
     if (wrongs.length) {
       html += '<h3 style="margin:18px 0 8px">这一组的错题</h3><div class="list">' +
         wrongs.map(function (r) {
@@ -7024,6 +7049,7 @@
     parsePaperDoc: parsePaperDoc,
     pickBatch: pickBatch,
     nextRoundTip: nextRoundTip,
+    freshProgress: freshProgress,
     pickQuestions: pickQuestions,
     persistQuiz: persistQuiz,
     restoreQuiz: restoreQuiz,

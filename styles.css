@@ -450,6 +450,31 @@ tbody tr.off { opacity: .45; }
   transition: width .3s;
 }
 
+/* 结算页「这本扫到哪儿了」：只给「只刷没见过的」用。
+   扫书的人关心的是总量，所以这条比组内进度条粗一号、字也大一点。 */
+.fresh-progress {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.fresh-progress .progress {
+  height: 8px;
+  margin-bottom: 10px;
+}
+
+.fresh-progress-txt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fresh-progress-txt strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
 .q-meta {
   display: flex;
   gap: 10px;
