@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.3';
+  var FQ_VERSION = '1.21.4';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -3928,6 +3928,16 @@
       // 最生的先来（shuffle 之后再按掌握度排，等于同分之间随机）
       cands.sort(function (a, b) { return masteryPct(a) - masteryPct(b); });
       if (!cands.length) return { list: [], remain: 0, why: 'mastered' };
+    } else if (opt.mode === 'fresh') {
+      // 只刷没见过的：练过一次就算见过，不管对错都不再抽。
+      // 认的是「有没有练习记录」，不是「掌握度是不是 0」——答过但全错的题掌握度
+      // 也是 0，可它并不是没见过的题，放进来就不是这个模式该干的事了。
+      cands = pool.filter(function (q) {
+        var s = S.stats[q.id];
+        return !s || !(s.ok + s.bad);
+      });
+      if (opt.shuffle) cands = weightedShuffle(cands);
+      if (!cands.length) return { list: [], remain: 0, why: 'seen' };
     } else {
       cands = pool.filter(function (q) { return !done[q.id]; });
       // 没出现过的排前面，出现过的（上几组答错的）排在后面等回头刷
@@ -3972,6 +3982,8 @@
       // 实际是「这个范围里没题」，两回事，得在页面上说清楚。
       var why = got.why === 'mastered'
         ? '这个范围里的题掌握度都到 ' + MASTER_PCT + '% 了，把「抽题」换成「一路推新题」就能继续刷'
+        : got.why === 'seen'
+        ? '这个范围里没有没见过的题了：练过一次就算见过，把「抽题」换成「间隔复习」能接着刷'
         : '这个范围里没有可刷的题了：做过的都答对过了。';
       toast(why);
       $('#quizBody').innerHTML = '<div class="empty">' + esc(why) +
@@ -4865,8 +4877,9 @@
     var short = want > 0 && can < want;        // 凑不满题量
     var capped = want > 0 && can <= want;      // 这一组会把范围里的都给你
     var isSrs = !!(st && st.mode === 'srs');
+    var isFresh = !!(st && st.mode === 'fresh');
 
-    // 凑不满的原因分三种，说错方向比不说更糟
+    // 凑不满的原因分几种，说错方向比不说更糟
     var foot = '';
     if (short) {
       var type = $('#qType') ? $('#qType').value : 'all';
@@ -4878,6 +4891,8 @@
         foot = '；想凑满 ' + want + ' 道得先多导点题';
       } else if (isSrs) {
         foot = '；其余 ' + (allN - can) + ' 道还在复习冷却里';
+      } else if (isFresh) {
+        foot = '；另外 ' + (allN - can) + ' 道都练过了';
       } else {
         foot = '；这一场答对的 ' + (allN - can) + ' 道不再出现';
       }
@@ -4886,11 +4901,17 @@
     if (next.why === 'mastered') {
       return '这个范围里的题都到 ' + MASTER_PCT + '% 了，把抽题方式换成「一路推新题」就能继续';
     }
+    if (next.why === 'seen') {
+      return '这个范围里没有没见过的题了（练过一次就算见过），换成「间隔复习」能接着刷';
+    }
     if (next.why === 'done') {
       return '这个范围里的题这场都刷完并答对过了，换个范围还能继续';
     }
     if (st && st.mode === 'master') {
       return '下一组还有 ' + can + ' 道没到 ' + MASTER_PCT + '% 的，接着刷' + foot;
+    }
+    if (isFresh) {
+      return (short ? '下一组只剩 ' + can + ' 道没见过' : '下一组还有 ' + can + ' 道没见过') + foot;
     }
     if (isSrs && next.early) {
       return '都还没到期，下一组先把最早到期的 ' + can + ' 道捞回来复习';

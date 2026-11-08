@@ -171,7 +171,7 @@ console.log('\n八、开关在页面上能切');
   const sel = d.querySelector('#qMode');
   ok(!!sel, '工具栏有「抽题方式」下拉');
   ok(sel.value === 'srs', '默认是间隔复习');
-  ok(sel.options.length === 3, '三种抽法都在：间隔复习 / 一路推新题 / 只刷没掌握的');
+  ok(sel.options.length === 4, '四种抽法都在：间隔复习 / 一路推新题 / 只刷没掌握的 / 只刷没见过的');
 
   sel.value = 'master';
   d.querySelector('#qCount').value = '0';
