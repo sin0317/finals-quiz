@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.2';
+  var FQ_VERSION = '1.21.3';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4855,6 +4855,56 @@
     scrollToFb($('#quizFb'));
   }
 
+  /* 「下一组」到底给几道。
+     题量是上限，不是承诺：范围里只剩 8 道的时候，说「从 8 道里抽 20 道」，
+     再跟一句「不够再补新题」，等于骗人 —— 根本没有新题可补。
+     所以先算清给几道；凑不满就把原因说出来，别让人以为点一下就能变出 12 道。 */
+  function nextRoundTip(st, next) {
+    var want = +($('#qCount') ? $('#qCount').value : 0) || 0;   // 0 = 全部
+    var can = next.remain || 0;
+    var short = want > 0 && can < want;        // 凑不满题量
+    var capped = want > 0 && can <= want;      // 这一组会把范围里的都给你
+    var isSrs = !!(st && st.mode === 'srs');
+
+    // 凑不满的原因分三种，说错方向比不说更糟
+    var foot = '';
+    if (short) {
+      var type = $('#qType') ? $('#qType').value : 'all';
+      var range = $('#qRange') ? $('#qRange').value : 'all';
+      var allN = filterPool(getQs().slice(), 'all', type).length;
+      if (range !== 'all' && allN > can) {
+        foot = '；换成「全部」还有 ' + allN + ' 道';
+      } else if (allN <= can) {
+        foot = '；想凑满 ' + want + ' 道得先多导点题';
+      } else if (isSrs) {
+        foot = '；其余 ' + (allN - can) + ' 道还在复习冷却里';
+      } else {
+        foot = '；这一场答对的 ' + (allN - can) + ' 道不再出现';
+      }
+    }
+
+    if (next.why === 'mastered') {
+      return '这个范围里的题都到 ' + MASTER_PCT + '% 了，把抽题方式换成「一路推新题」就能继续';
+    }
+    if (next.why === 'done') {
+      return '这个范围里的题这场都刷完并答对过了，换个范围还能继续';
+    }
+    if (st && st.mode === 'master') {
+      return '下一组还有 ' + can + ' 道没到 ' + MASTER_PCT + '% 的，接着刷' + foot;
+    }
+    if (isSrs && next.early) {
+      return '都还没到期，下一组先把最早到期的 ' + can + ' 道捞回来复习';
+    }
+    if (!isSrs) {
+      return (short ? '下一组只剩 ' + can + ' 道' : '下一组还有 ' + can + ' 道可刷') +
+        '（这场答对的题不再出现）';
+    }
+
+    if (want === 0) return '下一组这 ' + can + ' 道全给你，到期的复习题先来';
+    if (capped) return '下一组就这 ' + can + ' 道：到期的复习题先来' + foot;
+    return '下一组从 ' + can + ' 道里抽 ' + want + ' 道，到期的复习题先来，不够再补新题';
+  }
+
   function renderQuizResult() {
     var st = S.quiz;
     quizTimerStop(st);
@@ -4868,19 +4918,7 @@
     var wrongs = done.filter(function (r) { return !r.ok; });
     // 下一组还剩多少可刷：这里只是预估（不落状态），让人知道「再来一组」不会从头再来
     var next = pickBatch(batchOpt({ round: (SR.round || 0) + 1 }));
-    var nextTip = next.why === 'mastered'
-      ? '这个范围里的题都到 ' + MASTER_PCT + '% 了，把抽题方式换成「一路推新题」就能继续'
-      : next.why === 'done'
-      ? '这个范围里的题这场都刷完并答对过了，换个范围还能继续'
-      : st.mode === 'master'
-      ? '下一组还有 ' + next.remain + ' 道没到 ' + MASTER_PCT + '% 的，接着刷'
-      : st.mode === 'srs'
-      ? (next.early
-        ? '都还没到期，下一组先把最早到期的 ' + next.remain + ' 道捞回来复习'
-        : '下一组从 ' + next.remain + ' 道里抽' +
-          (+$('#qCount').value > 0 ? ' ' + $('#qCount').value + ' 道' : '') +
-          '：到期的复习题先来，不够再补新题')
-      : '下一组还有 ' + next.remain + ' 道可刷（这场答对的题不再出现）';
+    var nextTip = nextRoundTip(st, next);
     var html = '<div class="quiz-card"><div class="result-card">' +
       '<div class="score">' + pct + '<span style="font-size:18px">%</span></div>' +
       '<div class="result-sub">第 ' + (st.round || 1) + ' 组 · ' + total + ' 题：完全正确 ' + ok + ' · 部分正确 ' + mid + ' · 答错 ' + (total - ok - mid) +
@@ -6964,6 +7002,7 @@
     parsePaper: parsePaper,
     parsePaperDoc: parsePaperDoc,
     pickBatch: pickBatch,
+    nextRoundTip: nextRoundTip,
     pickQuestions: pickQuestions,
     persistQuiz: persistQuiz,
     restoreQuiz: restoreQuiz,
