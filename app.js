@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.7';
+  var FQ_VERSION = '1.21.8';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -6692,6 +6692,76 @@
   }
   $('#adminRefreshBtn').addEventListener('click', loadAdmin);
 
+  /* ---------------- 更新公告 ----------------
+     只在「没看过这一版公告」时弹一次，看过就记在 localStorage 里。
+
+     想再弹一次：把 NOTICE.id 改掉（例如带上版本号）。同一个 id 只弹一次，
+     所以别用会变的东西（时间戳）当 id —— 那等于每次刷新都弹。
+
+     大改动都该走这里：换链接、改判分口径、收费规则变化。
+     只在推文里说没人看得见，站内得有一句话。 */
+  var LS_NOTICE = 'fq_notice_v1';
+  var NOTICE = {
+    id: '2026-11-09-link-moved',
+    title: '链接换了，存一下这个地址',
+    lead: '旧地址 finals-quiz.app.workbuddy.host 暂时不维护了，停在上一个版本，之后的新功能都不会到那边去。',
+    items: [
+      '<b>题型下拉只列你题库里真有的</b>：导一份只有单选和多选的卷子，不会再摆着名词解释和简答。',
+      '<b>抽题多了「只刷没见过的」</b>：练过一次的就不再来；结算页给一条扫书进度，比如这本已经扫完 74 / 268 道。',
+      '<b>题量不再吹牛</b>：凑不够一组就直接说「就这 N 道」并给原因。'
+    ]
+  };
+
+  function noticeSeen() {
+    try { return localStorage.getItem(LS_NOTICE) === NOTICE.id; } catch (e) { return false; }
+  }
+
+  function renderNotice() {
+    var t = $('#noticeTitle'), l = $('#noticeLead'), ul = $('#noticeList');
+    if (t) t.textContent = NOTICE.title;
+    if (l) l.textContent = NOTICE.lead;
+    if (ul) {
+      ul.innerHTML = (NOTICE.items || []).map(function (s) { return '<li>' + s + '</li>'; }).join('');
+    }
+    /* 当前地址就是新地址：不再让人复制一个「看起来像另一个站」的常量 */
+    var host = '';
+    try { host = window.location.host; } catch (e) { host = ''; }
+    var box = $('#noticeUrl'), code = $('#noticeUrlText');
+    if (box && code && host) { code.textContent = host; box.hidden = false; }
+    var v = $('#noticeVer');
+    if (v) v.textContent = '当前 v' + FQ_VERSION;
+  }
+
+  function openNotice() {
+    renderNotice();
+    var m = $('#noticeModal');
+    if (m) m.hidden = false;
+  }
+
+  function closeNotice() {
+    var m = $('#noticeModal');
+    if (m) m.hidden = true;
+    try { localStorage.setItem(LS_NOTICE, NOTICE.id); } catch (e) {}
+  }
+
+  /* 没看过就弹，返回是否弹了（测试与自动化用得上） */
+  function maybeShowNotice() {
+    if (!NOTICE.id || noticeSeen()) return false;
+    openNotice();
+    return true;
+  }
+
+  function copyPageUrl() {
+    var url = '';
+    try { url = window.location.href; } catch (e) { url = ''; }
+    if (!url) return Promise.resolve(false);
+    var done = function () { toast('地址已复制，粘到评论区就行'); return true; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(url).then(done).catch(function () { return false; });
+    }
+    return Promise.resolve(false);
+  }
+
   /* ---------------- 启动 ---------------- */
   initMemoDelegate();
   load();
@@ -6710,6 +6780,9 @@
       : '已接着上次的进度：第 ' + (st0.round > 1 ? st0.round + ' 组 · ' : '') +
         (st0.idx + 1) + ' / ' + st0.list.length + ' 题');
   }
+
+  // 更新公告：第一次看到这一版的人弹一次，关掉就记住，不再打扰
+  maybeShowNotice();
 
   // 先处理 WorkBuddy 授权回来的人（换好会话），再走常规的 ping / 拉取
   wbInit();
@@ -7075,9 +7148,14 @@
   });
   $('#shareDoBtn').addEventListener('click', doShare);
 
+  $('#noticeModal').addEventListener('click', function (e) {
+    if (e.target.dataset && e.target.dataset.noticeclose) closeNotice();
+  });
+  $('#noticeCopyBtn').addEventListener('click', copyPageUrl);
+
   // 全局快捷键：Enter 进入下一问
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeCtx(); closeAuth(); closeShare(); }
+    if (e.key === 'Escape') { closeCtx(); closeAuth(); closeShare(); closeNotice(); }
     if (e.key === 'Enter' && document.activeElement === $('body')) {
       var b = $('#reciteNext') || $('#nextQBtn');
       if (b) { e.preventDefault(); b.click(); }
@@ -7101,6 +7179,13 @@
     nextRoundTip: nextRoundTip,
     freshProgress: freshProgress,
     syncTypeOptions: syncTypeOptions,   // 题型下拉按题库实际内容重建，测试用
+    /* 更新公告：改 NOTICE.id 就重新弹给所有人一次 */
+    NOTICE: NOTICE,
+    noticeSeen: noticeSeen,
+    openNotice: openNotice,
+    closeNotice: closeNotice,
+    maybeShowNotice: maybeShowNotice,
+    copyPageUrl: copyPageUrl,
     pickQuestions: pickQuestions,
     persistQuiz: persistQuiz,
     restoreQuiz: restoreQuiz,

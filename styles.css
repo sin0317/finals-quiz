@@ -966,6 +966,40 @@ strong, b { font-weight: 800; }
 
 .modal-body { padding: 16px 16px 4px; }
 .modal-tip { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+/* 更新公告：一屏能读完，别做成需要滚动的小作文 */
+.notice-list { margin: 0 0 12px; padding: 0; list-style: none; }
+.notice-list li {
+  position: relative;
+  padding-left: 18px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.notice-list li::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 8px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--brand, #4f46e5);
+}
+.notice-list b { color: var(--ink); font-weight: 700; }
+.notice-url {
+  display: flex; align-items: center; gap: 8px;
+  margin: 2px 0 10px;
+  padding: 9px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  background: var(--bg, #f7f7fb);
+}
+.notice-url-k { flex: none; font-size: 12px; color: var(--muted); }
+.notice-url code {
+  font-size: 12px;
+  color: var(--ink);
+  word-break: break-all;
+  line-height: 1.5;
+}
 .fld { display: block; margin-bottom: 12px; }
 .fld > span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
 .fld .input { width: 100%; min-width: 0; }
