@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.9';
+  var FQ_VERSION = '1.21.10';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1720,31 +1720,65 @@
   }
 
   /* 一道选择题渲染时用的选项（还没打乱）。
-     用户教过的题，fix.opts 就是完整的四（五）个选项，里面本来就含正确答案，
-     再和 answer 拼一次会出现「血浆 / 尿液 / 脑脊液 / 汗液 / 脑脊液」这种重复项；
-     只有系统自己凑的干扰项才是「不含答案」的，才需要拼。 */
+     **以卷子/用户给的选项为准**，答案只负责补「选项里没有的那一项」——
+     不能拿答案当底再拼选项：多选题的答案是一串正确项，一长条选项在答案里
+     被顿号拆成两段（「机体组织脂肪组织增加、肌肉组织和体内水分减少」），
+     答案拼出来的就成了两个新选项，卷子上的那一条反而被当成重复项丢掉。
+     反过来，答案里的一项如果只是另一个选项的一部分（「污染手术」之于
+     「清洁-污染手术」），也不能因此少一个选项 —— 去重只认一字不差。 */
   function choiceOptions(q, isMulti) {
     var list;
     if (q.fix && q.fix.opts && q.fix.opts.length) list = q.fix.opts.slice();
-    else list = (isMulti ? (q.answer || []).slice() : [q.answer]).concat(q.opts || []);
+    else if (q.opts && q.opts.length >= 2) list = q.opts.slice();
+    else list = [];
     var ansArr = Array.isArray(q.answer) ? q.answer : [q.answer];
     ansArr.forEach(function (a) {
-      if (a && !list.some(function (o) { return sameOpt(o, a); })) list.push(a);
+      if (a && !optCovered(a, list)) list.push(a);
     });
     var out = [];
     list.forEach(function (o) {
       var t = String(o == null ? '' : o).trim();
-      if (t && !out.some(function (x) { return sameOpt(x, t); })) out.push(t);
+      if (t && !out.some(function (x) { return optEq(x, t); })) out.push(t);
     });
     return out;
   }
 
   /* 两个选项算不算同一个：全等，或者一方把另一方整个包住
-     （原卷常见「剂量相关型不良反应」与「剂量相关型不良反应，为药理作用增强所致」） */
+     （原卷常见「剂量相关型不良反应」与「剂量相关型不良反应，为药理作用增强所致」）。
+     ⚠️ 这个「包含」只能用来判断「答案是不是已经在选项里」，**不能当去重键**：
+     原卷里「污染手术」和「清洁-污染手术」是两个不同选项，字符串上却是包含关系。 */
   function sameOpt(a, b) {
     var x = normalize(cleanMark(a)), y = normalize(cleanMark(b));
     if (!x || !y) return false;
     return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+  }
+
+  /* 严格的「同一个选项」：去掉标点空白之后一字不差。合并同类选项只认这个。 */
+  function optEq(a, b) {
+    var x = normalize(cleanMark(a)), y = normalize(cleanMark(b));
+    return !!x && x === y;
+  }
+
+  /* 这个选项是不是答案指的那一个。三种情况：
+       ① 一字不差 → 是
+       ② 一方多出一段解释（「剂量相关型不良反应」）→ 是
+       ③ 只是字面上被包住，但那句话自己也单独列成了一个选项
+          （答案「污染手术」，选项「清洁-污染手术」）→ 不是，那是两个选项 */
+  function optHit(opt, answers, allOpts) {
+    var arr = (Array.isArray(answers) ? answers : [answers]).map(String).filter(Boolean);
+    var list = (allOpts || []).map(String);
+    if (arr.some(function (a) { return optEq(opt, a); })) return true;
+    return arr.some(function (a) {
+      if (!sameOpt(opt, a)) return false;
+      if (list.some(function (o) { return optEq(o, a) && !optEq(o, opt); })) return false;
+      return true;
+    });
+  }
+
+  /* 答案里这一项是否已经由某个选项代表了（用来决定要不要再补一个选项行） */
+  function optCovered(a, opts) {
+    var list = (opts || []).map(String);
+    return list.some(function (o) { return optHit(o, [a], list); });
   }
 
   /* 面板里的选项行。勾上的是正确答案。
@@ -1757,15 +1791,15 @@
     var ansArr = (Array.isArray(answer) ? answer : [answer]).map(String).filter(Boolean);
     // 正确答案必须出现在选项里，否则渲染出来根本勾不到
     ansArr.forEach(function (a) {
-      if (!list.some(function (o) { return sameOpt(o, a); })) list.push(a);
+      if (!optCovered(a, list)) list.push(a);
     });
     if (list.length < 2) {
       fixOpts(ansArr, q).forEach(function (d) {
-        if (!list.some(function (o) { return sameOpt(o, d); })) list.push(d);
+        if (!optCovered(d, list)) list.push(d);
       });
     }
     return list.map(function (text) {
-      return { text: String(text), on: ansArr.some(function (a) { return sameOpt(text, a); }) };
+      return { text: String(text), on: optHit(text, ansArr, list) };
     });
   }
 
@@ -4239,9 +4273,10 @@
     var arr = txt ? fixAnswerOf(type, txt) : [];
     var list = (Array.isArray(arr) ? arr : [arr]).map(function (a) { return String(a).trim(); }).filter(Boolean);
     if (!list.length) { FIXROWS.forEach(function (r) { r.on = false; }); return renderOptRows(); }
-    FIXROWS.forEach(function (r) { r.on = list.some(function (a) { return sameOpt(r.text, a); }); });
+    var texts0 = FIXROWS.map(function (r) { return String(r.text || ''); });
+    FIXROWS.forEach(function (r) { r.on = optHit(r.text, list, texts0); });
     list.forEach(function (a) {
-      if (!FIXROWS.some(function (r) { return sameOpt(r.text, a); })) FIXROWS.push({ text: a, on: true });
+      if (!optCovered(a, texts0)) { FIXROWS.push({ text: a, on: true }); texts0.push(a); }
     });
     renderOptRows();
   }
@@ -4505,7 +4540,9 @@
           if (arr0) {
             var parts0 = fixAnswerOf(type, arr0);
             (Array.isArray(parts0) ? parts0 : [parts0]).forEach(function (a) {
-              var hit = rows.filter(function (r) { return sameOpt(r.text, a); })[0];
+              // 先找一字不差的，再退到「多一段解释」那种；别让「污染手术」勾到「清洁-污染手术」上
+              var hit = rows.filter(function (r) { return optEq(r.text, a); })[0] ||
+                rows.filter(function (r) { return optHit(r.text, [a], rows.map(function (x) { return x.text; })); })[0];
               if (hit) hit.on = true;
               else rows.push({ text: String(a), on: true });
             });
@@ -4527,7 +4564,7 @@
         choiceOpts = rows.map(function (r) { return r.text; });
         // 正确答案必须在选项里，否则渲染出来勾不到
         (Array.isArray(answer) ? answer : [answer]).forEach(function (a) {
-          if (!choiceOpts.some(function (o) { return sameOpt(o, a); })) choiceOpts.push(String(a));
+          if (!optCovered(a, choiceOpts)) choiceOpts.push(String(a));
         });
       } else {
         var ansRaw = $('#fixAns').value.trim();
@@ -6792,8 +6829,9 @@
   var NOTICE = {
     id: '2026-11-09-link-and-judge',
     title: '链接换了，判分也修了一处',
-    lead: '旧地址 finals-quiz.app.workbuddy.host 已经不维护了，停在上一个版本，新功能都不会再到那边去；另外同学们反馈的两个问题今天修好了。',
+    lead: '旧地址 finals-quiz.app.workbuddy.host 已经不维护了，停在上一个版本，新功能都不会再到那边去；另外小黑盒上同学反馈的几个问题今天修好了。',
     items: [
+      '<b>多选题的选项按卷子来</b>：以前答案里的顿号会把一条选项拆成两条（5 个变 6 个），反过来「A 包含 B」又会把另一条吞掉（4 个变 3 个）。现在选项条数以卷子为准。',
       '<b>判分不再放过「否定字」</b>：答案是「监督学习」、你写「无监督学习」时，以前会给对号 —— 差一个字，意思正好相反。现在判错，并在答案下面点出差的是哪个字。',
       '<b>「答案：B」单独占一行的卷子能导入了</b>：以前只认印在括号后面的答案，这种格式会被当成散文，切出一堆「……是____」的残句，看着像根本没解析出题。',
       '<b>「……是从____」的断句修好了</b>：介词以前会跨过「是」跑到前面去，读起来像笔误。',
@@ -7296,6 +7334,8 @@
     fixOptRows: fixOptRows,
     choiceOptions: choiceOptions,
     sameOpt: sameOpt,
+    optEq: optEq,
+    optHit: optHit,
     applyAllFixes: applyAllFixes,
     openFixPanel: openFixPanel,
     closeFixPanel: closeFixPanel,
