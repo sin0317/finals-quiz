@@ -108,7 +108,7 @@ console.log('\n二、点「知道了」：关掉并记住，不再打扰');
 /* ---------------- 三、已经看过的人，启动时不该再弹 ---------------- */
 console.log('\n三、看过的人第二次打开：启动就是安静的');
 {
-  const { d, api } = boot({ fq_notice_v1: '2026-11-09-link-and-judge' });
+  const { d, api } = boot({ fq_notice_v1: '2026-11-09-multi-picked' });
   ok(modal(d).hidden === true, '不会自己弹出来');
   ok(api.maybeShowNotice() === false, '也不会补弹');
 }

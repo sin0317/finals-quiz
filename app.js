@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.10';
+  var FQ_VERSION = '1.21.11';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1781,6 +1781,69 @@
     return list.some(function (o) { return optHit(o, [a], list); });
   }
 
+  /* 多选题的答案本就是「正确项 1、正确项 2、…」这样一串，按顿号拆开存。
+     可选项原文里自己就带顿号（「用法、用量不适宜的」）—— 拆完一条选项变两个
+     碎片，选项文本跟哪个碎片都不再一字不差，于是五个选项全勾上照样判错。
+     这里按选项原文把碎片拼回去：连续几段拼起来能跟某个选项对上就合回那一条，
+     而且优先拼最长的那段（先试 3 段再试 2 段），免得只认了前半截。
+     单段自己能对上某个选项时不动它 —— 那本来就是一条独立选项。 */
+  function mergeAnsByOpts(arr, opts) {
+    var ans = (Array.isArray(arr) ? arr : [arr])
+      .map(function (s) { return String(s == null ? '' : s).trim(); })
+      .filter(Boolean);
+    var list = (opts || []).map(String).filter(Boolean);
+    if (ans.length < 2 || list.length < 2) return ans;
+    var out = [], i = 0;
+    while (i < ans.length) {
+      var hit = null, span = 0;
+      var self = list.filter(function (o) { return optEq(o, ans[i]); })[0];
+      if (!self) {
+        for (var k = Math.min(ans.length - i, 6); k >= 2; k--) {
+          var joined = ans.slice(i, i + k).join('、');
+          var m = list.filter(function (o) { return optEq(o, joined); })[0];
+          if (m) { hit = m; span = k; break; }
+        }
+      }
+      if (hit) { out.push(hit); i += span; }
+      else { out.push(ans[i]); i++; }
+    }
+    return out;
+  }
+
+  /* 老题集里已经存下拆碎的答案了，改解析器救不回来 —— 加载时逐题过一遍。
+     拼回去了只在内存里生效（答题、导出、云同步都会带上修好的这份），
+     没拼动就原样返回，别写脏数据。 */
+  function healChoiceAns(q) {
+    if (!q || q.type !== 'multi') return false;
+    var opts = (q.opts && q.opts.length >= 2) ? q.opts : [];
+    if (opts.length < 2) return false;
+    var before = Array.isArray(q.answer) ? q.answer.slice() : [q.answer];
+    var after = mergeAnsByOpts(before, opts);
+    var same = after.length === before.length && after.every(function (s, i) {
+      return s === String(before[i]);
+    });
+    if (same) return false;
+    q.answer = after;
+    return true;
+  }
+
+  /* 用户选的那几项，跟答案里的那几项对不对得上（逐项配对，不计次序）。
+     不拿字符串直接比：答案里一条可能带解释尾巴，选项也可能少几个标点。
+     答案先按选项原文拼一遍 —— 就算这题还没走过 heal，判分也不至于错。 */
+  function picksMatch(picked, ans, allOpts) {
+    var p = (picked || []).map(String);
+    var a = mergeAnsByOpts(Array.isArray(ans) ? ans : [ans], allOpts).map(String);
+    if (!p.length || p.length !== a.length) return false;
+    var used = [];
+    return p.every(function (x) {
+      for (var i = 0; i < a.length; i++) {
+        if (used[i]) continue;
+        if (optHit(x, [a[i]], allOpts)) { used[i] = 1; return true; }
+      }
+      return false;
+    });
+  }
+
   /* 面板里的选项行。勾上的是正确答案。
      顺序上优先用「用户上次给的选项」→「题目自带的选项」→「题库凑的干扰项」，
      所以改过一次之后再打开，看到的还是自己那四个。 */
@@ -1835,10 +1898,14 @@
     return q;
   }
 
-  /* 每次打开题集都把反馈跑一遍：云端同步 / 换设备 / 刷新之后改法还在 */
+  /* 每次打开题集都把反馈跑一遍：云端同步 / 换设备 / 刷新之后改法还在。
+     顺手把老题集里被顿号拆碎的答案拼回去（见 mergeAnsByOpts）。 */
   function applyAllFixes() {
     S.banks.forEach(function (b) {
-      (b.questions || []).forEach(function (q) { applyFix(q); });
+      (b.questions || []).forEach(function (q) {
+        applyFix(q);
+        healChoiceAns(q);
+      });
     });
   }
 
@@ -1855,6 +1922,7 @@
     if (!q) return null;
     delete q.fix;
     restoreOrig(q);
+    healChoiceAns(q);
     save();
     return q;
   }
@@ -4990,9 +5058,12 @@
     var st = S.quiz;
     var q = st.list[st.idx];
     var isMulti = q.type === 'multi' && st.forms[st.idx] !== 'fill';
+    // 判分不能拿字符串硬比：选项原文里可能带顿号、答案里可能带解释尾巴，
+    // 一字之差就变成「全选对了还判错」。统一走 optHit 的配对规则。
+    var allOpts = choiceOptions(q, isMulti);
     var right = isMulti
-      ? (picked.length === q.answer.length && q.answer.every(function (a) { return picked.indexOf(a) >= 0; }))
-      : (picked === q.answer);
+      ? picksMatch(picked, q.answer, allOpts)
+      : optHit(picked, [q.answer], allOpts);
     recordAnswer(q.id, right ? 'right' : 'wrong', { sr: true });
     st.results[st.idx] = { q: q, ok: right, multi: isMulti, picked: picked };
     st.resumed = false;
@@ -5002,8 +5073,8 @@
     $$('#optsBox .opt').forEach(function (b) {
       b.disabled = true;
       b.classList.remove('sel');
-      if (corrects.indexOf(b.dataset.v) >= 0) b.classList.add('right');
-      else if ((isMulti ? picked.indexOf(b.dataset.v) >= 0 : b.dataset.v === picked)) b.classList.add('wrong');
+      if (optHit(b.dataset.v, corrects, allOpts)) b.classList.add('right');
+      else if ((isMulti ? picked.some(function (x) { return optHit(x, [b.dataset.v], allOpts); }) : b.dataset.v === picked)) b.classList.add('wrong');
     });
     var ms = $('#multiSubmit');
     if (ms) ms.remove();
@@ -5405,9 +5476,10 @@
     var q = st.list[st.idx];
     var isMulti = Array.isArray(picked);
     var ans = q.answer || [];
+    var allOpts = choiceOptions(q, isMulti);
     var right = isMulti
-      ? (picked.length === ans.length && ans.every(function (a) { return picked.indexOf(a) >= 0; }))
-      : picked === q.answer;
+      ? picksMatch(picked, ans, allOpts)
+      : optHit(picked, [q.answer], allOpts);
     if (right) st.ok++; else st.bad++;
     recordAnswer(q.id, right ? 'right' : 'wrong');
     st.answered = true;
@@ -5416,8 +5488,8 @@
     $$('#reciteOpts .opt').forEach(function (b) {
       b.disabled = true;
       b.classList.remove('sel');
-      if (corrects.indexOf(b.dataset.v) >= 0) b.classList.add('right');
-      else if ((isMulti ? picked.indexOf(b.dataset.v) >= 0 : b.dataset.v === picked)) b.classList.add('wrong');
+      if (optHit(b.dataset.v, corrects, allOpts)) b.classList.add('right');
+      else if ((isMulti ? picked.some(function (x) { return optHit(x, [b.dataset.v], allOpts); }) : b.dataset.v === picked)) b.classList.add('wrong');
     });
     var sb = $('#reciteSubmit');
     if (sb) sb.remove();
@@ -6827,10 +6899,11 @@
      只在推文里说没人看得见，站内得有一句话。 */
   var LS_NOTICE = 'fq_notice_v1';
   var NOTICE = {
-    id: '2026-11-09-link-and-judge',
-    title: '链接换了，判分也修了一处',
-    lead: '旧地址 finals-quiz.app.workbuddy.host 已经不维护了，停在上一个版本，新功能都不会再到那边去；另外小黑盒上同学反馈的几个问题今天修好了。',
+    id: '2026-11-09-multi-picked',
+    title: '链接换了，多选判分也修好了',
+    lead: '五个选项全勾上、判定还是错 —— 原因是答案里的顿号把「用法、用量不适宜的」拆成两半，判分认不出你选了它。现在按卷子原文拼回整条再判，这道题重新答一次就是对的。另外旧地址 finals-quiz.app.workbuddy.host 已经不维护了，停在旧版本，别从收藏夹进。',
     items: [
+      '<b>多选判分改按项配对</b>：答案里一条自带顿号时，以前会被拆成两半，选项文本跟哪个碎片都对不上 —— 选全了照样判错。现在先按卷子选项把碎片拼回整条，再逐项配对；选项差个标点、答案多一句解释，都不算错。',
       '<b>多选题的选项按卷子来</b>：以前答案里的顿号会把一条选项拆成两条（5 个变 6 个），反过来「A 包含 B」又会把另一条吞掉（4 个变 3 个）。现在选项条数以卷子为准。',
       '<b>判分不再放过「否定字」</b>：答案是「监督学习」、你写「无监督学习」时，以前会给对号 —— 差一个字，意思正好相反。现在判错，并在答案下面点出差的是哪个字。',
       '<b>「答案：B」单独占一行的卷子能导入了</b>：以前只认印在括号后面的答案，这种格式会被当成散文，切出一堆「……是____」的残句，看着像根本没解析出题。',
@@ -7336,6 +7409,10 @@
     sameOpt: sameOpt,
     optEq: optEq,
     optHit: optHit,
+    /* 多选题判分：答案被顿号拆碎时按选项原文拼回去，再逐项配对 */
+    mergeAnsByOpts: mergeAnsByOpts,
+    healChoiceAns: healChoiceAns,
+    picksMatch: picksMatch,
     applyAllFixes: applyAllFixes,
     openFixPanel: openFixPanel,
     closeFixPanel: closeFixPanel,
