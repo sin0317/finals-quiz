@@ -81,7 +81,10 @@ console.log('\n一、第一次访问：弹公告，讲清旧地址不维护了')
   ok(lead.indexOf('不维护') >= 0, '说清旧地址不维护了');
   const items = d.querySelectorAll('#noticeList li');
   ok(items.length >= 3, '新功能列了 ' + items.length + ' 条');
-  ok((items[0].textContent || '').indexOf('题型') >= 0, '第一条讲题型下拉', items[0].textContent.slice(0, 30));
+  // 公告的重点会随版本变（这一版是判分），但每一条变更都得有下落
+  const all = Array.prototype.map.call(items, function (li) { return li.textContent || ''; }).join(' ');
+  ok(all.indexOf('判分') >= 0, '讲到判分这处修正');
+  ok(all.indexOf('题型') >= 0, '题型下拉那条也还在', all.slice(0, 60));
   ok(d.querySelector('#noticeUrl').hidden === false, '把新地址摆出来了');
   ok(d.querySelector('#noticeUrlText').textContent === 'localhost', '显示的是当前域名',
     d.querySelector('#noticeUrlText').textContent);
@@ -105,7 +108,7 @@ console.log('\n二、点「知道了」：关掉并记住，不再打扰');
 /* ---------------- 三、已经看过的人，启动时不该再弹 ---------------- */
 console.log('\n三、看过的人第二次打开：启动就是安静的');
 {
-  const { d, api } = boot({ fq_notice_v1: '2026-11-09-link-moved' });
+  const { d, api } = boot({ fq_notice_v1: '2026-11-09-link-and-judge' });
   ok(modal(d).hidden === true, '不会自己弹出来');
   ok(api.maybeShowNotice() === false, '也不会补弹');
 }

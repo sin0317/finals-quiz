@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.8';
+  var FQ_VERSION = '1.21.9';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -161,6 +161,32 @@
     }).join('、');
   }
 
+  /* 中文里多一个字意思就能翻过来：「监督学习」和「无监督学习」字面只差一个
+     「无」，却是一个概念的正面和反面。以前只比长度和包含关系，「无监督学习」
+     被当成「监督学习」的一部分判了满分 —— 学生照着错的记，越刷越错。
+     差出来的那截（≤3 字）里有否定字，就是答反了，一律判错。 */
+  var NEG_CHARS = ['无', '不', '非', '未', '否', '禁', '免', '反', '逆'];
+
+  function negFlip(short, long) {
+    if (!short || !long) return '';
+    if (short === long) return '';
+    var S = String(short), L = String(long);
+    var at = L.indexOf(S);
+    if (at < 0) return '';
+    // 最要紧的一种：否定字就顶在要点前面（「无」监督学习）。整句作答时
+    // 后面接的全是上下文，光看「差出来的那截」会被长度上限挡掉。
+    if (at > 0) {
+      var before = L.charAt(at - 1);
+      if (NEG_CHARS.indexOf(before) >= 0) return before;
+    }
+    var extra = L.slice(0, at) + L.slice(at + S.length);
+    if (!extra || extra.length > 3) return '';
+    for (var i = 0; i < NEG_CHARS.length; i++) {
+      if (extra.indexOf(NEG_CHARS[i]) >= 0) return extra;
+    }
+    return '';
+  }
+
   function gradeAnswer(input, answer) {
     var arr = Array.isArray(answer) ? answer : [answer];
     var isMulti = arr.length > 1;
@@ -170,6 +196,14 @@
     if (!I) return { level: 'empty', hits: [], miss: [], ratio: 0, sim: 0 };
     if (I === A) return { level: 'right', hits: arr.map(function (a) { return { raw: a }; }), miss: [], ratio: 1, sim: 1 };
     if (!isMulti) {
+      // 先看有没有被否定字翻反：「无监督学习」≠「监督学习」
+      var flip = negFlip(I, A) || negFlip(A, I);
+      if (flip) {
+        return {
+          level: 'wrong', hits: [], miss: [{ raw: arr[0] }], ratio: 0,
+          sim: dice(I, A), neg: flip
+        };
+      }
       // 单选：答案被完整说出（允许带一点多余内容）→ 直接算对
       if (A.indexOf(I) >= 0 && I.length / A.length >= 0.6) return { level: 'right', hits: [{ raw: arr[0] }], miss: [], ratio: 1, sim: 1 };
       if (I.indexOf(A) >= 0 && A.length / I.length >= 0.6) return { level: 'right', hits: [{ raw: arr[0] }], miss: [], ratio: 1, sim: 1 };
@@ -180,6 +214,8 @@
     var parts = String(input).split(/[、，,;；\s]+/).map(normalize).filter(Boolean);
 
     function match(k) {
+      // 要点被否定了（「无X」当「X」）：不算命中，免得靠字面重叠蒙混过关
+      if (negFlip(k.n, I)) return 0;
       if (I.indexOf(k.n) >= 0) return 2;           // 整句里能找到
       for (var i = 0; i < parts.length; i++) {
         var u = parts[i];
@@ -493,7 +529,7 @@
       var sent = line.s, sec = line.sec;
       if (sent.length < 6 || sent.length > 90) return;
       if (OPT_ROW_RE.test(sent)) return;
-      var left = '', trig = '', right = '', tail = '', forcedFill = false;
+      var left = '', trig = '', right = '', tail = '', forcedFill = false, pre = '';
       var bold = sent.match(BOLD_RE);
 
       var boldOK = false;
@@ -605,16 +641,18 @@
         tail = qm[1] + (tail || '');
         right = right.slice(0, right.length - qm[1].length).trim();
       }
-      // 答案开头的介词/副词（「当药物浓度」的「当」）属于题干，挪过去
+      // 答案开头的介词/副词（「当药物浓度」的「当」）属于题干，挪过去。
+      // 注意只能挪到触发词之后、空之前：以前是 left + 介词，而 left 和空之间
+      // 还夹着触发词，「……是从无标签数据……」会被拼成「……从是____」。
       var pm = right.match(/^(当|在|对|由|使|于|从|向|把|将)/);
       if (pm && right.length > pm[1].length + 1) {
-        left = left + pm[1];
+        pre = pre + pm[1];
         right = right.slice(pm[1].length).trim();
       }
       // 加粗/反向挖出来的空，前面就算一个字没有也能出题；普通句子前面的引子太短没意义
       // 上限从 30 放宽到 56：长句（「…的效应，包括个体间和个体内变异」）以前整句被丢，
       // 其实出成填空题很好用，只要题干长一点而已
-      if ((!boldOK && !reversed && left.length < 2) || left.length > 56) return;
+      if ((!boldOK && !reversed && (left + pre).length < 2) || (left + pre).length > 56) return;
       if (right.length < 1 || right.length > 60) return;
       if (/^[的了和或与及是]$/.test(right)) return;
       var k = left + '|' + right;
@@ -642,7 +680,7 @@
       if (sec === 'fill' || sec === 'open' || sec === 'judge') { type = 'fill'; items = null; }
       // order 记录这个知识点在笔记原文里出现的先后，用来「跟着笔记顺序出题」
       pts.push({
-        left: left, t: trig, right: right, tail: tail,
+        left: left, t: trig, pre: pre, right: right, tail: tail,
         type: type, items: items, sent: sent, order: pts.length
       });
     });
@@ -680,7 +718,7 @@
        笔记里本来就排好的题库（parseBankQuestions，A/B/C/D 是原文写的）
        不经过这里，那些选项是原文自带的，照旧出选择题。 */
     return pts.map(function (p) {
-      var stem = cleanMark(p.left + p.t + '____' + (p.tail || ''));
+      var stem = cleanMark(p.left + p.t + (p.pre || '') + '____' + (p.tail || ''));
       if (p.type === 'multi') {
         return {
           id: qidOf(p.left + '|' + p.right),
@@ -972,8 +1010,54 @@
   }
 
   /* 整份原卷：按分区解析，没认出来的行原样还回去（后面还有老的提炼流程兜着） */
+  /* =========================================================
+     「答案：B」单独占一行的小样卷
+     ---------------------------------------------------------
+     parseBankQuestions 只认印在括号后面的答案（「（　）B」）。答案另起一行
+     时它找不到锚点，整道题掉进提炼引擎，被挖成「……是____」这种残题，
+     看着就像「根本没解析出题目」。这里先把答案行并回上一题的括号后面，
+     格式统一了，后面的解析器原样就能用。
+     只在「上一个非选项行带空括号」时才动手，宁可不动也不乱猜。
+     ========================================================= */
+  var ANS_LINE = /^[\s\u3000]*[（(【\[]?[\s\u3000]*(?:正确|参考|标准)?\s*答\s*案[\s\u3000]*[】\])）]?[\s\u3000]*[：:是为]?[\s\u3000]*([A-Ea-e]{1,6})(?![A-Za-z])/;
+
+  function foldAnswerLines(text) {
+    var lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i].trim();
+      if (!s) continue;
+      var m = s.match(ANS_LINE);
+      if (!m) continue;
+      var k = i - 1, put = -1;
+      while (k >= 0) {
+        var t = lines[k].trim();
+        if (!t) break;                                        // 隔了空行，多半换题了
+        if (isOptLine(t) || splitOpts(t, 'A').length >= 2) { k--; continue; }
+        if (/[（(][\s\u3000]*[）)]/.test(t)) put = k;
+        break;
+      }
+      if (put < 0) continue;                                  // 找不到空括号，不猜
+      if (!/[（(][\s\u3000]*[A-Ea-e]/.test(lines[put])) {      // 题干里已经印了答案就别覆盖
+        lines[put] = lines[put].replace(/([（(][\s\u3000]*[）)])/, '$1' + m[1].toUpperCase());
+      }
+      lines[i] = '';
+    }
+    // 第二轮：题干、选项、答案挤在同一行（「…（ ）A.甲 B.乙 … 答案：B」）
+    for (var j = 0; j < lines.length; j++) {
+      var row = lines[j];
+      if (!row || !/[（(][\s\u3000]*[）)]/.test(row)) continue;
+      var mm = row.match(/(?:正确|参考|标准)?\s*答\s*案\s*[：:是为]?\s*([A-Ea-e]{1,6})(?![A-Za-z])/);
+      if (!mm) continue;
+      var next = /[（(][\s\u3000]*[A-Ea-e]/.test(row)
+        ? row
+        : row.replace(/([（(][\s\u3000]*[）)])/, '$1' + mm[1].toUpperCase());
+      lines[j] = next.replace(mm[0], '');
+    }
+    return lines.join('\n');
+  }
+
   function parsePaper(text) {
-    var secs = paperSections(text);
+    var secs = paperSections(foldAnswerLines(text));
     var all = [], rest = [], seen = {};
 
     function push(qs) {
@@ -1450,7 +1534,7 @@
   }
 
   function parseBankQuestions(text) {
-    var src = String(text).replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '');
+    var src = foldAnswerLines(text).replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '');
     var anchors = bankAnchors(src);
     var units = [], floor = 0;
 
@@ -5384,7 +5468,11 @@
     } else {
       title = '❌ 记错了，跟我再念一遍';
       cls = 'bad';
-      body = '你写的是：' + esc(input);
+      body = '你写的是：' + esc(input) +
+        // 被否定字翻反的，单说「错了」不够 —— 差的就是那一个字，
+        // 不指出来，下次还会照着错的记
+        (g.neg ? '<br><span style="color:var(--warn)">差的就一个字：「' + esc(g.neg) +
+          '」。这类否定字一改，意思正好反过来，重点记这个字。</span>' : '');
     }
     // 不管答对答错，都把「正确答案」单独摆一行。
     // 答对时只写"完整表述"会让人以为没给答案——尤其会自动跳下一题的时候。
@@ -6702,13 +6790,14 @@
      只在推文里说没人看得见，站内得有一句话。 */
   var LS_NOTICE = 'fq_notice_v1';
   var NOTICE = {
-    id: '2026-11-09-link-moved',
-    title: '链接换了，存一下这个地址',
-    lead: '旧地址 finals-quiz.app.workbuddy.host 暂时不维护了，停在上一个版本，之后的新功能都不会到那边去。',
+    id: '2026-11-09-link-and-judge',
+    title: '链接换了，判分也修了一处',
+    lead: '旧地址 finals-quiz.app.workbuddy.host 已经不维护了，停在上一个版本，新功能都不会再到那边去；另外同学们反馈的两个问题今天修好了。',
     items: [
-      '<b>题型下拉只列你题库里真有的</b>：导一份只有单选和多选的卷子，不会再摆着名词解释和简答。',
-      '<b>抽题多了「只刷没见过的」</b>：练过一次的就不再来；结算页给一条扫书进度，比如这本已经扫完 74 / 268 道。',
-      '<b>题量不再吹牛</b>：凑不够一组就直接说「就这 N 道」并给原因。'
+      '<b>判分不再放过「否定字」</b>：答案是「监督学习」、你写「无监督学习」时，以前会给对号 —— 差一个字，意思正好相反。现在判错，并在答案下面点出差的是哪个字。',
+      '<b>「答案：B」单独占一行的卷子能导入了</b>：以前只认印在括号后面的答案，这种格式会被当成散文，切出一堆「……是____」的残句，看着像根本没解析出题。',
+      '<b>「……是从____」的断句修好了</b>：介词以前会跨过「是」跑到前面去，读起来像笔误。',
+      '<b>题型下拉只列你题库里真有的</b>：导一份只有单选和多选的卷子，不会再摆着名词解释和简答。'
     ]
   };
 
