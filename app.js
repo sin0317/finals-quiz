@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.5';
+  var FQ_VERSION = '1.21.6';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -2073,6 +2073,47 @@
     if (S.banks.length && S.cur) sel.value = S.cur;
     renderBankList();
     updatePoolBar();   // 换题集了，真题库的数目跟着变
+    syncTypeOptions(); // 换题集了，能筛的题型也跟着换
+  }
+
+  /* =========================================================
+     题型下拉只列「这个题集里真有」的题型
+     ---------------------------------------------------------
+     老版这六项是写死在 HTML 里的：只要导进任何一份题，下拉里就摆着
+     单选 / 多选 / 填空 / 名词解释 / 简答 —— 用户上传的卷子明明只有
+     单选和多选，看着却像系统凭空识别出五种题型。
+     现在按题库实际内容显示，并带上道数；一种都没有的题型直接藏起来
+     （隐藏而不删除：别处还会按 value 赋值，删了会赋不上）。
+     ========================================================= */
+  var TYPE_ORDER = [['single', '单选'], ['multi', '多选'], ['fill', '填空'],
+                    ['term', '名词解释'], ['short', '简答']];
+
+  function syncTypeOptions() {
+    var sel = $('#qType');
+    if (!sel) return;
+    var cnt = {};
+    getQs().forEach(function (q) {
+      var t = q && q.type;
+      if (t) cnt[t] = (cnt[t] || 0) + 1;
+    });
+    TYPE_ORDER.forEach(function (pair) {
+      var val = pair[0], label = pair[1], op = null;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === val) { op = sel.options[i]; break; }
+      }
+      if (!op) {
+        op = document.createElement('option');
+        op.value = val;
+        sel.appendChild(op);
+      }
+      var n = cnt[val] || 0;
+      op.textContent = n ? label + '（' + n + '）' : label;
+      // hidden 和 display 一起设：有的浏览器只认其中一个
+      op.hidden = !n;
+      op.style.display = n ? '' : 'none';
+    });
+    // 选中的题型在新题集里没题了 → 退回「全部」，否则一抽就是空
+    if (sel.value && sel.value !== 'all' && !cnt[sel.value]) sel.value = 'all';
   }
 
   function fmtDate(ts) {
@@ -3886,6 +3927,7 @@
     };
     if (raw.drill) DRILL = { done: raw.drill.done || {}, served: raw.drill.served || {} };
     restoreQuizOpts(raw.opt);
+    syncTypeOptions();   // 恢复出来的题型在这个题集里没题，就别留着当筛子
     return true;
   }
 
@@ -7050,6 +7092,7 @@
     pickBatch: pickBatch,
     nextRoundTip: nextRoundTip,
     freshProgress: freshProgress,
+    syncTypeOptions: syncTypeOptions,   // 题型下拉按题库实际内容重建，测试用
     pickQuestions: pickQuestions,
     persistQuiz: persistQuiz,
     restoreQuiz: restoreQuiz,
