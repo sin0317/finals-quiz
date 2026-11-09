@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.6';
+  var FQ_VERSION = '1.21.7';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -6324,8 +6324,16 @@
   /* ---------------- WorkBuddy 账号登录（走云服务 OAuth 中继） ----------------
      流程：点按钮 → SDK 生成 PKCE → 跳 WorkBuddy 授权页 → 中继回调到本站根
           → handleWorkBuddyCallback 换回云端会话 → 拿云端 uid 换本站会话。 */
+  /* 站点地址会变（换账号、换沙箱都遇到过），写死一次就得改一次代码。
+     默认用当前页自己的源；file:// 或取不到时退回线上地址。 */
+  var SITE_ORIGIN = (function () {
+    try {
+      var o = window.location && window.location.origin;
+      return (o && /^https?:\/\//.test(o)) ? o : '';
+    } catch (e) { return ''; }
+  })();
   var CLOUD_CFG = {
-    endpoint: 'https://finals-quiz.app.workbuddy.host',
+    endpoint: SITE_ORIGIN || 'https://2119633980357275648.app.workbuddy.host',
     oauthRelayBaseUrl: 'https://www.workbuddy.cn/v2/as/genie-baas/oauth',
     publishableKey: 'wbpk_idrw8H9MnUVN6sG965sN3U_ErepyHkZC72EhMXZ1ac0ILh555i9TdEw'
   };

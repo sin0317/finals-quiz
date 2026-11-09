@@ -2,7 +2,7 @@
 
 把课程笔记粘进来，自动变成选择题和填空题，按笔记顺序刷。给同学之间互相分享题集用的。
 
-在线试用：<https://finals-quiz.app.workbuddy.host/?sharecode=LKWARVTOI6>
+在线试用：<https://2119633980357275648.app.workbuddy.host/?sharecode=6PMDOKLNBN>
 
 <a href="https://watcha.cn/products/qi-mo-shua-ti-zhan?utm_source=product-badge&utm_content=invite" target="_blank" rel="noopener noreferrer"><img src="assets/watcha-badge.png" alt="期末刷题站 观猹徽章" width="216"></a>
 
