@@ -1811,3 +1811,75 @@ strong, b { font-weight: 800; }
   word-break: break-word;
 }
 .admin-fb-meta { margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+/* ---------------- 导入账单 ----------------
+   用户要知道「成了多少、哪条没成」，不然没法针对性改题 / 加题。
+   每份文件一个可折叠块，默认收起 —— 一次导入十几份文件时不至于把页面拉成一长条。 */
+.rp-sum {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.rp-sum b { color: var(--brand); font-weight: 700; }
+.rp-tip { margin: 0 0 12px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.rp-file {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+}
+.rp-file > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+  list-style: none;
+}
+.rp-file > summary::-webkit-details-marker { display: none; }
+.rp-file > summary::before {
+  content: '▸';
+  color: var(--muted);
+  font-size: 11px;
+}
+.rp-file[open] > summary::before { content: '▾'; }
+.rp-name {
+  font-weight: 600;
+  font-size: 13px;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-count { color: var(--muted); }
+.rp-bad { color: var(--warn, #b8860b); }
+.rp-good { color: var(--ok); }
+.rp-drops { list-style: none; margin: 10px 0 2px; padding: 0; }
+.rp-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px dashed var(--line);
+  font-size: 12.5px;
+}
+.rp-text { flex: 1 1 260px; min-width: 0; line-height: 1.6; color: var(--ink); word-break: break-word; }
+.rp-why { color: var(--muted); font-size: 11.5px; }
+/* 按钮一律靠右：窄屏换行时也不会缩在左边，一行行的按钮能对上 */
+.rp-line .rp-add { margin-left: auto; }
+
+/* ---------------- 手动加题弹窗 ---------------- */
+/* 题型窄、题集宽：题集名字往往很长（「临床药物治疗学概论（广场）」），
+   两列等宽时会被截成「临床药物治疗学概论（」 */
+.qa-top { display: grid; grid-template-columns: 108px 1fr; gap: 12px; }
+.qa-top .fld { margin-bottom: 12px; }
+.qa-top .select { width: 100%; }
+.qa-hint { margin: 2px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+@media (max-width: 560px) {
+  .qa-top { grid-template-columns: 1fr; gap: 0; }
+  .rp-name { max-width: 100%; }
+}

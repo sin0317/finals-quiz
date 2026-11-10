@@ -23,7 +23,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.20';
+  var FQ_VERSION = '1.21.21';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -528,12 +528,19 @@
     return i;
   }
 
-  function extractPoints(text) {
+  /* 提炼逐句打分。sink 是「审计账本」：一句没出成题，就把原文和原因记进去，
+     导入完让用户看见到底哪几句被跳过了 —— 不然只报一个总数，
+     人也无从下手「到底哪条没成、该补什么」。 */
+  function extractPoints(text, sink) {
     var pts = [], seen = {};
+    function skip(s, why) {
+      if (sink) sink.push({ text: String(s || '').trim(), why: why });
+    }
     splitSentencesWithSection(text).forEach(function (line) {
       var sent = line.s, sec = line.sec;
-      if (sent.length < 6 || sent.length > 90) return;
-      if (OPT_ROW_RE.test(sent)) return;
+      if (sent.length < 6) return skip(sent, '太短，凑不成一句知识点');
+      if (sent.length > 90) return skip(sent, '太长，一句里塞了太多东西');
+      if (OPT_ROW_RE.test(sent)) return skip(sent, '这是选项行（A、B、C…），不是知识点');
       var left = '', trig = '', right = '', tail = '', forcedFill = false, pre = '';
       var bold = sent.match(BOLD_RE);
 
@@ -634,7 +641,7 @@
           } else {
             // 整句都是「一长串并列/半句话」，切不出短语：退一步挖数字或英文术语
             var nb = numBlank(sent);
-            if (!nb) return;
+            if (!nb) return skip(sent, '切不出能考的空（没有「是 / 包括 / 冒号」这类线索）');
             left = nb.left; trig = ''; right = nb.right; tail = nb.tail;
             forcedFill = true; reversed = true;
           }
@@ -657,11 +664,12 @@
       // 加粗/反向挖出来的空，前面就算一个字没有也能出题；普通句子前面的引子太短没意义
       // 上限从 30 放宽到 56：长句（「…的效应，包括个体间和个体内变异」）以前整句被丢，
       // 其实出成填空题很好用，只要题干长一点而已
-      if ((!boldOK && !reversed && (left + pre).length < 2) || (left + pre).length > 56) return;
-      if (right.length < 1 || right.length > 60) return;
-      if (/^[的了和或与及是]$/.test(right)) return;
+      if (!boldOK && !reversed && (left + pre).length < 2) return skip(sent, '空前面没剩什么话，题目读不出来');
+      if ((left + pre).length > 56) return skip(sent, '题干太长');
+      if (right.length < 1 || right.length > 60) return skip(sent, '答案太长（或空着）');
+      if (/^[的了和或与及是]$/.test(right)) return skip(sent, '答案只有一个虚词，考不出东西');
       var k = left + '|' + right;
-      if (seen[k]) return;
+      if (seen[k]) return skip(sent, '和前面某一句重复');
       seen[k] = 1;
 
       var type = 'single', items = null;
@@ -1646,7 +1654,7 @@
      ② 原卷分区（多选全选 / 名词解释默写 / 简答答要点）→ 按分区出题
      ③ 剩下的散文 → 逐句提炼填空
      顺序不能反：先还原的能保住干扰项，让 ② 先跑会把 ① 的题抢走。 */
-  function buildFromNote(text) {
+  function buildFromNote(text, audit) {
     var paper = parsePaper(text);
     var qs = paper.questions.slice();
 
@@ -1658,7 +1666,7 @@
       return k === '多选' ? '多选题' : k === '单选' ? '单选题' : k === '填空' ? '填空题' : k;
     });
     if (rest.trim()) {
-      var pts = extractPoints(rest);
+      var pts = extractPoints(rest, audit && audit.drops);
       var extra = buildQuestions(pts);
       extra.forEach(function (q, i) { q.order = qs.length + i; });
       qs = qs.concat(extra);
@@ -1666,12 +1674,16 @@
 
     // 同一道题被两个流程各出一遍（原卷里「名词解释」和「填空题」内容一样很常见）
     var seen = {};
-    return qs.filter(function (q) {
+    var before = qs.length;
+    var out = qs.filter(function (q) {
       var k = normalize(q.stem) + '|' + normalize(answerText(q));
       if (seen[k]) return false;
       seen[k] = 1;
       return true;
     }).map(function (q, i) { q.order = i; return q; });
+    // 同一批里撞车的道数单独记：这不是「哪句没成」，是「两条表达同一件事」
+    if (audit) audit.sameDup = before - out.length;
+    return out;
   }
 
   /* =========================================================
@@ -1945,6 +1957,7 @@
     gone: {},                 // 删掉的题：{qid: 时间}，云同步合并时跳过（见 LS_GONE）
     cur: null,
     preview: [],
+    report: null,             // 上一次导入的账单：每份文件多少句 → 出几道、哪几句没成（见 renderReport）
     view: 'import',
     quiz: null,
     recite: null,
@@ -2513,16 +2526,14 @@
 
   $('#bankSelect').addEventListener('change', function () {
     if (this.value === '__new') {
-      var name = (prompt('新题集 / 课程名称', '') || '').trim();
-      if (!name) { renderBankSelect(); return; }
-      var b = { id: 'b_' + Date.now().toString(36), course: name, questions: [], createdAt: Date.now() };
-      S.banks.push(b);
-      S.cur = b.id;
-      save(); renderBankSelect();
-      toast('已新建题集：' + name);
-    } else {
-      switchBank(this.value);
+      // 以前是 window.prompt 问名字：沙箱 iframe（预览面板 / 部分 WebView）里 prompt
+      // 会被直接吞掉，点了像没反应。现在开「手动加题」，顺手把新题集建起来 ——
+      // 建空题集本来就是为了往里加东西。
+      renderBankSelect();
+      openAddQuestion({ newBank: true });
+      return;
     }
+    switchBank(this.value);
   });
 
   document.addEventListener('click', function (e) {
@@ -3341,15 +3352,46 @@
     }
   }
 
-  /* 第二步：笔记。每条笔记先去翻第一步入库的真题。 */
+  /* 第二步：笔记。每份文件单独提炼 —— 一份文件一份账，出问题才知道是哪份。
+     以前是把所有文件拼成一整段再提炼，等于放弃了「哪份文件出了几道」。 */
   function doExtractNote(silent) {
-    var text = activeText('note');
-    if (!text.trim()) {
+    var runs = S.noteFiles.slice();
+    var pasted = $('#noteText').value.trim();
+    if (pasted) runs.push({ name: '粘贴的笔记', text: pasted });
+    if (!runs.length) {
       toast('先把笔记粘进来，或选一个笔记文件（第一步的原卷不用重来）');
       return false;
     }
-    var qs = buildFromNote(text);
+
+    var qs = [], seen = {}, files = [];
+    runs.forEach(function (run) {
+      var audit = { drops: [], sameDup: 0 };
+      var got = [], err = '';
+      try { got = buildFromNote(run.text, audit); }
+      catch (e) { err = (e && e.message) || '解析出错'; }
+      var add = 0;
+      got.forEach(function (q) {
+        var k = normalize(q.stem) + '|' + normalize(answerText(q));
+        if (seen[k]) return;
+        seen[k] = 1;
+        qs.push(q);
+        add++;
+      });
+      files.push({
+        name: run.name,
+        chars: String(run.text || '').replace(/\s/g, '').length,
+        sentences: splitSentences(run.text).length,
+        made: add,
+        // 同批里表达同一件事的两条：这不是「哪句没成」，是「写了两遍」
+        sameDup: (audit.sameDup || 0) + (got.length - add),
+        drops: audit.drops,
+        error: err
+      });
+    });
+
     if (!qs.length) {
+      S.report = { kind: 'note', files: files, hit: 0, dup: 0, fresh: 0 };
+      renderReport();
       toast('没提炼出判断句，试试用「……是……」「……的标志是……」这样的句式写笔记');
       return false;
     }
@@ -3357,6 +3399,11 @@
     var m = preferPaper(qs);
     S.paperMatch = m;
     qs = m.list;
+    S.report = {
+      kind: 'note', files: files,
+      hit: m.hit || 0, dup: m.dup || 0, fresh: m.fresh || 0, noPool: !!m.noPool
+    };
+    renderReport();
     if (!qs.length && m.hit) {
       toast('这 ' + m.hit + ' 条笔记卷子里全都考过，已给题库里的原题补上讲解，没有重复出题');
       $('#flowNote').classList.add('done');
@@ -3586,6 +3633,8 @@
 
   function parseSupplementRun(run) {
     var text = String(run.text || '');
+    var audit = { drops: [], sameDup: 0 };
+    var sentences = splitSentences(text).length;
     var pr = null;
     try { pr = parsePaperDoc(text); } catch (e) { pr = null; }
     if (looksLikePaper(pr)) {
@@ -3599,16 +3648,21 @@
         }
         return q;
       });
-      return { kind: 'paper', questions: qs, warn: pr.warn || [] };
+      return { kind: 'paper', questions: qs, warn: pr.warn || [], sentences: sentences, drops: [], sameDup: 0 };
     }
     // 不是试卷就按笔记处理；笔记里的判断句卷子考过的，照样出原题
-    var nqs = buildFromNote(text);
-    if (!nqs.length) return { kind: 'empty', questions: [], warn: [] };
+    var nqs = buildFromNote(text, audit);
+    if (!nqs.length) {
+      return { kind: 'empty', questions: [], warn: [], sentences: sentences, drops: audit.drops, sameDup: audit.sameDup || 0 };
+    }
     var ch2 = chapterOf(run.name, '');
     nqs.forEach(function (q) { if (!q.chapter) q.chapter = ch2; });
     var m = preferPaper(nqs);
     m.list.forEach(function (q) { if (!q.chapter) q.chapter = ch2; });
-    return { kind: 'note', questions: m.list, warn: [], match: m };
+    return {
+      kind: 'note', questions: m.list, warn: [], match: m,
+      sentences: sentences, drops: audit.drops, sameDup: audit.sameDup || 0
+    };
   }
 
   function doSupplement(silent) {
@@ -3625,21 +3679,31 @@
       return false;
     }
 
-    var out = [], seen = {}, warn = [], emptyN = 0, paperN = 0, noteN = 0;
+    var out = [], seen = {}, warn = [], files = [], emptyN = 0, paperN = 0, noteN = 0;
     runs.forEach(function (run) {
       var r;
       try {
         r = parseSupplementRun(run);
       } catch (e) {
         warn.push({ file: run.name, why: '解析出错：' + (e && e.message) });
+        files.push({ name: run.name, sentences: 0, made: 0, drops: [], sameDup: 0, error: '解析出错：' + (e && e.message) });
         return;
       }
       if (!r.questions.length) {
         emptyN++;
         warn.push({ file: run.name, why: '没认出题目 —— 既不像试卷（没有带选项的选择题），也不像笔记（没有判断句）' });
+        files.push({
+          name: run.name, sentences: r.sentences || 0, made: 0,
+          drops: r.drops || [], sameDup: r.sameDup || 0, error: '没认出题目'
+        });
         return;
       }
       if (r.kind === 'paper') paperN++; else noteN++;
+      var fRec = {
+        name: run.name, sentences: r.sentences || 0, made: 0,
+        drops: r.drops || [], sameDup: r.sameDup || 0, error: ''
+      };
+      files.push(fRec);
       (r.warn || []).forEach(function (w) { warn.push({ file: run.name, why: w.why }); });
       r.questions.forEach(function (q) {
         if (!q.id) {
@@ -3648,11 +3712,14 @@
         }
         if (seen[q.id]) return;               // 同一批文件里重复的题只留一道
         seen[q.id] = 1;
+        fRec.made++;
         out.push(q);
       });
     });
 
     if (!out.length) {
+      S.report = { kind: 'sup', files: files, dup: 0, hit: 0, fresh: 0 };
+      renderReport();
       var why = warn.length ? ('；' + warn.slice(0, 2).map(function (w) { return w.file + '：' + w.why; }).join('；')) : '';
       toast('没解析出题目' + why);
       return false;
@@ -3683,9 +3750,11 @@
     });
 
     S.preview = out;
+    S.report = { kind: 'sup', files: files, dup: dup, hit: 0, fresh: 0 };
     setPreviewMode('sup', bank.course);
     S.supTarget = bank.id;
     renderPreview();
+    renderReport();
     $('#previewCard').hidden = false;
     if (!silent) {
       $('#previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3715,6 +3784,248 @@
       if (hint) hint.textContent = '↑↓ 调顺序 · 取消勾选即不要';
       if (btn) btn.textContent = '保存到题集';
     }
+  }
+
+  /* =========================================================
+     导入账单：这次到底成了多少、哪几句没成
+     ---------------------------------------------------------
+     用户原话：「导入笔记之后，我不知道有多少条成功了、多少条没成功，
+     所以也没办法针对性地改题、添加题。」
+     只报一个「共 N 道」等于什么都没说。所以每份文件单独记账：
+     多少句 → 出几道，剩下的句子连原文和原因一起摆出来，
+     每条后面一个「用它加题」，点开题干已经填好。
+     ========================================================= */
+  function clipText(s, n) {
+    var t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n) + '…' : t;
+  }
+
+  function reportTotal(r) {
+    var t = { files: 0, sentences: 0, made: 0, drops: 0, sameDup: 0 };
+    ((r && r.files) || []).forEach(function (f) {
+      t.files++;
+      t.sentences += f.sentences || 0;
+      t.made += f.made || 0;
+      t.drops += (f.drops || []).length;
+      t.sameDup += f.sameDup || 0;
+    });
+    return t;
+  }
+
+  function renderReport() {
+    var card = $('#reportCard'), box = $('#reportBody');
+    if (!card || !box) return;
+    var r = S.report;
+    if (!r) { card.hidden = true; return; }
+    var t = reportTotal(r);
+    var sum = [t.files + ' 份' + (r.kind === 'sup' ? '材料' : '笔记') + '、' + t.sentences + ' 句',
+      '出题 <b>' + t.made + '</b> 道'];
+    if (t.drops) sum.push('跳过 <b>' + t.drops + '</b> 句');
+    if (t.sameDup) sum.push(t.sameDup + ' 道和同批其它题重复');
+    if (r.hit) sum.push(r.hit + ' 道直接用了卷子原题');
+    if (r.dup) sum.push(r.dup + ' 道题库里已有，只补讲解');
+    if (r.fresh && !r.noPool) sum.push(r.fresh + ' 道卷子没考过，按笔记挖空');
+
+    var flat = [];
+    var html = '<div class="rp-sum">' + sum.join('　·　') + '</div>' +
+      '<p class="rp-tip">没出成题的句子都在下面 —— 想留着就点「用它加题」，题干给你填好了；' +
+      '不想要就不用管，它们不会进题集。题干出得不对的，刷题时点「✎ 改题」就能改。</p>';
+
+    (r.files || []).forEach(function (f) {
+      var drops = f.drops || [];
+      html += '<details class="rp-file">' +
+        '<summary>' +
+        '<span class="rp-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span>' +
+        '<span class="rp-count">' + (f.sentences || 0) + ' 句 → ' + (f.made || 0) + ' 道</span>' +
+        (drops.length
+          ? '<span class="rp-bad">跳过 ' + drops.length + ' 句</span>'
+          : '<span class="rp-good">每句都出成题了</span>') +
+        (f.error ? '<span class="rp-bad">' + esc(f.error) + '</span>' : '') +
+        '</summary>';
+      if (drops.length) {
+        html += '<ul class="rp-drops">';
+        drops.forEach(function (d) {
+          flat.push(d);
+          html += '<li class="rp-line">' +
+            '<span class="rp-text">' + esc(clipText(d.text, 96)) + '</span>' +
+            '<span class="rp-why">' + esc(d.why) + '</span>' +
+            '<button class="mini-btn rp-add" type="button" data-rp="' + (flat.length - 1) + '">用它加题</button>' +
+            '</li>';
+        });
+        html += '</ul>';
+      }
+      html += '</details>';
+    });
+
+    r.flat = flat;
+    box.innerHTML = html;
+    card.hidden = false;
+  }
+
+  $('#reportCard').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.rp-add') : null;
+    if (!b) return;
+    var d = ((S.report && S.report.flat) || [])[+b.getAttribute('data-rp')];
+    if (!d) return;
+    openAddQuestion({ stem: d.text, source: d.text, type: 'fill' });
+  });
+
+  /* =========================================================
+     手动加题：不导入笔记也能建题集
+     ---------------------------------------------------------
+     解析认不出的句子、老师课上补的重点、自己整理的错题，都该能自己写进去。
+     入口有三个：我的题集卡片上的「＋ 手动加题」、导入账单里每句的「用它加题」、
+     以及题集下拉里的「新建一个题集」（以前用的是 window.prompt，
+     沙箱 iframe 里直接被吞掉，点了像没反应）。
+     ========================================================= */
+  var qaPreset = null;
+
+  function qaBankOf() {
+    return S.banks.filter(function (b) { return b.id === S.cur; })[0] || null;
+  }
+
+  function renderQaBanks(pick) {
+    var el = $('#qaBank');
+    if (!el) return;
+    var cur = pick || S.cur;
+    el.innerHTML = S.banks.map(function (b) {
+      return '<option value="' + esc(b.id) + '">' + esc(b.course) + '</option>';
+    }).join('') + '<option value="__new">＋ 新建一个题集…</option>';
+    el.value = S.banks.some(function (b) { return b.id === cur; }) ? cur : '__new';
+    syncQaCourse();
+  }
+
+  function syncQaCourse() {
+    var el = $('#qaBank');
+    if (!el) return;
+    var isNew = el.value === '__new';
+    var wrap = $('#qaCourseWrap'), box = $('#qaCourse');
+    if (wrap) wrap.hidden = !isNew;
+    if (!box) return;
+    if (isNew && !box.value) {
+      var guess = ($('#courseName') && $('#courseName').value.trim()) || '';
+      box.value = guess;
+    }
+  }
+
+  function syncQaOpts() {
+    var t = ($('#qaType') || {}).value || 'fill';
+    var need = (t === 'single' || t === 'multi');
+    if ($('#qaOptsWrap')) $('#qaOptsWrap').hidden = !need;
+    if ($('#qaHint')) {
+      $('#qaHint').textContent = need
+        ? '一行一个选项，至少两个。答案可以直接写字母（B / ACD），按上面的顺序认。'
+        : (t === 'fill'
+          ? '题干里要考的地方用 ____ 挖空；两个空就写两个 ____，答案按顺序用顿号隔开。'
+          : '答案整段写下来：名词解释写解释，简答按要点分条（换行或分号隔开）。');
+    }
+  }
+
+  function openAddQuestion(preset) {
+    var p = preset || {};
+    qaPreset = p;
+    renderQaBanks(p.bankId);
+    if (p.newBank) { $('#qaBank').value = '__new'; syncQaCourse(); }
+    $('#qaType').value = p.type || 'fill';
+    $('#qaStem').value = p.stem || '';
+    $('#qaAns').value = p.answer || '';
+    $('#qaOpts').value = (p.opts || []).join('\n');
+    syncQaOpts();
+    $('#qaModal').hidden = false;
+    setTimeout(function () {
+      try { (p.stem ? $('#qaAns') : $('#qaStem')).focus(); } catch (e) { /* 老浏览器 */ }
+    }, 60);
+  }
+
+  function closeAddQuestion() {
+    var m = $('#qaModal');
+    if (!m || m.hidden) return;
+    m.hidden = true;
+  }
+
+  /* 答案写成「B」「ACD」「A、C」都认，按选项顺序换成原文 */
+  function lettersToOpts(raw, opts) {
+    var t = String(raw || '').trim();
+    if (!t || !/^[A-Za-z][A-Za-z\s,、，]*$/.test(t)) return null;
+    var out = [];
+    t.toUpperCase().replace(/[\s,、，]+/g, '').split('').forEach(function (c) {
+      var i = c.charCodeAt(0) - 65;
+      if (i >= 0 && i < opts.length && out.indexOf(opts[i]) < 0) out.push(opts[i]);
+    });
+    return out.length ? out : null;
+  }
+
+  function saveAddQuestion() {
+    var type = ($('#qaType') || {}).value || 'fill';
+    var stem = ($('#qaStem') || {}).value ? $('#qaStem').value.trim() : '';
+    var ansRaw = ($('#qaAns') || {}).value ? $('#qaAns').value.trim() : '';
+    if (!stem) { toast('题干还没写'); try { $('#qaStem').focus(); } catch (e) {} return false; }
+    if (!ansRaw) { toast('答案还没写'); try { $('#qaAns').focus(); } catch (e) {} return false; }
+
+    var opts = String(($('#qaOpts') || {}).value || '').split('\n')
+      .map(function (s) { return s.replace(/^[A-Za-z][、.．)）:：]\s*/, '').trim(); })
+      .filter(Boolean);
+    if ((type === 'single' || type === 'multi') && opts.length < 2) {
+      toast('选择题至少要两个选项（一行一个）');
+      try { $('#qaOpts').focus(); } catch (e) {}
+      return false;
+    }
+
+    var answer;
+    if (type === 'single') {
+      answer = (lettersToOpts(ansRaw, opts) || [ansRaw])[0];
+    } else if (type === 'multi') {
+      answer = lettersToOpts(ansRaw, opts) || ansRaw.split(/[、，,;；\n]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    } else if (type === 'short') {
+      answer = ansRaw.split(/[\n；;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    } else if (type === 'fill') {
+      // 题干里挖了几个空，就按顿号拆几段答案
+      var blanks = (stem.match(/_{2,}/g) || []).length;
+      answer = blanks > 1
+        ? ansRaw.split(/[、，,]/).map(function (s) { return s.trim(); }).filter(Boolean)
+        : ansRaw;
+    } else {
+      answer = ansRaw;
+    }
+    if (!answer || (Array.isArray(answer) && !answer.length)) {
+      toast('答案没读出来，检查一下');
+      return false;
+    }
+
+    var bankId = ($('#qaBank') || {}).value;
+    var course;
+    if (bankId === '__new') {
+      course = ($('#qaCourse') || {}).value ? $('#qaCourse').value.trim() : '';
+      if (!course) { toast('新题集得先起个名字'); try { $('#qaCourse').focus(); } catch (e) {} return false; }
+    } else {
+      var b0 = S.banks.filter(function (b) { return b.id === bankId; })[0];
+      if (!b0) { toast('这个题集不见了，刷新一下再试'); return false; }
+      course = b0.course;
+    }
+
+    var q = {
+      id: qidOf(String(stem) + '|' + (Array.isArray(answer) ? answer.join('') : answer)),
+      type: type,
+      stem: stem,
+      answer: answer,
+      opts: opts,
+      // 这几个选项是用户自己写的，标一下来源，导出 / 分享时能说清哪道是手加的
+      optsSrc: opts.length >= 2 ? 'manual' : null,
+      source: (qaPreset && qaPreset.source) || '',
+      manual: true
+    };
+
+    var bank = saveQuestionsToBank([q], course);
+    if (!bank) { toast('没存进去，再试一次'); return false; }
+    renderBankSelect();
+    renderBankList();
+    if (!bank._lastAdded) { toast('这道题「' + bank.course + '」里已经有了'); return false; }
+    toast('已加进「' + bank.course + '」，这本现在 ' + bank.questions.length + ' 道');
+    // 连着加第二道时，题干和答案清掉，题集 / 题型留着
+    $('#qaStem').value = '';
+    $('#qaAns').value = '';
+    closeAddQuestion();
+    return true;
   }
 
   /* ---------------- 两步的文案 ---------------- */
@@ -8496,6 +8807,29 @@
   // 站内确认框：删题这类「删了找不回来」的动作走它（原生 confirm 会被沙箱吞掉）
   bindConfirm();
 
+  /* 手动加题：入口按钮 + 弹窗里的交互 */
+  function bindAddQuestion() {
+    var m = $('#qaModal');
+    if (!m) return;
+    m.addEventListener('click', function (e) {
+      if (e.target && e.target.getAttribute && e.target.getAttribute('data-qaclose')) closeAddQuestion();
+    });
+    if ($('#qaType')) $('#qaType').addEventListener('change', syncQaOpts);
+    if ($('#qaBank')) $('#qaBank').addEventListener('change', syncQaCourse);
+    if ($('#qaSave')) $('#qaSave').addEventListener('click', function () { saveAddQuestion(); });
+    document.addEventListener('keydown', function (e) {
+      if (m.hidden) return;
+      if (e.key === 'Escape' || e.keyCode === 27) { e.preventDefault(); closeAddQuestion(); }
+      // Ctrl+Enter 直接存：写题的人手都在键盘上
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.keyCode === 13)) {
+        e.preventDefault();
+        saveAddQuestion();
+      }
+    });
+  }
+  bindAddQuestion();
+  if ($('#addQBtn')) $('#addQBtn').addEventListener('click', function () { openAddQuestion({}); });
+
   /* =========================================================
      页脚「提建议」
      =========================================================
@@ -8825,6 +9159,18 @@
     markBold: markBold,
     /* 冲刺报告：给测试留一个算模型的口子 */
     sprintModel: buildSprintModel,
-    renderSprint: renderSprint
+    renderSprint: renderSprint,
+    /* 导入账单 + 手动加题 */
+    reportTotal: reportTotal,
+    renderReport: renderReport,
+    renderQaBanks: renderQaBanks,
+    syncQaCourse: syncQaCourse,
+    syncQaOpts: syncQaOpts,
+    openAddQuestion: openAddQuestion,
+    closeAddQuestion: closeAddQuestion,
+    saveAddQuestion: saveAddQuestion,
+    lettersToOpts: lettersToOpts,
+    doSupplement: doSupplement,
+    clipText: clipText
   };
 })();
