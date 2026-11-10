@@ -51,7 +51,10 @@ function boot(n, opts) {
   win.alert = function () {};
   win.__logs = [];
   try { win.localStorage.clear(); } catch (e) { /* happy-dom 自带实现 */ }
-  win.localStorage.setItem('fq_banks_v1', JSON.stringify(makeBank(n)));
+  const banks = makeBank(n);
+  // o.more：额外塞一个题集（测「同一道题在两个题集里」那种情形）
+  (o.more || []).forEach(function (b) { banks.push(b); });
+  win.localStorage.setItem('fq_banks_v1', JSON.stringify(banks));
   win.localStorage.setItem('fq_current_v1', 'b_del');
   const api = win.eval('(function(){' + APP_SRC + '; return window.FQInternals; })()');
   return { win, api, d: win.document };
@@ -64,6 +67,24 @@ function ls(win, k) {
 function bankQs(win) { return ls(win, 'fq_banks_v1')[0].questions; }
 function body(d) { return d.querySelector('#quizBody').textContent || ''; }
 function delBtn(d) { return d.querySelector('#quizBody .del-q'); }
+
+/* 点「删题」→ 在站内确认框里点「删掉」。
+   v1.21.19 起不再用 window.confirm（沙箱 iframe 里会被静默吞掉），
+   所以测试也得跟着点两下。 */
+function delNow(d) {
+  const b = delBtn(d);
+  if (!b) return false;
+  b.click();
+  const yes = d.querySelector('#cfmOk');
+  if (!yes) return false;
+  yes.click();
+  return true;
+}
+function cfmOpen(d) { const m = d.querySelector('#cfmModal'); return !!m && !m.hidden; }
+function cfmText(d) {
+  const q = d.querySelector('#cfmQuote');
+  return ((d.querySelector('#cfmText') || {}).textContent || '') + ' | ' + ((q && !q.hidden) ? q.textContent : '');
+}
 
 function startQuiz(d, count) {
   d.querySelector('.tab[data-view="quiz"]').click();
@@ -115,7 +136,7 @@ console.log('\n二、删掉当前这道：题集少一条，人直接落到下�
   const { win, d } = boot(5);
   startQuiz(d, 0);
   ok(bankQs(win).length === 5, '删之前 5 道');
-  delBtn(d).click();
+  delNow(d);
   ok(bankQs(win).length === 4, '题集里少了一条', bankQs(win).length);
   ok(bankQs(win).every(function (q) { return q.id !== 'q1'; }), '少的是被删的那条');
   ok(body(d).indexOf('1 / 4') >= 0, '进度跟着变成 1 / 4', body(d).slice(0, 40));
@@ -126,16 +147,32 @@ console.log('\n二、删掉当前这道：题集少一条，人直接落到下�
   ok(saved.ids.indexOf('q1') < 0, '存档里没有它 —— 刷新后不会又冒出来');
 }
 
-/* ---------------- 三、确认框点了取消 ---------------- */
-console.log('\n三、「取消」按了就当没点');
+/* ---------------- 三、确认框：站内的，点取消就当没点 ---------------- */
+console.log('\n三、站内确认框：点「取消」/点遮罩/Esc 都当没点');
 {
   const { win, d } = boot(5);
   startQuiz(d, 0);
-  win.__setConfirm(false);
   delBtn(d).click();
+  ok(cfmOpen(d), '点删题弹的是站内确认框（不是原生 confirm —— 那个在沙箱里会被吞）');
+  ok(cfmText(d).indexOf('第1题') >= 0, '框里摆着这道题的题干原文，分得清删的是哪条', cfmText(d).slice(0, 60));
+  ok(bankQs(win).length === 5, '光是弹框还没删');
+  d.querySelector('#cfmCancel').click();
+  ok(!cfmOpen(d), '点取消，框关掉');
   ok(bankQs(win).length === 5, '题集没动');
   ok(body(d).indexOf('第1题') >= 0, '还停在这道题上');
   ok(body(d).indexOf('1 / 5') >= 0, '进度也没动');
+
+  // 点遮罩 / Esc 也要能关，且同样不删
+  delBtn(d).click();
+  d.querySelector('#cfmModal .modal-mask').click();
+  ok(!cfmOpen(d) && bankQs(win).length === 5, '点遮罩关掉，题没删');
+  delBtn(d).click();
+  d.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  ok(!cfmOpen(d), 'Esc 也能关');
+  ok(bankQs(win).length === 5, 'Esc 关掉也不删');
+  // 框关着的时候再点「删掉」按钮，不能凭空触发删除
+  d.querySelector('#cfmOk').click();
+  ok(bankQs(win).length === 5, '框没开时点「删掉」按钮什么都不会发生');
 }
 
 /* ---------------- 四、删的是题集里的题，不是这一格 ---------------- */
@@ -176,7 +213,7 @@ console.log('\n五、回顾态删掉已答的题：后面那道重新变成「�
   ok(body(d).indexOf('2 / 5') >= 0, '到第 2 题了');
   d.querySelector('#prevQBtn').click();               // 回第 1 题的回顾态
   ok(body(d).indexOf('回顾') >= 0, '停在回顾态');
-  delBtn(d).click();
+  delNow(d);
   ok(bankQs(win).length === 4, '题集少一条');
   ok(body(d).indexOf('1 / 4') >= 0, '进度 1 / 4', body(d).slice(0, 40));
   ok(body(d).indexOf('第2题') >= 0, '当前是原来那道第 2 题');
@@ -195,7 +232,7 @@ console.log('\n六、结算页不把删掉的题算进成绩');
   answerFill(d, '错答案2');                           // 错 —— 这道待会儿删掉
   d.querySelector('#nextQBtn').click();
   d.querySelector('#prevQBtn').click();               // 回到第 2 题的回顾态
-  delBtn(d).click();
+  delNow(d);
   ok(bankQs(win).length === 4, '题集 4 道');
   ok(drain(d), '一路答到结算页');
   const txt = body(d);
@@ -215,7 +252,7 @@ console.log('\n七、掌握度和当天的逐题计数一起划掉');
   ok(daily1.length === 1 && daily1[0].q && daily1[0].q.q1, '当天明细里有 q1', daily1);
   d.querySelector('#nextQBtn').click();
   d.querySelector('#prevQBtn').click();
-  delBtn(d).click();
+  delNow(d);
   const stats2 = ls(win, 'fq_stats_v1') || {};
   ok(!stats2.q1, '掌握度记录清掉了', Object.keys(stats2));
   const daily2 = ls(win, 'fq_daily_v1') || [];
@@ -228,7 +265,7 @@ console.log('\n八、一组的题删完：提示「这一组都删掉了」，�
   const { win, d } = boot(12);
   startQuiz(d, 10);
   let guard = 0;
-  while (delBtn(d) && guard++ < 30) delBtn(d).click();
+  while (delNow(d) && guard++ < 30);
   ok(bankQs(win).length === 2, '题集还剩 2 道（这一组只抽了 10 道）', bankQs(win).length);
   ok(body(d).indexOf('这一组的题都删掉了') >= 0, '说的是这一组空了', body(d).slice(0, 60));
   ok(body(d).indexOf('题库还没有题目') < 0, '不能拿「题库还没有题目」糊弄（题库明明还有）');
@@ -241,7 +278,7 @@ console.log('\n九、题集真被删空：让人回去导入');
   const { win, d } = boot(2);
   startQuiz(d, 0);
   let guard = 0;
-  while (delBtn(d) && guard++ < 10) delBtn(d).click();
+  while (delNow(d) && guard++ < 10);
   ok(bankQs(win).length === 0, '题集空了', bankQs(win).length);
   ok(body(d).indexOf('题集里的题都删完了') >= 0, '说的是题集空了', body(d).slice(0, 60));
   ok(body(d).indexOf('导入笔记') >= 0, '给了下一步（回去导入）');
@@ -255,6 +292,43 @@ console.log('\n十、删题是加在题头上的，收藏和改题不能因此�
   ok(!!d.querySelector('#quizBody .fav-toggle'), '收藏按钮在');
   ok(!!d.querySelector('#quizBody .fix-open'), '改题按钮在');
   ok(!!delBtn(d), '删题按钮也在（三个并排，窄屏会换行）');
+}
+
+/* ---------------- 十一、删掉的题不能被云同步拉回来 ---------------- */
+console.log('\n十一、云同步是并集合并，删掉的题必须靠墓碑挡住');
+{
+  const { win, api } = boot(3);
+  api.deleteQuestionById('q1');
+  const raw = win.localStorage.getItem('fq_gone_v1');
+  ok(!!raw && JSON.parse(raw).q1, '删的时候记了一笔墓碑', raw);
+
+  // 远端那份还带着 q1（模拟「删除没推上去」/ 另一台设备还没同步）
+  const q = (id, order) => ({ id: id, type: 'fill', stem: '第' + order + '题：____', answer: '答案' + order, opts: [], order: order });
+  const remote = [{ id: 'b_del', course: '删题测试', createdAt: 1, questions: [q('q1', 1), q('q2', 2), q('q3', 3), q('q9', 9)] }];
+  const merged = api.mergeBanks(ls(win, 'fq_banks_v1'), remote);
+  ok(!merged[0].questions.some(function (x) { return x.id === 'q1'; }), '拉一趟回来，删掉的那道没有复活');
+  ok(merged[0].questions.some(function (x) { return x.id === 'q9'; }), '别人新加的题照样合进来（墓碑只挡被删的）');
+  ok(merged[0].questions.length === 3, '本地剩的 2 道 + 远端新加的 1 道 = 3', merged[0].questions.length);
+
+  // 墓碑过期（30 天）后自己消失，不占地方
+  api.tombstone().q1 = Date.now() - 31 * 24 * 3600 * 1000;
+  api.pruneGone();
+  ok(!api.tombstone().q1, '超过 30 天的墓碑会被清掉，localStorage 不会越堆越多', api.tombstone());
+}
+
+/* ---------------- 十二、同一道题在两个题集里：一次删干净 ---------------- */
+console.log('\n十二、同一道题（广场副本）同时躺在两个题集里，一次删干净');
+{
+  const dup = { id: 'q1', type: 'fill', stem: '第1题：这个考点的答案是____', answer: '答案1', opts: [], order: 1 };
+  const { win, api } = boot(2, {
+    more: [{ id: 'b_copy', course: '删题测试（广场）', createdAt: 2, questions: [dup, { id: 'qz', type: 'fill', stem: '另一个____', answer: 'x', opts: [], order: 1 }] }]
+  });
+  const r = api.deleteQuestionById('q1');
+  ok(r && r.banks === 2, '两个题集都被扫到了', r && r.banks);
+  ok(ls(win, 'fq_banks_v1').every(function (b) {
+    return !(b.questions || []).some(function (x) { return x.id === 'q1'; });
+  }), '两个题集里都没有它了 —— 不然下次抽到副本里的那条，还是会觉得删不掉');
+  ok(ls(win, 'fq_banks_v1')[1].questions.length === 1, '副本里其他题不受影响');
 }
 
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');

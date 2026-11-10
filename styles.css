@@ -350,6 +350,9 @@ body {
 /* 题号旁边那个小小的「← 上一题」 */
 .btn.tiny { padding: 3px 9px; font-size: 12.5px; margin-left: auto; }
 .btn.danger:hover { border-color: var(--err); color: var(--err); }
+/* 确认框里那个「真删」的主按钮：红色是给「这一步收不回来」看的 */
+.btn.danger-solid { background: var(--err); border-color: var(--err); color: #fff; font-weight: 600; }
+.btn.danger-solid:hover { background: var(--err); color: #fff; filter: brightness(1.08); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .switch {
@@ -1058,6 +1061,27 @@ strong, b { font-weight: 800; }
   padding: 16px 16px 14px;
 }
 .modal-tip { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+
+/* 确认框里摆出来的那段原文（题干）：一条题被拆成两条时，
+   两条题干开头常常一模一样，不给看原文根本分不清删的是哪条 */
+.cfm-quote {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  word-break: break-word;
+  max-height: 30vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cfm-note { margin: 0; font-size: 12px; line-height: 1.7; color: var(--muted); }
+/* 打开时把焦点放在框上（方便键盘 + 读屏），不是放在按钮上 ——
+   焦点环画在「取消」上会让人以为那个按钮已经被按下了 */
+#cfmModal .modal-box:focus { outline: none; }
 /* 更新公告：一屏能读完，别做成需要滚动的小作文 */
 .notice-list { margin: 0 0 12px; padding: 0; list-style: none; }
 .notice-list li {

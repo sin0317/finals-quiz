@@ -14,12 +14,16 @@
   var LS_DAILY = 'fq_daily_v1';   // 每日明细：分享卡要按「今天」算，log 里只有总数
   var LS_CUR = 'fq_current_v1';
   var LS_THEME = 'fq_theme_v1';
+  /* 删掉的题留下的墓碑：{qid: 删除时间}。
+     云同步是「并集」合并（本地优先、远端缺的补进来），光删本地没用 ——
+     下次拉取时远端那份还带着它，题就又冒出来了。删的时候记一笔，合并时跳过。 */
+  var LS_GONE = 'fq_gone_v1';
 
   /* 版本号：和 package.json、页脚三处保持一致。
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.18';
+  var FQ_VERSION = '1.21.19';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1938,6 +1942,7 @@
     stats: {},
     log: [],
     daily: [],                // [{d:'2026-11-10', q:{qid:{o,b}}}]，只留最近 14 天
+    gone: {},                 // 删掉的题：{qid: 时间}，云同步合并时跳过（见 LS_GONE）
     cur: null,
     preview: [],
     view: 'import',
@@ -1959,6 +1964,7 @@
       localStorage.setItem(LS_STATS, JSON.stringify(S.stats));
       localStorage.setItem(LS_LOG, JSON.stringify(S.log));
       localStorage.setItem(LS_DAILY, JSON.stringify(S.daily));
+      localStorage.setItem(LS_GONE, JSON.stringify(S.gone || {}));
       localStorage.setItem(LS_SR, JSON.stringify(SR));
       localStorage.setItem(LS_CUR, S.cur || '');
     } catch (e) {
@@ -1973,12 +1979,15 @@
       S.log = JSON.parse(localStorage.getItem(LS_LOG) || '[]') || [];
       S.daily = JSON.parse(localStorage.getItem(LS_DAILY) || '[]') || [];
       if (!Array.isArray(S.daily)) S.daily = [];
+      var gone = JSON.parse(localStorage.getItem(LS_GONE) || '{}');
+      S.gone = (gone && typeof gone === 'object' && !Array.isArray(gone)) ? gone : {};
+      pruneGone();
       var sr = JSON.parse(localStorage.getItem(LS_SR) || 'null');
       if (sr && typeof sr === 'object') SR = { round: sr.round || 0, items: sr.items || {} };
       S.cur = localStorage.getItem(LS_CUR) || '';
       var th = localStorage.getItem(LS_THEME);
       if (th) document.documentElement.setAttribute('data-theme', th);
-    } catch (e) { S.banks = []; S.stats = {}; S.log = []; S.daily = []; }
+    } catch (e) { S.banks = []; S.stats = {}; S.log = []; S.daily = []; S.gone = {}; }
     if (S.banks.length && !S.banks.some(function (b) { return b.id === S.cur; })) S.cur = S.banks[0].id;
     applyAllFixes();
   }
@@ -5003,20 +5012,45 @@
     return gone.length;
   }
 
-  /* 数据层：把一道题从题集里拿掉，顺手把它的痕迹一起清掉。
-     返回 null 表示到处都找不到这道题（别处已经删过了）。 */
-  function deleteQuestionById(qid) {
-    var bank = null, at = -1;
-    for (var b = 0; b < S.banks.length; b++) {
-      var arr = S.banks[b].questions || [];
-      for (var j = 0; j < arr.length; j++) {
-        if (arr[j].id === qid) { bank = S.banks[b]; at = j; break; }
-      }
-      if (bank) break;
-    }
-    if (!bank) return null;
-    bank.questions.splice(at, 1);
+  /* ---------------- 删题的墓碑 ----------------
+     为什么需要它：云同步 mergeBanks 是「并集」——本地没有的题，远端有就补回来。
+     所以单纯从 S.banks 里 splice 掉，只要这次没推上去（关得太快、离线、401），
+     下次进站一拉取，那道题就又回来了，用户看到的就是「删不掉」。
+     删的时候记 {qid: 时间}，合并时跳过；放 30 天足够覆盖任何一次同步，
+     过了就清掉，免得 localStorage 里越堆越多。 */
+  var GONE_KEEP_MS = 30 * 24 * 3600 * 1000;
 
+  function pruneGone() {
+    var now = Date.now();
+    Object.keys(S.gone || {}).forEach(function (k) {
+      if (!(Number(S.gone[k]) > now - GONE_KEEP_MS)) delete S.gone[k];
+    });
+  }
+  function markGone(qid) {
+    if (!qid) return;
+    if (!S.gone) S.gone = {};
+    S.gone[qid] = Date.now();
+    pruneGone();
+  }
+  /* 数据层：把一道题从所有题集里拿掉，顺手把它的痕迹一起清掉。
+     「所有」是有意的：同一道题可能同时躺在原题集和「（广场）」副本里，
+     只删第一个找到的，用户下次抽到副本里的那条，还是会觉得「删不掉」。
+     返回 null 表示题集里根本没有它（可能只在这次会话里），调用方再决定怎么办。 */
+  function deleteQuestionById(qid) {
+    var hitBanks = [], first = null;
+    for (var b = 0; b < S.banks.length; b++) {
+      var bank = S.banks[b];
+      var arr = bank.questions || [];
+      var n = 0;
+      for (var j = arr.length - 1; j >= 0; j--) {
+        if (arr[j] && arr[j].id === qid) { arr.splice(j, 1); n++; }
+      }
+      if (n) { hitBanks.push(bank); if (!first) first = bank; }
+    }
+    if (!hitBanks.length) return null;
+
+    // 墓碑要在 dropFromSession 之前记：万一后面哪一步抛了，同步也不会把它拉回来
+    markGone(qid);
     dropFromSession(S.quiz, qid);
     dropFromSession(S.recite, qid);
 
@@ -5029,7 +5063,15 @@
       return Object.keys(row.q).length > 0;
     });
     save();
-    return { bank: bank, left: bank.questions.length };
+    // 删完立刻推一次，不等 save() 里那 1.8 秒防抖 ——
+    // 删完顺手关页面的人最多，那一次推送丢了就等于没删
+    flushPush();
+    return {
+      bank: first,
+      banks: hitBanks.length,
+      left: (first.questions || []).length,
+      total: S.banks.reduce(function (n, x) { return n + (x.questions || []).length; }, 0)
+    };
   }
 
   /* 删完这一组的题都没了：不能落到「题库还没有题目」——
@@ -5049,29 +5091,113 @@
       (label || '✕ 删题') + '</button>';
   }
 
-  /* 确认框里要把题干摆出来：一道题被拆成两条时，两条的题干开头往往一模一样，
-     只问「要删吗」根本分不清删的是哪一条。 */
-  function stemPeek(q) {
-    var s = String((q && q.stem) || '').replace(/\s+/g, ' ').trim();
-    return s.length > 36 ? s.slice(0, 36) + '…' : s;
+  /* ---------------- 站内确认框 ----------------
+     为什么自己做：window.confirm 在沙箱 iframe（预览面板、部分 WebView）里会被
+     直接忽略，静默返回 false —— 用户点了「删题」看着像没反应，这就是「删不掉」。
+     另外原生弹窗没法把题干排版出来，两条题干长得一样时分不清删哪条。
+     用法：askConfirm({title, text, quote, note, ok, onOk}) —— 只是问，
+     真正的动作在 onOk 里，由用户点「确定」触发。 */
+  var cfmOnOk = null;
+
+  function askConfirm(opt) {
+    var m = $('#cfmModal');
+    if (!m) return false;
+    var o = opt || {};
+    $('#cfmTitle').textContent = o.title || '确认一下';
+    $('#cfmText').textContent = o.text || '';
+    $('#cfmText').hidden = !o.text;
+    var quote = $('#cfmQuote');
+    quote.textContent = o.quote || '';
+    quote.hidden = !o.quote;
+    var note = $('#cfmNote');
+    note.textContent = o.note || '';
+    note.hidden = !o.note;
+    $('#cfmHint').textContent = o.hint || '';
+    $('#cfmOk').textContent = o.ok || '确定';
+    cfmOnOk = o.onOk || null;
+    m.hidden = false;
+    try { $('#cfmModal .modal-box').focus(); } catch (e) { /* 老浏览器 */ }
+    return true;
   }
 
+  function closeConfirm(ok) {
+    var m = $('#cfmModal');
+    if (!m || m.hidden) return;
+    m.hidden = true;
+    var fn = cfmOnOk;
+    cfmOnOk = null;
+    if (ok && fn) fn();
+  }
+
+  function bindConfirm() {
+    var m = $('#cfmModal');
+    if (!m) return;
+    m.addEventListener('click', function (e) {
+      var t = e.target;
+      if (t && t.getAttribute && t.getAttribute('data-cfmclose')) closeConfirm(false);
+    });
+    $('#cfmOk').addEventListener('click', function () { closeConfirm(true); });
+    // Esc 关：跟公告、建议箱一个习惯。只在这个框开着的时候管
+    document.addEventListener('keydown', function (e) {
+      if (m.hidden) return;
+      if (e.key === 'Escape' || e.keyCode === 27) {
+        e.preventDefault();
+        closeConfirm(false);
+      }
+    });
+  }
+
+  /* 删题走站内确认框，不用 window.confirm ——
+     原生弹窗在沙箱 iframe（站内预览面板、部分 WebView）里会被直接忽略，
+     confirm 静默返回 false，用户点了「删题」什么都不会发生。
+     站内这个框还能把题干完整摆出来（两条题干长得一样时才分得清删哪条）。 */
   function askDeleteQuestion(qid) {
     var q = findQ(qid);
     if (!q) { toast('这道题已经不在题集里了'); return false; }
-    var bank = null;
-    for (var b = 0; b < S.banks.length; b++) {
-      if ((S.banks[b].questions || []).some(function (x) { return x.id === qid; })) {
-        bank = S.banks[b]; break;
-      }
+    var owners = S.banks.filter(function (b) {
+      return (b.questions || []).some(function (x) { return x && x.id === qid; });
+    });
+    var bank = owners[0] || null;
+    var left = bank ? (bank.questions || []).filter(function (x) { return x && x.id !== qid; }).length : 0;
+    var where = '';
+    if (owners.length > 1) {
+      where = '这道题在 ' + owners.length + ' 个题集里都有（大概是广场副本），会把它们一起删掉。';
+    } else if (bank) {
+      where = '从「' + bank.course + '」里删掉，' + (left ? '删完还剩 ' + left + ' 道。' : '删完这个题集就空了。');
+    } else {
+      where = '题集里已经没有这道题了，只是还挂在当前这一组里 —— 把它从这一组摘掉。';
     }
-    var left = bank ? bank.questions.length - 1 : 0;
-    if (!window.confirm('删掉这道题？\n\n「' + stemPeek(q) + '」\n\n' +
-      (bank ? '从「' + bank.course + '」里删掉，删完还剩 ' + left + ' 道。' : '') +
-      '删了就找不回来（怕删错先在「数据」里导出备份）。')) return false;
+    askConfirm({
+      title: '删掉这道题？',
+      text: where,
+      quote: String((q && q.stem) || '').replace(/\s+/g, ' ').trim(),
+      note: '删掉就找不回来（答过的记录、掌握度会一起清掉）。怕删错，先在顶部「⑥ 数据统计」里导出全部数据备份。',
+      ok: '删掉',
+      onOk: function () { doDeleteQuestion(qid); }
+    });
+    return true;
+  }
 
+  /* 确认之后才真正动手。跟确认框分开：框只是问，删是删。 */
+  function doDeleteQuestion(qid) {
     var r = deleteQuestionById(qid);
-    if (!r) { toast('这道题已经不在题集里了'); return false; }
+    if (!r) {
+      // 题集里没有它，但这一组还挂着 —— 至少让这一组不再出现，别让人卡在这道题上
+      var dropped = dropFromSession(S.quiz, qid) + dropFromSession(S.recite, qid);
+      if (!dropped) { toast('这道题已经不在题集里了'); return false; }
+      markGone(qid);
+      save();
+      flushPush();
+      if (S.quiz && S.quiz.list && !S.quiz.list.length) {
+        forgetQuiz();
+        renderQuizEmptiedGroup();
+      } else if (S.view === 'quiz') {
+        renderQuiz();
+      }
+      if (S.view === 'recite') renderRecite();
+      toast('这一组里不再出现它了');
+      return true;
+    }
     renderBankSelect();                            // 下拉和题集列表里的「N 题」跟着变
     if (S.quiz && S.quiz.list && !S.quiz.list.length) {
       forgetQuiz();                                // 空会话留着，刷新会恢复成一张空卡
@@ -5081,7 +5207,9 @@
     }
     if (S.view === 'recite') renderRecite();
     if (S.view === 'stats') renderStats();
-    toast('已删掉这道题，这本还剩 ' + r.left + ' 道');
+    toast(r.banks > 1
+      ? ('已删掉这道题，' + r.banks + ' 个题集里都清掉了')
+      : ('已删掉这道题，这本还剩 ' + r.left + ' 道'));
     return true;
   }
 
@@ -7189,6 +7317,8 @@
   function mergeBanks(local, remote) {
     var order = [];
     var map = {};
+    var gone = (S && S.gone) || {};       // 删掉的题：远端还带着，也不能补回来
+    function alive(q) { return !(q && q.id && gone[q.id]); }
     (local || []).forEach(function (b) {
       if (!b) return;
       var k = bankKey(b);
@@ -7197,14 +7327,20 @@
     (remote || []).forEach(function (b) {
       if (!b) return;
       var k = bankKey(b);
-      if (!map[k]) { map[k] = b; order.push(k); return; }
+      if (!map[k]) {
+        // 远端独有的一整个题集：题目先过一遍墓碑，别把删掉的又带回来
+        var only = {};
+        Object.keys(b).forEach(function (kk) { only[kk] = b[kk]; });
+        only.questions = (b.questions || []).filter(alive);
+        map[k] = only; order.push(k); return;
+      }
       var mine = map[k];
       // 题集已存在：题目按 id 取并集，本地优先
       var qs = (mine.questions || []).slice();
       var seen = {};
       qs.forEach(function (q) { if (q && q.id) seen[q.id] = true; });
       (b.questions || []).forEach(function (q) {
-        if (q && q.id && !seen[q.id]) { qs.push(q); seen[q.id] = true; }
+        if (q && q.id && !seen[q.id] && alive(q)) { qs.push(q); seen[q.id] = true; }
       });
       qs.sort(function (a, c) { return (a.order || 0) - (c.order || 0); });
       mine.questions = qs;
@@ -7340,22 +7476,32 @@
   }
 
   /* ---- 推送本地数据（防抖） ---- */
+  /* 真发一次 PUT。/api/sync 是整份覆盖，所以「少了一道题」这件事只有推上去才算数。 */
+  function pushNow() {
+    if (!Cloud.online || !Cloud.user || Cloud.pulling) return;
+    clearTimeout(Cloud.pushTimer);
+    Cloud.pushTimer = null;
+    api('PUT', '/api/sync', { banks: S.banks, stats: S.stats, log: S.log }).then(function (j) {
+      Cloud.lastSyncAt = j.updatedAt || Date.now();
+      Cloud.lastErr = null;
+      renderAccount();
+    }).catch(function (e) {
+      Cloud.lastErr = e.message;
+      setDot('error');
+      if (e.status === 401) { Cloud.user = null; renderAccount(); }
+    });
+  }
+
+  /* 删题、删题集这类「一定得让云端跟上」的动作走这个：不排队，立刻推 */
+  function flushPush() { pushNow(); }
+
   function schedulePush() {
     if (!Cloud.online || !Cloud.user || Cloud.pulling) return;
     refreshDot();
     clearTimeout(Cloud.pushTimer);
-    Cloud.pushTimer = setTimeout(function () {
-      Cloud.pushTimer = null;
-      api('PUT', '/api/sync', { banks: S.banks, stats: S.stats, log: S.log }).then(function (j) {
-        Cloud.lastSyncAt = j.updatedAt || Date.now();
-        Cloud.lastErr = null;
-        renderAccount();
-      }).catch(function (e) {
-        Cloud.lastErr = e.message;
-        setDot('error');
-        if (e.status === 401) { Cloud.user = null; renderAccount(); }
-      });
-    }, 1800);
+    // 攒一下再推：一边打字一边答题，每一下都发请求没必要。
+    // 但删题不能等 —— 见 flushPush()。
+    Cloud.pushTimer = setTimeout(pushNow, 1800);
   }
 
   function cloudInit() {
@@ -8320,6 +8466,9 @@
   });
   $('#noticeCopyBtn').addEventListener('click', copyPageUrl);
 
+  // 站内确认框：删题这类「删了找不回来」的动作走它（原生 confirm 会被沙箱吞掉）
+  bindConfirm();
+
   /* =========================================================
      页脚「提建议」
      =========================================================
@@ -8531,7 +8680,15 @@
     /* 删题：数据层单独可测，界面层负责确认与重绘 */
     deleteQuestionById: deleteQuestionById,
     askDeleteQuestion: askDeleteQuestion,
+    doDeleteQuestion: doDeleteQuestion,
     dropFromSession: dropFromSession,
+    /* 站内确认框 + 删掉的题留下的墓碑（云同步合并时要跳过它们） */
+    askConfirm: askConfirm,
+    closeConfirm: closeConfirm,
+    markGone: markGone,
+    pruneGone: pruneGone,
+    tombstone: function () { return S.gone; },
+    mergeBanks: mergeBanks,
     /* 手机端工具栏折叠：摘要文案与开合状态，测试用 */
     toolbarSummary: toolbarSummary,
     foldState: function () {
