@@ -23,7 +23,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.19';
+  var FQ_VERSION = '1.21.20';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -5016,8 +5016,12 @@
      为什么需要它：云同步 mergeBanks 是「并集」——本地没有的题，远端有就补回来。
      所以单纯从 S.banks 里 splice 掉，只要这次没推上去（关得太快、离线、401），
      下次进站一拉取，那道题就又回来了，用户看到的就是「删不掉」。
-     删的时候记 {qid: 时间}，合并时跳过；放 30 天足够覆盖任何一次同步，
-     过了就清掉，免得 localStorage 里越堆越多。 */
+     删的时候记 {「题集键|题号」: 时间}，合并时跳过；放 30 天足够覆盖任何一次同步，
+     过了就清掉，免得 localStorage 里越堆越多。
+
+     **按题集记**：删题只删当前这一本，别的题集里那份（广场副本）不动 ——
+     所以墓碑也得带题集，不然一合并连别本的一起挡了。
+     老版本留下的纯题号墓碑（键里没有 |）当成「哪本都算」，兼容老数据。 */
   var GONE_KEEP_MS = 30 * 24 * 3600 * 1000;
 
   function pruneGone() {
@@ -5026,51 +5030,72 @@
       if (!(Number(S.gone[k]) > now - GONE_KEEP_MS)) delete S.gone[k];
     });
   }
-  function markGone(qid) {
+  function goneKey(bank, qid) {
+    var bk = bank ? bankKey(bank) : '';
+    return bk ? (bk + '|' + qid) : qid;
+  }
+  function markGone(qid, bank) {
     if (!qid) return;
     if (!S.gone) S.gone = {};
-    S.gone[qid] = Date.now();
+    S.gone[goneKey(bank, qid)] = Date.now();
     pruneGone();
   }
-  /* 数据层：把一道题从所有题集里拿掉，顺手把它的痕迹一起清掉。
-     「所有」是有意的：同一道题可能同时躺在原题集和「（广场）」副本里，
-     只删第一个找到的，用户下次抽到副本里的那条，还是会觉得「删不掉」。
-     返回 null 表示题集里根本没有它（可能只在这次会话里），调用方再决定怎么办。 */
-  function deleteQuestionById(qid) {
-    var hitBanks = [], first = null;
-    for (var b = 0; b < S.banks.length; b++) {
-      var bank = S.banks[b];
-      var arr = bank.questions || [];
-      var n = 0;
-      for (var j = arr.length - 1; j >= 0; j--) {
-        if (arr[j] && arr[j].id === qid) { arr.splice(j, 1); n++; }
-      }
-      if (n) { hitBanks.push(bank); if (!first) first = bank; }
+  /* 这道题在**这一本**里算不算删掉了：本册的墓碑，或者老版本留下的全局墓碑 */
+  function isGone(gone, bank, qid) {
+    if (!qid || !gone) return false;
+    if (gone[qid]) return true;
+    var bk = bank ? bankKey(bank) : '';
+    return !!(bk && gone[bk + '|' + qid]);
+  }
+  /* 数据层：把一道题从**当前这一本**题集里拿掉，顺手把它的痕迹一起清掉。
+     只删一本 —— 同一道题可能同时躺在原题集和「（广场）」副本里，那是两份独立的题集：
+     你在这本里删掉「被拆出来的多余那条」，别本那份还是好好的，不该跟着没。
+     bankId 省略时取当前选中的题集（刷题 / 背诵看到的题都出自它）。
+     返回 null 表示这一本里没有它（可能只在这次会话里），调用方再决定怎么办。 */
+  function deleteQuestionById(qid, bankId) {
+    var bank = null;
+    if (bankId) {
+      bank = S.banks.filter(function (b) { return b && b.id === bankId; })[0] || null;
+    } else {
+      bank = getBank() || null;
     }
-    if (!hitBanks.length) return null;
+    if (!bank) return null;
+    var arr = bank.questions || [];
+    var n = 0;
+    for (var j = arr.length - 1; j >= 0; j--) {
+      if (arr[j] && arr[j].id === qid) { arr.splice(j, 1); n++; }
+    }
+    if (!n) return null;
 
     // 墓碑要在 dropFromSession 之前记：万一后面哪一步抛了，同步也不会把它拉回来
-    markGone(qid);
+    markGone(qid, bank);
     dropFromSession(S.quiz, qid);
     dropFromSession(S.recite, qid);
 
-    if (S.stats) delete S.stats[qid];
-    // 当天逐题计数里也划掉。划空了就把这天的行一起收走 ——
-    // 留一行空数据，战绩卡会拿它算出「0 题」。
-    S.daily = S.daily.filter(function (row) {
-      if (!row || !row.q) return false;
-      delete row.q[qid];
-      return Object.keys(row.q).length > 0;
-    });
+    // 别的题集里还躺着同一个 id 的那份：统计（掌握度、当天逐题计数）是共用一份的，
+    // 这时候不能清 —— 清了等于把那一本的记录也一起抹了。
+    var otherBanks = S.banks.filter(function (b) {
+      return b !== bank && (b.questions || []).some(function (x) { return x && x.id === qid; });
+    }).length;
+    if (!otherBanks) {
+      if (S.stats) delete S.stats[qid];
+      // 当天逐题计数里也划掉。划空了就把这天的行一起收走 ——
+      // 留一行空数据，战绩卡会拿它算出「0 题」。
+      S.daily = S.daily.filter(function (row) {
+        if (!row || !row.q) return false;
+        delete row.q[qid];
+        return Object.keys(row.q).length > 0;
+      });
+    }
     save();
     // 删完立刻推一次，不等 save() 里那 1.8 秒防抖 ——
     // 删完顺手关页面的人最多，那一次推送丢了就等于没删
     flushPush();
     return {
-      bank: first,
-      banks: hitBanks.length,
-      left: (first.questions || []).length,
-      total: S.banks.reduce(function (n, x) { return n + (x.questions || []).length; }, 0)
+      bank: bank,
+      left: arr.length,
+      otherBanks: otherBanks,
+      total: S.banks.reduce(function (m, x) { return m + (x.questions || []).length; }, 0)
     };
   }
 
@@ -5154,18 +5179,20 @@
   function askDeleteQuestion(qid) {
     var q = findQ(qid);
     if (!q) { toast('这道题已经不在题集里了'); return false; }
-    var owners = S.banks.filter(function (b) {
-      return (b.questions || []).some(function (x) { return x && x.id === qid; });
-    });
-    var bank = owners[0] || null;
-    var left = bank ? (bank.questions || []).filter(function (x) { return x && x.id !== qid; }).length : 0;
+    var bank = getBank();
+    var inCur = !!(bank && (bank.questions || []).some(function (x) { return x && x.id === qid; }));
+    var others = S.banks.filter(function (b) {
+      return b !== bank && (b.questions || []).some(function (x) { return x && x.id === qid; });
+    }).length;
+    var left = inCur
+      ? (bank.questions || []).filter(function (x) { return x && x.id !== qid; }).length
+      : 0;
     var where = '';
-    if (owners.length > 1) {
-      where = '这道题在 ' + owners.length + ' 个题集里都有（大概是广场副本），会把它们一起删掉。';
-    } else if (bank) {
+    if (inCur) {
       where = '从「' + bank.course + '」里删掉，' + (left ? '删完还剩 ' + left + ' 道。' : '删完这个题集就空了。');
+      if (others) where += '别的题集里也有一份，那边不动。';
     } else {
-      where = '题集里已经没有这道题了，只是还挂在当前这一组里 —— 把它从这一组摘掉。';
+      where = '这一本里已经没有这道题了，只是还挂在当前这一组里 —— 把它从这一组摘掉。';
     }
     askConfirm({
       title: '删掉这道题？',
@@ -5185,7 +5212,7 @@
       // 题集里没有它，但这一组还挂着 —— 至少让这一组不再出现，别让人卡在这道题上
       var dropped = dropFromSession(S.quiz, qid) + dropFromSession(S.recite, qid);
       if (!dropped) { toast('这道题已经不在题集里了'); return false; }
-      markGone(qid);
+      markGone(qid, getBank());
       save();
       flushPush();
       if (S.quiz && S.quiz.list && !S.quiz.list.length) {
@@ -5207,8 +5234,8 @@
     }
     if (S.view === 'recite') renderRecite();
     if (S.view === 'stats') renderStats();
-    toast(r.banks > 1
-      ? ('已删掉这道题，' + r.banks + ' 个题集里都清掉了')
+    toast(r.otherBanks
+      ? ('已从「' + r.bank.course + '」里删掉，这本还剩 ' + r.left + ' 道（别的题集里那份没动）')
       : ('已删掉这道题，这本还剩 ' + r.left + ' 道'));
     return true;
   }
@@ -7317,8 +7344,8 @@
   function mergeBanks(local, remote) {
     var order = [];
     var map = {};
-    var gone = (S && S.gone) || {};       // 删掉的题：远端还带着，也不能补回来
-    function alive(q) { return !(q && q.id && gone[q.id]); }
+    var gone = (S && S.gone) || {};       // 删掉的题：远端还带着，也不能补回来（按题集算）
+    function alive(q, bank) { return !(q && q.id && isGone(gone, bank, q.id)); }
     (local || []).forEach(function (b) {
       if (!b) return;
       var k = bankKey(b);
@@ -7331,7 +7358,7 @@
         // 远端独有的一整个题集：题目先过一遍墓碑，别把删掉的又带回来
         var only = {};
         Object.keys(b).forEach(function (kk) { only[kk] = b[kk]; });
-        only.questions = (b.questions || []).filter(alive);
+        only.questions = (b.questions || []).filter(function (q) { return alive(q, b); });
         map[k] = only; order.push(k); return;
       }
       var mine = map[k];
@@ -7340,7 +7367,7 @@
       var seen = {};
       qs.forEach(function (q) { if (q && q.id) seen[q.id] = true; });
       (b.questions || []).forEach(function (q) {
-        if (q && q.id && !seen[q.id] && alive(q)) { qs.push(q); seen[q.id] = true; }
+        if (q && q.id && !seen[q.id] && alive(q, mine)) { qs.push(q); seen[q.id] = true; }
       });
       qs.sort(function (a, c) { return (a.order || 0) - (c.order || 0); });
       mine.questions = qs;
@@ -8686,8 +8713,10 @@
     askConfirm: askConfirm,
     closeConfirm: closeConfirm,
     markGone: markGone,
+    isGone: isGone,
     pruneGone: pruneGone,
     tombstone: function () { return S.gone; },
+    statsOf: function () { return S.stats; },
     mergeBanks: mergeBanks,
     /* 手机端工具栏折叠：摘要文案与开合状态，测试用 */
     toolbarSummary: toolbarSummary,

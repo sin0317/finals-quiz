@@ -300,7 +300,8 @@ console.log('\n十一、云同步是并集合并，删掉的题必须靠墓碑�
   const { win, api } = boot(3);
   api.deleteQuestionById('q1');
   const raw = win.localStorage.getItem('fq_gone_v1');
-  ok(!!raw && JSON.parse(raw).q1, '删的时候记了一笔墓碑', raw);
+  const tomb = JSON.parse(raw || '{}');
+  ok(!!tomb['删题测试|q1'], '删的时候记了一笔墓碑，带题集键（不是只记题号）', raw);
 
   // 远端那份还带着 q1（模拟「删除没推上去」/ 另一台设备还没同步）
   const q = (id, order) => ({ id: id, type: 'fill', stem: '第' + order + '题：____', answer: '答案' + order, opts: [], order: order });
@@ -310,25 +311,55 @@ console.log('\n十一、云同步是并集合并，删掉的题必须靠墓碑�
   ok(merged[0].questions.some(function (x) { return x.id === 'q9'; }), '别人新加的题照样合进来（墓碑只挡被删的）');
   ok(merged[0].questions.length === 3, '本地剩的 2 道 + 远端新加的 1 道 = 3', merged[0].questions.length);
 
+  // 墓碑按题集算：另一本题集里同题号的题，不该被这本的墓碑挡掉
+  const other = [{ id: 'b_x', course: '另一本书', createdAt: 1, questions: [q('q1', 1)] }];
+  const merged2 = api.mergeBanks([], other);
+  ok(merged2[0].questions.length === 1, '别的题集里同题号的题照旧合进来（墓碑带题集，不外溢）',
+    merged2[0].questions.length);
+
+  // 老版本留下的纯题号墓碑（键里没有 |）继续算数，别让人升级后又看到删掉的题
+  const live = api.tombstone();
+  Object.keys(live).forEach(function (k) { delete live[k]; });
+  live.q1 = Date.now();
+  ok(api.isGone(live, { course: '随便哪本' }, 'q1'), '老的全局墓碑（纯题号）对哪本都算数');
+  const merged3 = api.mergeBanks(ls(win, 'fq_banks_v1'), remote);
+  ok(!merged3[0].questions.some(function (x) { return x.id === 'q1'; }), '老墓碑合并时照样挡得住');
+
   // 墓碑过期（30 天）后自己消失，不占地方
-  api.tombstone().q1 = Date.now() - 31 * 24 * 3600 * 1000;
+  api.tombstone()['删题测试|q1'] = Date.now() - 31 * 24 * 3600 * 1000;
   api.pruneGone();
-  ok(!api.tombstone().q1, '超过 30 天的墓碑会被清掉，localStorage 不会越堆越多', api.tombstone());
+  ok(!api.tombstone()['删题测试|q1'], '超过 30 天的墓碑会被清掉，localStorage 不会越堆越多', api.tombstone());
 }
 
-/* ---------------- 十二、同一道题在两个题集里：一次删干净 ---------------- */
-console.log('\n十二、同一道题（广场副本）同时躺在两个题集里，一次删干净');
+/* ---------------- 十二、删题只删当前这一本 ---------------- */
+console.log('\n十二、同一道题躺在两个题集里（广场副本）：只删当前这一本');
 {
   const dup = { id: 'q1', type: 'fill', stem: '第1题：这个考点的答案是____', answer: '答案1', opts: [], order: 1 };
   const { win, api } = boot(2, {
     more: [{ id: 'b_copy', course: '删题测试（广场）', createdAt: 2, questions: [dup, { id: 'qz', type: 'fill', stem: '另一个____', answer: 'x', opts: [], order: 1 }] }]
   });
   const r = api.deleteQuestionById('q1');
-  ok(r && r.banks === 2, '两个题集都被扫到了', r && r.banks);
-  ok(ls(win, 'fq_banks_v1').every(function (b) {
-    return !(b.questions || []).some(function (x) { return x.id === 'q1'; });
-  }), '两个题集里都没有它了 —— 不然下次抽到副本里的那条，还是会觉得删不掉');
-  ok(ls(win, 'fq_banks_v1')[1].questions.length === 1, '副本里其他题不受影响');
+  ok(r && r.bank.id === 'b_del', '删的是当前选中的那本', r && r.bank.id);
+  ok(r && r.otherBanks === 1, '知道别本里还有一份，并告诉你没动它', r && r.otherBanks);
+  ok(!ls(win, 'fq_banks_v1')[0].questions.some(function (x) { return x.id === 'q1'; }), '当前这本里没有了');
+  ok(ls(win, 'fq_banks_v1')[1].questions.some(function (x) { return x.id === 'q1'; }),
+    '广场副本里那份还在 —— 那是另一份题集，不该跟着没');
+  ok(ls(win, 'fq_banks_v1')[1].questions.length === 2, '副本的题数一点没变');
+
+  // 统计是按题号共用一份的：别本里还有这道题，掌握度就不能跟着清
+  api.statsOf().q1 = { ok: 3, bad: 1, streak: 2, mastery: 0.8 };
+  api.deleteQuestionById('q1');
+  ok(!!api.statsOf().q1, '别本里还有这份题，掌握度不动（清了等于把那一本的记录也抹了）');
+}
+
+/* ---------------- 十三、只此一份时，统计照旧清干净 ---------------- */
+console.log('\n十三、这一本删掉、别处也没有了：掌握度和当天计数一起清');
+{
+  const { api } = boot(3);
+  api.statsOf().q1 = { ok: 2, bad: 1, streak: 0, mastery: 0.4 };
+  const r = api.deleteQuestionById('q1');
+  ok(r && r.otherBanks === 0, '没有别的题集也带着它', r && r.otherBanks);
+  ok(!api.statsOf().q1, '掌握度记录清掉了 —— 不然统计里还挂着不存在的题');
 }
 
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
