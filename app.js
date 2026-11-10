@@ -19,7 +19,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.14';
+  var FQ_VERSION = '1.21.15';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4951,6 +4951,137 @@
     return out;
   }
 
+  /* =========================================================
+     刷题时删题
+     ---------------------------------------------------------
+     解析器会把一道题切成两条：一条残句、一条真题干，两条都进了题集；
+     有的知识点还会被抓成两道几乎一样的题。这种事只有刷到那道题才看得见，
+     所以入口就放在题头，跟「改题」并排。
+
+     删的是「题集里的这一条」，不是「这场里的这个位置」：一组里要是
+     抽中它两次，两处一起摘掉。掌握度和当天的逐题计数也跟着清 ——
+     不然「今天刷了几题」还替一道已经不存在的题数着数。
+     ========================================================= */
+
+  /* 从一场会话（刷题 / 背诵）里摘掉某道题。list / forms / results 是三条
+     平行数组，摘漏一条后面整排错位：题干配错形式、结果挂到别的题上。 */
+  function dropFromSession(st, qid) {
+    if (!st || !st.list || !st.list.length) return 0;
+    var keep = [], gone = [];
+    for (var i = 0; i < st.list.length; i++) {
+      if (st.list[i] && st.list[i].id === qid) gone.push(i); else keep.push(i);
+    }
+    if (!gone.length) return 0;
+    ['list', 'forms', 'results'].forEach(function (k) {
+      if (!st[k]) return;
+      st[k] = keep.map(function (i) { return st[k][i]; });
+    });
+    // 游标往前挪：删掉的若在当前题之前，当前题的下标就少几位
+    var before = 0;
+    for (var j = 0; j < gone.length; j++) if (gone[j] < (st.idx || 0)) before++;
+    st.idx = Math.max(0, (st.idx || 0) - before);
+    if (st.idx > st.list.length) st.idx = st.list.length;   // 尾巴被摘掉时别停在下标外面
+    // 背诵的卡片进度按下标记的，下标一变就不能复用，宁可从头数一遍
+    if (st.cardIdx != null) {
+      var cb = 0;
+      for (var m = 0; m < gone.length; m++) if (gone[m] < st.cardIdx) cb++;
+      st.cardIdx = Math.max(0, st.cardIdx - cb);
+      st.seenIdx = {};
+    }
+    if (st.draftFor === qid) { st.draft = ''; st.draftFor = ''; }
+    return gone.length;
+  }
+
+  /* 数据层：把一道题从题集里拿掉，顺手把它的痕迹一起清掉。
+     返回 null 表示到处都找不到这道题（别处已经删过了）。 */
+  function deleteQuestionById(qid) {
+    var bank = null, at = -1;
+    for (var b = 0; b < S.banks.length; b++) {
+      var arr = S.banks[b].questions || [];
+      for (var j = 0; j < arr.length; j++) {
+        if (arr[j].id === qid) { bank = S.banks[b]; at = j; break; }
+      }
+      if (bank) break;
+    }
+    if (!bank) return null;
+    bank.questions.splice(at, 1);
+
+    dropFromSession(S.quiz, qid);
+    dropFromSession(S.recite, qid);
+
+    if (S.stats) delete S.stats[qid];
+    // 当天逐题计数里也划掉。划空了就把这天的行一起收走 ——
+    // 留一行空数据，战绩卡会拿它算出「0 题」。
+    S.daily = S.daily.filter(function (row) {
+      if (!row || !row.q) return false;
+      delete row.q[qid];
+      return Object.keys(row.q).length > 0;
+    });
+    save();
+    return { bank: bank, left: bank.questions.length };
+  }
+
+  /* 删完这一组的题都没了：不能落到「题库还没有题目」——
+     题库里还有，是这一组空了，两回事（跟「抽不到题」那条一致）。 */
+  function renderQuizEmptiedGroup() {
+    var bankLeft = getQs().length;
+    $('#quizBody').innerHTML = '<div class="empty">' +
+      (bankLeft
+        ? '这一组的题都删掉了。<br>点上面的「开始刷题」重新抽一组。'
+        : '题集里的题都删完了。<br>去「① 导入笔记」再导一份，或用顶部下拉换一个题集。') +
+      '</div>';
+  }
+
+  function delBtnHtml(q, label) {
+    return '<button class="btn ghost tiny del-q" data-del="' + esc(q.id) + '" type="button" ' +
+      'title="这道题是多余的？比如一道题被拆成两条 —— 删掉它（从题集里移除，找不回来）">' +
+      (label || '✕ 删题') + '</button>';
+  }
+
+  /* 确认框里要把题干摆出来：一道题被拆成两条时，两条的题干开头往往一模一样，
+     只问「要删吗」根本分不清删的是哪一条。 */
+  function stemPeek(q) {
+    var s = String((q && q.stem) || '').replace(/\s+/g, ' ').trim();
+    return s.length > 36 ? s.slice(0, 36) + '…' : s;
+  }
+
+  function askDeleteQuestion(qid) {
+    var q = findQ(qid);
+    if (!q) { toast('这道题已经不在题集里了'); return false; }
+    var bank = null;
+    for (var b = 0; b < S.banks.length; b++) {
+      if ((S.banks[b].questions || []).some(function (x) { return x.id === qid; })) {
+        bank = S.banks[b]; break;
+      }
+    }
+    var left = bank ? bank.questions.length - 1 : 0;
+    if (!window.confirm('删掉这道题？\n\n「' + stemPeek(q) + '」\n\n' +
+      (bank ? '从「' + bank.course + '」里删掉，删完还剩 ' + left + ' 道。' : '') +
+      '删了就找不回来（怕删错先在「数据」里导出备份）。')) return false;
+
+    var r = deleteQuestionById(qid);
+    if (!r) { toast('这道题已经不在题集里了'); return false; }
+    renderBankSelect();                            // 下拉和题集列表里的「N 题」跟着变
+    if (S.quiz && S.quiz.list && !S.quiz.list.length) {
+      forgetQuiz();                                // 空会话留着，刷新会恢复成一张空卡
+      renderQuizEmptiedGroup();
+    } else if (S.view === 'quiz') {
+      renderQuiz();                                // 当前下标已经指向下一道
+    }
+    if (S.view === 'recite') renderRecite();
+    if (S.view === 'stats') renderStats();
+    toast('已删掉这道题，这本还剩 ' + r.left + ' 道');
+    return true;
+  }
+
+  function bindDelButtons() {
+    $$('#quizBody [data-del]').forEach(function (b) {
+      if (b.dataset.delBound) return;
+      b.dataset.delBound = '1';
+      b.addEventListener('click', function () { askDeleteQuestion(b.dataset.del); });
+    });
+  }
+
   function renderQuiz() {
     var st = S.quiz;
     if (!st) return renderQuizEmpty();
@@ -4993,6 +5124,7 @@
       '<span class="grow"></span>' +
       favBtnHtml(q) +
       fixBtnHtml(q) +
+      delBtnHtml(q) +
       (st.idx > 0 ? '<button class="btn ghost tiny" id="prevQBtn">← 上一题</button>' : '') +
       (st.resumed ? '<button class="btn ghost tiny" id="quizResetBtn" title="扔掉这次进度，从第一组重新抽题">重新开始</button>' : '') +
       '</div>' +
@@ -5066,6 +5198,7 @@
     }
     bindFixButtons();
     bindFavButtons();
+    bindDelButtons();
   }
 
   // 刷题里碰到手打题（填空 / 名词解释 / 简答）：自己写，判分方式和背诵模式一样
@@ -5137,7 +5270,7 @@
       '<div class="progress"><i style="width:' + (i / st.list.length * 100) + '%"></i></div>' +
       '<div class="q-meta"><span>第 ' + (i + 1) + ' / ' + st.list.length + ' 题 · 回顾</span>' +
       '<span class="pill">' + (isTypedQ(q) ? typeLabel(q) : isFill ? '填空' : r.multi ? '多选' : '单选') + '</span>' +
-      '<span class="grow"></span>' + favBtnHtml(q) + fixBtnHtml(q) + '</div>' +
+      '<span class="grow"></span>' + favBtnHtml(q) + fixBtnHtml(q) + delBtnHtml(q) + '</div>' +
       '<div class="stem">' + stemHtml(q) + '</div>' +
       '<div class="verdict ' + cls + '" style="margin-top:12px">' +
       '<div class="verdict-title">' + title + '</div>' +
@@ -5173,6 +5306,7 @@
     // 回顾态的卡片是整块重画的，按钮得重新绑一次
     bindFixButtons();
     bindFavButtons();
+    bindDelButtons();
   }
 
   // 把正确答案写进题干的空格里（题干有多个空就不猜了，反馈卡片里有完整表述）
@@ -7613,16 +7747,16 @@
      只在推文里说没人看得见，站内得有一句话。 */
   var LS_NOTICE = 'fq_notice_v1';
   var NOTICE = {
-    id: '2026-11-10-share-card',
-    title: '刷完能存张战绩卡了',
-    lead: '统计页顶上和一组答完的结算页，都多了「生成战绩卡」：当天刷了几题、正确率、错得最多的那道，连同站点二维码，画成一张竖图，存下来直接发群里。图是在你自己手机上画的，不上传。',
+    id: '2026-11-10-del-question',
+    title: '多出来的那道题，刷的时候就能删了',
+    lead: '解析器有时候会把一道题切成两条：一条残句、一条真题干，两条都进了题集。以前只能整套重新导入，现在刷到那道题，题头点「✕ 删题」就把它从题集里拿掉。删了就找不回来，怕删错先在「数据」里导出一份备份。',
     items: [
-      '<b>入口有两个</b>：统计页点「生成战绩卡」，或者一组答完在结算页点「存张战绩卡」，都是当场出图 —— 点「保存图片」存到相册，手机也能长按图片存。',
-      '<b>卡上写什么</b>：当天刷的题数、正确率、错了几次，再挑一道当天错得最多的原题，带上正确答案；下面是二维码，扫进来就能接着刷。',
-      '<b>二维码是本地画的</b>：不调任何图片接口，断网也能出图；扫出来的是你现在这个地址，不是写死的常量，换域名不用改代码。',
-      '<b>「最缠人的一题」怎么挑</b>：同一道题按当天的错次累计，错得最多的排第一，错次一样就取先遇到的那道。',
-      '<b>过了零点再点分享</b>：今天一题没刷就退回最近有记录的那天，卡上标的是那天的日期，不会给你一张 0 题的空卡。',
-      '<b>这些数只在你本机</b>：每天按题记一笔对错，只留最近 14 天，不往服务器传。'
+      '<b>删的是题本身</b>：不是「这一场跳过它」—— 从题集里真的移除，之后抽题、背知识点、错题本、收藏夹都不会再出现，题集里的题数也跟着少一。',
+      '<b>一组里抽中两次也一次删干净</b>：同一道题要是这组抽到了两遍，两处一起消失，不会删掉一处、下一题又冒出来。',
+      '<b>脏数据一起清</b>：这道题的掌握度、当天「刷了几题」里的那几笔，都跟着划掉 —— 不然战绩卡还在替一道不存在的题数数。',
+      '<b>删之前会问一句</b>：确认框里摆着题干前几十个字。一道题被拆成两条时，两条的开头往往一模一样，只问「要删吗」是分不清的。',
+      '<b>删空了会告诉你下一步</b>：一组的题全删掉，会说「这一组都删掉了，重新抽一组」，不会拿「题库还没有题目」糊弄你。',
+      '<b>找不回来</b>：删掉的题不进回收站。想留后路，先在「数据」里导出一份 JSON，随时能导回来。'
     ]
   };
 
@@ -8106,6 +8240,10 @@
     dayLabel: dayLabel,
     cardStemText: cardStemText,
     renderStats: renderStats,   // 统计页整块重绘（含「今日战绩」那行），测试用
+    /* 删题：数据层单独可测，界面层负责确认与重绘 */
+    deleteQuestionById: deleteQuestionById,
+    askDeleteQuestion: askDeleteQuestion,
+    dropFromSession: dropFromSession,
     /* 手机端工具栏折叠：摘要文案与开合状态，测试用 */
     toolbarSummary: toolbarSummary,
     foldState: function () {

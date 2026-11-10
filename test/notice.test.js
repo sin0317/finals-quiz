@@ -75,15 +75,15 @@ console.log('\n一、第一次访问：弹公告，把这一版讲清楚');
   const { d, api, ls } = boot();
   ok(modal(d).hidden === false, '启动后公告是开着的（不用手点）');
   const title = d.querySelector('#noticeTitle').textContent || '';
-  ok(title.indexOf('战绩卡') >= 0, '标题说的是「战绩卡」这事', title);
+  ok(title.indexOf('删') >= 0, '标题说的是「能删题」这事', title);
   const lead = d.querySelector('#noticeLead').textContent || '';
-  ok(lead.indexOf('二维码') >= 0, '导语里点到了二维码', lead.slice(0, 40));
+  ok(lead.indexOf('切成两条') >= 0, '导语里点明了「一道题被切成两条」的来由', lead.slice(0, 40));
   const items = d.querySelectorAll('#noticeList li');
   ok(items.length >= 3, '新功能列了 ' + items.length + ' 条');
-  // 公告的重点会随版本变（这一版是战绩卡），但每一条变更都得有下落
+  // 公告的重点会随版本变（这一版是删题），但每一条变更都得有下落
   const all = Array.prototype.map.call(items, function (li) { return li.textContent || ''; }).join(' ');
-  ok(all.indexOf('错得最多') >= 0, '讲清「最缠人的一题」怎么挑');
-  ok(all.indexOf('保存图片') >= 0, '说清怎么把图存下来', all.slice(0, 60));
+  ok(all.indexOf('题集') >= 0, '讲清删的是题集里那一条');
+  ok(all.indexOf('找不回来') >= 0, '把「删了找不回」说在前面', all.slice(0, 60));
   // 地址类文案一律取 location.host，不许在公告里写死域名（域名换过三次了）
   const whole = title + lead + all;
   ok(!/\.workbuddy\.host|https?:\/\//.test(whole), '公告正文里没有写死域名', whole.match(/\.workbuddy\.host|https?:\/\/\S*/));
