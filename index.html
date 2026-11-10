@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.21.11" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.21.12" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -195,15 +195,24 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 
   <!-- ============ 刷题 ============ -->
   <section class="view" id="view-quiz" hidden="" data-page-node-id="63QlFxUXZu9pYpe9OjAc2a">
-    <div class="toolbar" data-page-node-id="wJ1qN2LxMpBDJ1vIpsDx27">
-      <label class="tfield"><span class="tl">范围</span><select id="qRange" class="select" data-page-node-id="ESwDEg34efww6hREIIePdF">
+    <!-- 手机上六个下拉太占地方：默认收成这一条，点开才是整块工具栏 -->
+    <div class="tb-compact" id="quizTbBar">
+      <button class="tb-open" id="quizTbOpen" type="button" aria-expanded="false" aria-controls="quizTb" title="展开或收起筛选项">
+        <span class="tb-ic" aria-hidden="true">⚙</span>
+        <span class="tb-sum" id="quizTbSum">范围 全部 · 题型 全部</span>
+        <span class="tb-caret" aria-hidden="true">▾</span>
+      </button>
+      <button class="btn primary tb-go" id="quizGoBtn" type="button">开始</button>
+    </div>
+    <div class="toolbar tb-collapsed" id="quizTb" data-page-node-id="wJ1qN2LxMpBDJ1vIpsDx27">
+      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="qRange" class="select" data-page-node-id="ESwDEg34efww6hREIIePdF">
         <option value="all" data-page-node-id="CPzwRN6IvnKynVDYOr6ybO">全部</option>
         <option value="weak" data-page-node-id="c07Gk1LapsnucyIVB3D0yF">未掌握</option>
         <option value="wrong" data-page-node-id="5d3XtZdpDDWkEsAnL6OPRr">错题</option>
         <option value="new" data-page-node-id="H7S5Cr0QpjxyWOZFYgTHhL">没练过</option>
         <option value="fav">只刷收藏</option>
       </select></label>
-      <label class="tfield"><span class="tl">题型</span><select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
+      <label class="tfield" data-sum="1"><span class="tl">题型</span><select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
         <option value="all" data-page-node-id="1uhgWD82ochYF4fWtegfZL">全部</option>
         <option value="single" data-page-node-id="PcjOpkgoj1FU6dGC82Slzw">单选</option>
         <option value="multi" data-page-node-id="blIPTiIzZREgSD2aWBx5pE">多选</option>
@@ -216,7 +225,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
         <option value="choice">全部给选项</option>
         <option value="fill">全部考填空</option>
       </select></label>
-      <label class="tfield"><span class="tl">题量</span><select id="qCount" class="select" data-page-node-id="c4dYGAzSAFNCVuWItiH0Fm">
+      <label class="tfield" data-sum="1"><span class="tl">题量</span><select id="qCount" class="select" data-page-node-id="c4dYGAzSAFNCVuWItiH0Fm">
         <option value="10" data-page-node-id="kfKHoApxGrspAEIzxFHPQt">10</option>
         <option value="20" selected="" data-page-node-id="GUZOveJh4SBkfwL663Foto">20</option>
         <option value="40" data-page-node-id="seSu6uvlNgMeTBIIPwdPRr">40</option>
@@ -242,8 +251,16 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 
   <!-- ============ 背知识点 ============ -->
   <section class="view" id="view-recite" hidden="" data-page-node-id="pfYohoqLe96TNANkljatcQ">
-    <div class="toolbar" data-page-node-id="2FSIYD6mjG5IYYhCliAqDZ">
-      <label class="tfield"><span class="tl">范围</span><select id="rRange" class="select" data-page-node-id="CP8tariVXs63DPhPmOoG14">
+    <div class="tb-compact" id="reciteTbBar">
+      <button class="tb-open" id="reciteTbOpen" type="button" aria-expanded="false" aria-controls="reciteTb" title="展开或收起筛选项">
+        <span class="tb-ic" aria-hidden="true">⚙</span>
+        <span class="tb-sum" id="reciteTbSum">范围 全部</span>
+        <span class="tb-caret" aria-hidden="true">▾</span>
+      </button>
+      <button class="btn primary tb-go" id="reciteGoBtn" type="button">开始</button>
+    </div>
+    <div class="toolbar tb-collapsed" id="reciteTb" data-page-node-id="2FSIYD6mjG5IYYhCliAqDZ">
+      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="rRange" class="select" data-page-node-id="CP8tariVXs63DPhPmOoG14">
         <option value="all" data-page-node-id="O0vF1CuXH75t39phQ4FViE">全部</option>
         <option value="weak" data-page-node-id="V11EyBMF4ilL02fzlHxvOu">未掌握</option>
         <option value="wrong" data-page-node-id="DQBMbevSWZVduyrRUtGAYp">错题</option>
@@ -254,7 +271,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
         <option value="seq" data-page-node-id="NQCBGAuCHmYrTzI9mgkRos">跟着笔记走</option>
         <option value="rand" data-page-node-id="iRLe2iXXqkYb3VI4WSo1FE">随机 · 生的优先</option>
       </select></label>
-      <label class="tfield"><span class="tl">形式</span><select id="rForm" class="select" title="背知识点这一步怎么考：默写（填空）最考验回忆，给选项轻松一些。名词解释、简答、以及卷子上没有选项的题，永远是自己写">
+      <label class="tfield" data-sum="1"><span class="tl">形式</span><select id="rForm" class="select" title="背知识点这一步怎么考：默写（填空）最考验回忆，给选项轻松一些。名词解释、简答、以及卷子上没有选项的题，永远是自己写">
         <option value="fill" selected>全部考填空</option>
         <option value="choice">全部给选项</option>
         <option value="mix">混合</option>
@@ -432,7 +449,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.21.11</span>
+    <span id="appVer">期末刷题站 v1.21.12</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -568,7 +585,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.21.11" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="app.js?v=1.21.12" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

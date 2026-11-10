@@ -18,7 +18,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.11';
+  var FQ_VERSION = '1.21.12';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -2062,6 +2062,12 @@
     // 里面还停在上一页那道题上，容易被当成新题的改法
     closeFixPanel();
     $$('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.view === name); });
+    // 手机上的标签是一行横滑的：被切过去的那个可能停在屏幕外，
+    // 把它滑进视野，否则点完看不出自己到了哪一页（只动横向，不动整页纵向位置）
+    var nowTab = $$('.tab').filter(function (t) { return t.classList.contains('active'); })[0];
+    if (nowTab && nowTab.scrollIntoView) {
+      try { nowTab.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) { /* 老浏览器认不了参数，忽略 */ }
+    }
     // 光加 .active 不够：styles.css 里有 [hidden]{display:none !important} 兜底，
     // 属性不摘掉的话整页永远是导入页，其他几个视图看着就是一片空白。
     $$('.view').forEach(function (v) {
@@ -4208,6 +4214,8 @@
     if (!got.list.length) {
       // 光弹个 toast 不够：页面还停在「题库还没有题目」，让人以为题库是空的。
       // 实际是「这个范围里没题」，两回事，得在页面上说清楚。
+      // 手机上是收起来的状态，那就先展开 —— 提示让人「把范围换成别的」，得看得见那个下拉。
+      if (QUIZ_TB && isNarrow()) QUIZ_TB.setOpen(true);
       var why = got.why === 'mastered'
         ? '这个范围里的题掌握度都到 ' + MASTER_PCT + '% 了，把「抽题」换成「一路推新题」就能继续刷'
         : got.why === 'seen'
@@ -4226,6 +4234,8 @@
       opt: quizOptsNow(), draft: '', draftFor: '',
       forms: decideForms(got.list, $('#qForm').value)
     };
+    // 开刷之后把筛选收回去，题目占满屏幕（桌面端没有这条，不受影响）
+    if (QUIZ_TB && isNarrow()) QUIZ_TB.setOpen(false);
     renderQuiz();
   }
 
@@ -4238,6 +4248,58 @@
   // 自动翻页只会把答案顶走。翻页统一由用户点「下一题」。
 
   $('#quizStartBtn').addEventListener('click', function () { startQuiz(false); });
+
+  /* ---------------- 手机上把工具栏折成一条 ---------------- */
+  // 六个下拉在手机上一屏就吃掉大半，进来先看到的是筛选项而不是题目。
+  // 折起来只留「当前设置 + 开始」，点一下才展开；桌面端这条是 display:none，
+  // 工具栏照旧常驻，行为和以前一样。
+  function isNarrow() { return window.innerWidth <= 760; }
+
+  function toolbarSummary(tb) {
+    var picked = $$('.tfield[data-sum]', tb);
+    if (!picked.length) picked = $$('.tfield', tb).slice(0, 2);
+    var out = [];
+    picked.forEach(function (f) {
+      var tl = f.querySelector('.tl');
+      var sel = f.querySelector('select');
+      if (!tl || !sel || !sel.options.length) return;
+      var opt = sel.options[sel.selectedIndex] || sel.options[0];
+      var v = String(opt.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!v) return;
+      // 「全部」也得带上标签，光看两个字不知道是哪一项
+      out.push(String(tl.textContent || '').trim() + ' ' + v);
+    });
+    return out.join(' · ');
+  }
+
+  function foldToolbar(tbId, barId, btnId, sumId, goId, startId) {
+    var tb = $('#' + tbId), bar = $('#' + barId), btn = $('#' + btnId);
+    var sum = $('#' + sumId), go = $('#' + goId), start = $('#' + startId);
+    if (!tb || !bar || !btn) return null;
+    function isOpen() { return !tb.classList.contains('tb-collapsed'); }
+    function paint() {
+      var open = isOpen();
+      if (open) bar.classList.add('open'); else bar.classList.remove('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      // 展开时工具栏里本来就有「开始」按钮，这条上的就别重复放着
+      if (go) go.hidden = open;
+      if (sum) sum.textContent = toolbarSummary(tb) || '筛选';
+    }
+    function setOpen(v) {
+      if (v) tb.classList.remove('tb-collapsed'); else tb.classList.add('tb-collapsed');
+      paint();
+    }
+    btn.addEventListener('click', function () { setOpen(!isOpen()); });
+    // 改了下拉就刷新那条摘要，收起来的时候也知道当前是什么设置
+    $$('select', tb).forEach(function (s) { s.addEventListener('change', paint); });
+    // 收起时「开始」得留在这条上 —— 不然一折叠，开始按钮也跟着不见了
+    if (go && start) go.addEventListener('click', function () { start.click(); });
+    paint();
+    return { setOpen: setOpen, paint: paint, isOpen: isOpen };
+  }
+
+  var QUIZ_TB = foldToolbar('quizTb', 'quizTbBar', 'quizTbOpen', 'quizTbSum', 'quizGoBtn', 'quizStartBtn');
+  var RECITE_TB = foldToolbar('reciteTb', 'reciteTbBar', 'reciteTbOpen', 'reciteTbSum', 'reciteGoBtn', 'reciteStartBtn');
 
   // 刷题时每道题怎么考：给选项，还是自己填
   function decideForms(list, mode) {
@@ -5234,12 +5296,17 @@
     S.recite = null;
     var range = $('#rRange').value;
     var list = pickQuestions({ range: range, type: 'all', count: 0, shuffle: $('#rOrder').value === 'rand' });
-    if (!list.length) { toast('这个范围里没有题'); return; }
+    if (!list.length) {
+      toast('这个范围里没有题');
+      if (RECITE_TB && isNarrow()) RECITE_TB.setOpen(true);
+      return;
+    }
     S.recite = {
       list: list, phase: 'cards', cardIdx: 0, seenIdx: {},
       idx: 0, prev: null, hint: $('#rHint').checked, ok: 0, mid: 0, bad: 0,
       answered: false                      // 这一问已经交过卷（切形式时别把反馈冲掉）
     };
+    if (RECITE_TB && isNarrow()) RECITE_TB.setOpen(false);
     renderRecite();
   });
 
@@ -7379,6 +7446,14 @@
     nextRoundTip: nextRoundTip,
     freshProgress: freshProgress,
     syncTypeOptions: syncTypeOptions,   // 题型下拉按题库实际内容重建，测试用
+    /* 手机端工具栏折叠：摘要文案与开合状态，测试用 */
+    toolbarSummary: toolbarSummary,
+    foldState: function () {
+      return {
+        quiz: QUIZ_TB ? QUIZ_TB.isOpen() : null,
+        recite: RECITE_TB ? RECITE_TB.isOpen() : null
+      };
+    },
     /* 更新公告：改 NOTICE.id 就重新弹给所有人一次 */
     NOTICE: NOTICE,
     noticeSeen: noticeSeen,
