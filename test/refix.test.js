@@ -53,9 +53,21 @@ function open(qs) {
 function bankOf(win) { return JSON.parse(win.localStorage.getItem('fq_banks_v1'))[0]; }
 function txt(el) { return ((el && el.textContent) || '').replace(/\s+/g, ' ').trim(); }
 
+/* 「一路推新题」「只刷没掌握的」v1.21.14 起从下拉撤掉了（只剩间隔复习 / 只刷没见过的）。
+   这里要看「同组内不重复」这种确定性，就把撤掉的选项临时塞回去 —— 走的是真代码路径，
+   不是另开一个测试开关。 */
+function legacyMode(d, m) {
+  const s = d.querySelector('#qMode');
+  const o = d.createElement('option');
+  o.value = m; o.textContent = m;
+  s.appendChild(o);
+  s.value = m;
+  return s.value === m;
+}
+
 function startGroup(d, count) {
   d.querySelector('.tab[data-view="quiz"]').click();
-  d.querySelector('#qMode').value = 'new';
+  legacyMode(d, 'new');
   d.querySelector('#qOrder').value = 'seq';
   d.querySelector('#qType').value = 'all';
   // qCount 只有 10/20/40/0 四档，抽「一道题」靠题库本身就小

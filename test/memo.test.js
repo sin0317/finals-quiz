@@ -65,10 +65,22 @@ function memoOf(win, id) {
   return q ? q.memo : undefined;
 }
 
+/* 「一路推新题」「只刷没掌握的」v1.21.14 起从下拉撤掉了（只剩间隔复习 / 只刷没见过的）。
+   这里要看「同组内不重复」这种确定性，就把撤掉的选项临时塞回去 —— 走的是真代码路径，
+   不是另开一个测试开关。 */
+function legacyMode(d, m) {
+  const s = d.querySelector('#qMode');
+  const o = d.createElement('option');
+  o.value = m; o.textContent = m;
+  s.appendChild(o);
+  s.value = m;
+  return s.value === m;
+}
+
 /* 只抽一道指定题型的题，免得被前面的题挡住 */
 function startOne(d, type) {
   d.querySelector('.tab[data-view="quiz"]').click();
-  d.querySelector('#qMode').value = 'new';
+  legacyMode(d, 'new');
   d.querySelector('#qOrder').value = 'seq';
   d.querySelector('#qType').value = type;
   d.querySelector('#qCount').value = '1';
@@ -175,7 +187,7 @@ console.log('\n五、下一题再翻回来，批注还在');
   qs[0].memo = '下次也要看到我';
   const { win, d } = open(qs);
   d.querySelector('.tab[data-view="quiz"]').click();
-  d.querySelector('#qMode').value = 'new';
+  legacyMode(d, 'new');
   d.querySelector('#qOrder').value = 'seq';
   d.querySelector('#qCount').value = '2';
   d.querySelector('#quizStartBtn').click();

@@ -4,8 +4,10 @@
 
    用户报的问题：刷完 20 道点「再来一组」，又回到第 1 题，不是第 21 题。
    期望：
-     · 默认「一路推新题」：这场答对的题不再出现，先推没出现过的，新题推完再回头刷答错的
-     · 勾上「刷到 90% 才换新题」：只抽掌握度不到 90% 的，全达标了才放新题
+     · 「一路推新题」（默认）：这场答对的题不再出现，先推没出现过的，新题推完再回头刷答错的
+     · 「只刷没掌握的」：只抽掌握度不到 90% 的，全达标了才放新题
+   这两种抽法 v1.21.14 起从下拉撤掉了（只留间隔复习 / 只刷没见过的），但代码分支还在，
+   老会话要能刷完，所以测试仍守着它们 —— 用 legacyMode 把选项临时塞回去。
    样本全部内联，不依赖个人笔记。                                        */
 
 const fs = require('fs');
@@ -171,15 +173,24 @@ console.log('\n八、开关在页面上能切');
   const sel = d.querySelector('#qMode');
   ok(!!sel, '工具栏有「抽题方式」下拉');
   ok(sel.value === 'srs', '默认是间隔复习');
-  ok(sel.options.length === 4, '四种抽法都在：间隔复习 / 一路推新题 / 只刷没掌握的 / 只刷没见过的');
+  ok(sel.options.length === 2, '只留两种，不再摆四个让人先辨析一遍', sel.options.length);
+  const labels = Array.prototype.map.call(sel.options, function (o) { return o.textContent; });
+  ok(labels.join(' / ') === '间隔复习 / 只刷没见过的', '顺序：间隔复习在前（默认）', labels);
+  ok(!sel.querySelector('option[value="new"]'), '「一路推新题」撤了');
+  ok(!sel.querySelector('option[value="master"]'), '「只刷没掌握的」撤了');
 
+  // 撤掉的抽法代码还在（老会话要能刷完）：把选项临时塞回去，走真路径
+  const o = d.createElement('option');
+  o.value = 'master'; o.textContent = 'master';
+  sel.appendChild(o);
   sel.value = 'master';
   d.querySelector('#qCount').value = '0';
   d.querySelector('#quizStartBtn').click();
   d.querySelector('#fillInput').value = '答案1';
   d.querySelector('#fillSubmit').click();
   d.querySelector('#nextQBtn').click();
-  ok((d.querySelector('#quizBody').textContent || '').indexOf('第2题') >= 0, '换成「只刷没掌握的」后照常刷题');
+  ok((d.querySelector('#quizBody').textContent || '').indexOf('第2题') >= 0,
+    '老会话里的「只刷没掌握的」仍能接着刷');
 }
 
 /* ---------------- 九、间隔复习的排期 ---------------- */

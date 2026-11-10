@@ -68,11 +68,22 @@ function makeBank(n) {
   return [{ id: 'b_resume', course: '进度存档测试', createdAt: 1, questions: questions }];
 }
 
+/* 「一路推新题」「只刷没掌握的」v1.21.14 起从下拉撤掉了（只剩间隔复习 / 只刷没见过的）。
+   这里要看「同组内不重复」这种确定性，就把撤掉的选项临时塞回去 —— 走的是真代码路径，
+   不是另开一个测试开关。 */
+function legacyMode(d, m) {
+  const s = d.querySelector('#qMode');
+  const o = d.createElement('option');
+  o.value = m; o.textContent = m;
+  s.appendChild(o);
+  s.value = m;
+  return s.value === m;
+}
+
 // 点开刷题、设成 10 道一组、顺序抽
 function startGroup(d, count) {
   d.querySelector('.tab[data-view="quiz"]').click();
-  const sel = d.querySelector('#qMode');
-  if (sel) { sel.value = 'new'; }            // 「一路推新题」：同组内不重复，好断言
+  legacyMode(d, 'new');                      // 「一路推新题」：同组内不重复，好断言
   d.querySelector('#qCount').value = String(count);
   d.querySelector('#qOrder').value = 'seq';
   d.querySelector('#quizStartBtn').click();
@@ -242,7 +253,10 @@ console.log('\n八、恢复后想重来：点「重新开始」');
   ok(!!btn, '恢复态有「重新开始」按钮');
   ok(!!d2.querySelector('#reciteBody') || true, '页面结构完整');
   if (btn) btn.click();
-  ok(quizText(d2).indexOf('第1题') >= 0, '点完回到第 1 题');
+  /* 别再断言「第 1 题」的题干：抽题默认是间隔复习，刚答对的那几道在冷却里，
+     新一组本来就从还没见过的题起。要说的是「这一组从头开始了」，看进度数字。 */
+  ok(quizText(d2).indexOf('1 / 10') >= 0, '点完是这一组的第 1 题（进度归位）',
+    quizText(d2).slice(0, 60));
   ok(quizText(d2).indexOf('已恢复') < 0, '「已恢复」标记不再挂着');
 }
 
@@ -260,6 +274,30 @@ console.log('\n九、开新一场：旧进度不会阴魂不散');
   const r = reload(win);
   ok((r.win.document.querySelector('#quizBody').textContent || '').indexOf('第1题') >= 0,
     '刷新后是新一场的第 1 题，不是旧的第 6 题');
+}
+
+console.log('\n十、老存档里的抽题方式已经撤掉了：归一成间隔复习，下拉不能变空');
+{
+  const { win } = openWin({ fq_banks_v1: JSON.stringify(makeBank(30)) });
+  const d = win.document;
+  startGroup(d, 10);
+  for (let i = 1; i <= 4; i++) answerAndNext(d, '答案' + i);
+
+  // 造一份 v1.21.13 那会儿的存档：mode 和 opt.qMode 都还是 new
+  const raw = JSON.parse(win.localStorage.getItem('fq_quiz_v1'));
+  raw.mode = 'new';
+  raw.opt = Object.assign({}, raw.opt, { qMode: 'new' });
+  win.localStorage.setItem('fq_quiz_v1', JSON.stringify(raw));
+
+  const r = reload(win);
+  const d2 = r.win.document;
+  const sel = d2.querySelector('#qMode');
+  ok(quizText(d2).indexOf('第5题') >= 0, '进度照常恢复', quizText(d2).slice(0, 60));
+  ok(sel.value === 'srs', '抽题方式归一成「间隔复习」，不会变成空值', sel.value);
+  ok(Array.prototype.some.call(sel.options, function (o) { return o.value === sel.value; }),
+    '下拉停在某个真选项上（空白 = 看着像坏了）');
+  ok(quizText(d2).indexOf('这场答对的题不再出现') < 0,
+    '也不再拿「一路推新题」的说法忽悠人');
 }
 
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');

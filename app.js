@@ -19,7 +19,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.13';
+  var FQ_VERSION = '1.21.14';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4092,7 +4092,12 @@
     if (!o) return;
     QUIZ_OPT_IDS.forEach(function (id) {
       var el = $('#' + id);
-      if (el && o[id] != null && String(o[id]) !== '') el.value = String(o[id]);
+      if (!el || o[id] == null || String(o[id]) === '') return;
+      var v = String(o[id]);
+      /* 老版本存下的值可能已经没有对应选项（「一路推新题」「只刷没掌握的」都撤了）。
+         给 select 赋一个不存在的值会变成空白 —— 看着像下拉坏了，所以先确认选项里真有它。 */
+      if (el.tagName === 'SELECT' && !Array.prototype.some.call(el.options, function (op) { return op.value === v; })) return;
+      el.value = v;
     });
   }
 
@@ -4106,7 +4111,7 @@
         at: Date.now(),
         round: st.round || 1,
         idx: st.idx || 0,
-        mode: st.mode || 'srs',
+        mode: normMode(st.mode),
         remain: st.remain || 0,
         opt: st.opt || quizOptsNow(),
         forms: st.forms || [],
@@ -4177,7 +4182,7 @@
       results: results,
       timer: null,
       round: raw.round || 1,
-      mode: raw.mode || 'srs',
+      mode: normMode(raw.mode),   // 老会话的 new / master 归一成 srs：下拉里已经没有它们了
       remain: raw.remain || 0,
       draft: raw.draft || '',
       draftFor: raw.draftFor || '',
@@ -4257,6 +4262,15 @@
     return { list: list, remain: remain, why: '' };
   }
 
+  /* 抽题方式只剩两种（v1.21.14 起）：「一路推新题」「只刷没掌握的」从下拉里撤掉了 ——
+     四个选项挤在一起，选起来要先在脑子里做一道辨析题，而这四个的分工本来就重叠。
+     撤掉的两种跟留下的重合：srs 已经「答对的下组不来、不够再补新题」，
+     「只刷没掌握的」在「范围」里本来就有一项（未掌握）。
+     代码里的 new / master 分支留着：老会话（S.quiz.mode 存过这两个值）恢复后
+     还要能把那一场刷完，别让人半路被清空。 */
+  var QUIZ_MODES = ['srs', 'fresh'];
+  function normMode(m) { return QUIZ_MODES.indexOf(m) >= 0 ? m : 'srs'; }
+
   function quizMode() {
     var el = $('#qMode');
     return el && el.value ? el.value : 'srs';
@@ -4288,7 +4302,7 @@
       // 手机上是收起来的状态，那就先展开 —— 提示让人「把范围换成别的」，得看得见那个下拉。
       if (QUIZ_TB && isNarrow()) QUIZ_TB.setOpen(true);
       var why = got.why === 'mastered'
-        ? '这个范围里的题掌握度都到 ' + MASTER_PCT + '% 了，把「抽题」换成「一路推新题」就能继续刷'
+        ? '这个范围里的题掌握度都到 ' + MASTER_PCT + '% 了，把「范围」换成「全部」就能继续刷'
         : got.why === 'seen'
         ? '这个范围里没有没见过的题了：练过一次就算见过，把「抽题」换成「间隔复习」能接着刷'
         : '这个范围里没有可刷的题了：做过的都答对过了。';
@@ -5278,7 +5292,7 @@
     }
 
     if (next.why === 'mastered') {
-      return '这个范围里的题都到 ' + MASTER_PCT + '% 了，把抽题方式换成「一路推新题」就能继续';
+      return '这个范围里的题都到 ' + MASTER_PCT + '% 了，换个范围就能继续';
     }
     if (next.why === 'seen') {
       return '这个范围里没有没见过的题了（练过一次就算见过），换成「间隔复习」能接着刷';

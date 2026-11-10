@@ -54,7 +54,7 @@ function pick(api, extra) {
 }
 
 /* ---------------- 一、下拉里真的有这一项 ---------------- */
-console.log('\n一、下拉里多了一项「只刷没见过的」');
+console.log('\n一、下拉里有「只刷没见过的」这一项');
 {
   const { win } = boot(makeBank(5));
   const opt = Array.from(win.document.querySelectorAll('#qMode option'))

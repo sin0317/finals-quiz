@@ -171,7 +171,13 @@ console.log('\n[10] 真机流程：老题库直接开刷，五个都点，交卷
 
   d.querySelector('.tab[data-view="quiz"]').click();
   if (d.querySelector('#qOrder')) d.querySelector('#qOrder').value = 'seq';
-  if (d.querySelector('#qMode')) d.querySelector('#qMode').value = 'new';
+  /* 「一路推新题」v1.21.14 起从下拉撤掉了；这里要「同组内不重复」，把选项临时塞回去 */
+  if (d.querySelector('#qMode')) {
+    const om = d.createElement('option');
+    om.value = 'new'; om.textContent = 'new';
+    d.querySelector('#qMode').appendChild(om);
+    d.querySelector('#qMode').value = 'new';
+  }
   d.querySelector('#qCount').value = '1';
   d.querySelector('#quizStartBtn').click();
 

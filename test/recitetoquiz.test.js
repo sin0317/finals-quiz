@@ -124,12 +124,12 @@ console.log('\n[4] 题型和抽题方式不该被改');
 {
   const { api, d } = open(WRONG_STATS);
   d.getElementById('qType').value = 'single';
-  d.getElementById('qMode').value = 'master';
+  d.getElementById('qMode').value = 'fresh';
   d.getElementById('qCount').value = '10';
   endRecite(api);
   d.getElementById('reciteToQuiz').click();
   ok(d.getElementById('qType').value === 'single', '题型没被动过', d.getElementById('qType').value);
-  ok(d.getElementById('qMode').value === 'master', '抽题方式没被动过', d.getElementById('qMode').value);
+  ok(d.getElementById('qMode').value === 'fresh', '抽题方式没被动过', d.getElementById('qMode').value);
   ok(d.getElementById('qCount').value === '10', '题量没被动过', d.getElementById('qCount').value);
 }
 

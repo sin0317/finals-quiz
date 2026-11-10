@@ -52,9 +52,20 @@ function seed(extra) {
 function bankOf(win) {
   return JSON.parse(win.localStorage.getItem('fq_banks_v1'))[0];
 }
+/* 「一路推新题」「只刷没掌握的」v1.21.14 起从下拉撤掉了（只剩间隔复习 / 只刷没见过的）。
+   这里要看「同组内不重复」这种确定性，就把撤掉的选项临时塞回去 —— 走的是真代码路径，
+   不是另开一个测试开关。 */
+function legacyMode(d, m) {
+  const s = d.querySelector('#qMode');
+  const o = d.createElement('option');
+  o.value = m; o.textContent = m;
+  s.appendChild(o);
+  s.value = m;
+  return s.value === m;
+}
 function startGroup(d, count) {
   d.querySelector('.tab[data-view="quiz"]').click();
-  d.querySelector('#qMode').value = 'new';
+  legacyMode(d, 'new');
   d.querySelector('#qCount').value = String(count || 5);
   d.querySelector('#qOrder').value = 'seq';
   d.querySelector('#quizStartBtn').click();
@@ -159,7 +170,7 @@ console.log('\n四、范围选「只刷收藏」');
   d.querySelector('#qRange').value = 'fav';
   d.querySelector('#qCount').value = '0';
   d.querySelector('#qOrder').value = 'seq';
-  d.querySelector('#qMode').value = 'new';
+  legacyMode(d, 'new');
   d.querySelector('#quizStartBtn').click();
   const st = api.state().quiz;
   ok(st.list.length === 3, '只抽到收藏的那 3 道', st.list.length);
