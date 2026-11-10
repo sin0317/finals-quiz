@@ -118,6 +118,7 @@ function bootApp(opts) {
 
   return {
     win,
+    api: win.FQInternals,
     $: (s) => win.document.querySelector(s),
     $$: (s) => Array.from(win.document.querySelectorAll(s)),
     click: (s) => {
@@ -372,6 +373,148 @@ const QS = [
   const afterDel = await req('GET', '/api/plaza/list');
   ok(afterDel.json.items.length === 0, '撤下后广场空了');
   ok(/广场还空着|没有题集/.test(b3.$('#plazaList').textContent), '列表跟着回到空状态');
+
+  /* ================= C. 带批注 / 带改题 ================= */
+  console.log('\n[C] 分享批注与改过的题');
+  /* 用户要的：分享弹窗里两个勾选 —— 「带上我写的批注（N 条）」
+     「带上我改过的题（N 道）」。守的线：
+       · 勾了才带，不勾就一个字段都不发（服务端拿不到 = 广场上没有）
+       · 批注里的换行要留着，超长截断
+       · 改法要连原样（orig）一起带，对方「恢复原样」才有东西可恢复
+       · 名词解释 / 简答别被降级成单选
+       · 取用之后批注署名是原作者，一改就归自己 */
+
+  const memoQs = [
+    {
+      type: 'fill', stem: '地高辛的治疗窗很____', answer: '窄', source: '原文：治疗窗窄',
+      memo: '年年考，别记成「宽」\n口诀：窄就是容易中毒'
+    },
+    {
+      type: 'single', stem: '原题：阿司匹林机制____', answer: '抑制环氧化酶', opts: ['抑制环氧化酶', '阻断钙通道'],
+      fix: { type: 'fill', stem: '阿司匹林通过抑制____起作用', answer: '环氧化酶', opts: [], note: '原题选项是错的' },
+      orig: { type: 'single', stem: '原题：阿司匹林机制____', answer: '抑制环氧化酶', opts: ['抑制环氧化酶', '阻断钙通道'] }
+    },
+    { type: 'term', stem: '首过效应', answer: '药物经肝代谢使进入体循环的药量减少' }
+  ];
+
+  const shC = await req('POST', '/api/plaza/share', {
+    course: '药理（带批注）', major: '药学', subject: '药理学', questions: memoQs
+  }, ckA);
+  ok(shC.status === 200 && shC.json.qCount === 3, '带批注 / 改法也能分享', shC.json);
+
+  const listC = await req('GET', '/api/plaza/list');
+  const itC = listC.json.items.filter((x) => x.course === '药理（带批注）')[0];
+  ok(itC && itC.memoCount === 1 && itC.fixCount === 1, '列表标出「1 条批注 / 1 道改过」', itC && [itC.memoCount, itC.fixCount]);
+
+  const getC = await req('GET', '/api/plaza/get?id=' + itC.id);
+  const [qC0, qC1, qC2] = getC.json.questions;
+  ok(/口诀/.test(qC0.memo || '') && /\n/.test(qC0.memo || ''), '批注跟着题走，换行没被压成空格', qC0.memo);
+  ok(qC0.fix === undefined, '没改过的题不带 fix');
+  ok(qC1.fix && qC1.fix.stem === '阿司匹林通过抑制____起作用' && qC1.orig,
+    '改法 + 原样一起带过去，对方能「恢复原样」', qC1.fix && Object.keys(qC1.fix));
+  ok(qC1.type === 'single', '改过的题本体还是原题型（改法只写在 fix 里）', qC1.type);
+  ok(qC2.type === 'term', '名词解释不再被降级成单选（老 bug）', qC2.type);
+
+  // 超长批注截断；坏掉的 fix 直接丢
+  const edge = await req('POST', '/api/plaza/share', {
+    course: '边缘数据', major: '药学', subject: '药理学',
+    questions: [
+      { stem: '甲____', answer: '一', memo: '字'.repeat(600) },
+      { stem: '乙____', answer: '二', fix: { type: 'bogus', stem: '', answer: '' } },
+      { type: 'fill', stem: '丙____', answer: '三', fix: { type: 'bogus', stem: '丙改____', answer: '三改' } }
+    ]
+  }, ckA);
+  const getEdge = await req('GET', '/api/plaza/get?id=' + edge.json.id);
+  const [e0, e1, e2] = getEdge.json.questions;
+  ok(e0.memo.length === 500, '批注超过 500 字会被截断', e0.memo && e0.memo.length);
+  ok(!e1.fix, '题干 / 答案空着的改法当没带');
+  ok(e2.fix && e2.fix.type === 'fill', '改法里的题型不合法时退回本题型', e2.fix && e2.fix.type);
+  await req('POST', '/api/plaza/remove', { id: edge.json.id }, ckA);
+
+  // C1 前端：勾选行的条数、默认勾上、没内容时置灰
+  const seedC = JSON.stringify([{
+    id: 'b_c', course: '药理学', createdAt: Date.now(),
+    questions: [
+      { id: 'qc1', type: 'fill', stem: '地高辛的治疗窗很____', answer: '窄', opts: [], memo: '年年考' },
+      {
+        id: 'qc2', type: 'fill', stem: '阿司匹林通过抑制____起作用', answer: '环氧化酶', opts: [],
+        fix: { type: 'fill', stem: '阿司匹林通过抑制____起作用', answer: '环氧化酶', note: '原题选项错' },
+        orig: { type: 'single', stem: '原题：阿司匹林机制____', answer: '抑制环氧化酶', opts: ['抑制环氧化酶', '阻断钙通道'] }
+      },
+      { id: 'qc3', type: 'single', stem: '没改过的题____', answer: '甲', opts: ['甲', '乙'] }
+    ]
+  }]);
+  const b5 = bootApp({ jar: jar1, seed: { fq_banks_v1: seedC, fq_current_v1: 'b_c' } });
+  await sleep(400);
+  b5.click('.tab[data-view="plaza"]');
+  await sleep(300);
+  b5.click('#plazaShareBtn');
+  await sleep(300);
+  ok(b5.$('#shareModal').hidden === false, '分享框打开');
+  ok(b5.$('#shareMemoN').textContent === '1' && b5.$('#shareFixN').textContent === '1',
+    '两个勾选显示各自条数', [b5.$('#shareMemoN').textContent, b5.$('#shareFixN').textContent]);
+  ok(b5.$('#shareMemo').checked === true && b5.$('#shareFix').checked === true, '有内容时默认勾上');
+
+  // 都不勾 → 分享出去的东西里不该有 memo / fix
+  b5.$('#shareMemo').checked = false;
+  b5.$('#shareFix').checked = false;
+  b5.setVal('#shareMajor', '药学');
+  b5.click('#shareDoBtn');
+  await sleep(500);
+  const listNo = await req('GET', '/api/plaza/list');
+  const itNo = listNo.json.items.filter((x) => x.course === '药理学')[0];
+  ok(itNo && itNo.memoCount === 0 && itNo.fixCount === 0, '取消勾选后批注和改法都不带', itNo && [itNo.memoCount, itNo.fixCount]);
+  const getNo = await req('GET', '/api/plaza/get?id=' + itNo.id);
+  ok(getNo.json.questions.every((q) => !q.memo && !q.fix), '服务端那头也确认没有任何批注 / 改法');
+
+  // 再勾回来 → 覆盖更新，带上去
+  b5.click('#plazaShareBtn');
+  await sleep(300);
+  ok(b5.$('#shareMemo').checked === true, '重新打开弹窗回到「有就带上」');
+  b5.setVal('#shareMajor', '药学');
+  b5.click('#shareDoBtn');
+  await sleep(500);
+  const listYes = await req('GET', '/api/plaza/list');
+  const itYes = listYes.json.items.filter((x) => x.course === '药理学')[0];
+  ok(itYes.id === itNo.id && itYes.memoCount === 1 && itYes.fixCount === 1, '覆盖更新后批注 / 改法都上去了', [itYes.id === itNo.id, itYes.memoCount, itYes.fixCount]);
+  ok(/含 1 条批注/.test(b5.$('#plazaList').textContent) && /1 道改过/.test(b5.$('#plazaList').textContent),
+    '广场卡片上标出批注 / 改题条数', b5.$('#plazaList').textContent.slice(0, 80));
+
+  // C2 别人取用：批注署名作者、改法能恢复原样
+  const b6 = bootApp({ jar: {} });
+  await sleep(250);
+  b6.click('.tab[data-view="plaza"]');
+  await sleep(400);
+  const takeBtn = b6.$$('#plazaList .plaza-item').filter((el) => /药理学/.test(el.textContent))[0]
+    .querySelector('[data-take]');
+  takeBtn.dispatchEvent(new b6.win.Event('click', { bubbles: true }));
+  await sleep(600);
+  const gotBanks = JSON.parse(b6.store.getItem('fq_banks_v1') || '[]');
+  const gotC = gotBanks.filter((b) => /药理学/.test(b.course)).pop();
+  ok(!!gotC, '取用成功');
+  const gq1 = gotC.questions.filter((q) => /地高辛/.test(q.stem))[0];
+  const gq2 = gotC.questions.filter((q) => /阿司匹林/.test(q.stem))[0];
+  ok(gq1 && gq1.memo === '年年考' && gq1.memoBy === '甲同学', '批注带过来了，署名原作者', gq1 && [gq1.memo, gq1.memoBy]);
+  ok(gq2 && gq2.fix && gq2.fixBy === '甲同学', '改法带了署名，说清是谁改的', gq2 && gq2.fixBy);
+  ok(b6.api.memoBlock(gq1).indexOf('甲同学 的批注') >= 0, '批注块显示「甲同学 的批注」，不冒充我的', b6.api.memoBlock(gq1).slice(0, 120));
+  ok(/from-author/.test(b6.api.memoBlock(gq1)), '别人的批注有单独样式');
+  ok(b6.api.memoBlock({ id: 'x', memo: '自己的话' }).indexOf('我的批注') >= 0, '自己写的不变，还是「我的批注」');
+  // 改一下署名就摘掉，变成自己的
+  b6.api.setMemo(gq1.id, '我自己记的');
+  const gq1b = b6.api.findQ(gq1.id);
+  ok(gq1b && gq1b.memo === '我自己记的' && !gq1b.memoBy, '改过之后就是我自己的批注了', gq1b && [gq1b.memo, gq1b.memoBy]);
+
+  // C3 一条都没有的题集：置灰不可勾
+  const seedPlain = JSON.stringify([{ id: 'b_p', course: '干净题集', createdAt: Date.now(), questions: QS }]);
+  const b7 = bootApp({ jar: jar1, seed: { fq_banks_v1: seedPlain, fq_current_v1: 'b_p' } });
+  await sleep(400);
+  b7.click('.tab[data-view="plaza"]');
+  await sleep(300);
+  b7.click('#plazaShareBtn');
+  await sleep(300);
+  ok(b7.$('#shareMemo').disabled === true && b7.$('#shareFix').disabled === true, '没有批注 / 没改过题时两个勾选置灰');
+  ok(b7.$('#shareMemo').checked === false, '置灰的同时也不勾，别让人以为带了东西');
+  ok(/都还是原样|还没有批注/.test(b7.$('#shareExtraTip').textContent), '下面一句话说清为什么没得勾', b7.$('#shareExtraTip').textContent);
 
   child.kill('SIGTERM');
   await sleep(300);

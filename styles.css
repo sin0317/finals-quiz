@@ -1095,6 +1095,32 @@ strong, b { font-weight: 800; }
 .fld { display: block; margin-bottom: 12px; }
 .fld > span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
 .fld .input { width: 100%; min-width: 0; }
+
+/* 分享弹窗里的两个勾选：批注 / 改过的题。
+   整块用虚线框起来，跟上面的标签字段分开 —— 这两项是「额外的内容」，
+   不填也能分享，勾不勾得看清。 */
+.share-extra {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 8px 12px 10px;
+  margin: 0 0 12px;
+  background: var(--panel-2);
+}
+.chk-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+}
+.chk-line input { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--brand); }
+.chk-line b { color: var(--ink); font-weight: 700; }
+/* 这道题集里没有批注 / 没改过题：置灰不可勾，别让人勾了个寂寞 */
+.chk-line.off { opacity: .42; cursor: not-allowed; }
+.share-extra-tip { margin: 4px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
 .modal-err {
   background: var(--err-soft);
   color: var(--err);
@@ -1476,6 +1502,9 @@ strong, b { font-weight: 800; }
   background: var(--brand-soft);
 }
 .memo.is-empty { background: var(--panel-2); border-left-style: dashed; }
+/* 别人分享过来的批注：署名是原作者，左框换个颜色，别让人以为是自己写的 */
+.memo.from-author { border-left-color: var(--brand-2); }
+.memo.from-author .memo-label { color: var(--brand); }
 /* 正在写：底色换成白卡片，输入框看着才像个能打字的地方 */
 .memo.editing { background: var(--panel); }
 .memo-head { display: flex; align-items: center; gap: 6px; min-height: 22px; }

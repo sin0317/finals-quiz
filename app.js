@@ -19,7 +19,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.16';
+  var FQ_VERSION = '1.21.17';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -2193,13 +2193,19 @@
 
   function memoText(q) { return q && q.memo ? String(q.memo) : ''; }
 
+  /* 广场取用的题集里，批注是原作者写的，标上名字；用户一改就变成自己的 */
+  function memoBy(q) { return q && q.memoBy ? String(q.memoBy) : ''; }
+
   function memoInner(q) {
     var t = memoText(q);
-    return '<div class="memo-head"><span class="memo-label">✎ 我的批注</span>' +
+    var by = memoBy(q);
+    return '<div class="memo-head"><span class="memo-label">' +
+      (by ? '✎ ' + esc(by) + ' 的批注' : '✎ 我的批注') + '</span>' +
       '<span class="grow"></span>' +
       '<button class="mini-btn" data-memo-edit type="button" title="' +
-      (t ? '改这条批注' : '写一条自己的批注，下次答完这道题会跟正确答案一起显示') + '">' +
-      (t ? '改' : '写一条') + '</button>' +
+      (by ? '这条是原作者写的；改一下就成你自己的批注' :
+        (t ? '改这条批注' : '写一条自己的批注，下次答完这道题会跟正确答案一起显示')) + '">' +
+      (by ? '改成我的' : (t ? '改' : '写一条')) + '</button>' +
       (t ? '<button class="mini-btn" data-memo-del type="button" title="删掉这条批注">✕</button>' : '') +
       '</div>' +
       (t
@@ -2209,7 +2215,8 @@
 
   function memoBlock(q) {
     if (!q) return '';
-    return '<div class="memo' + (q.memo ? '' : ' is-empty') + '" data-memo="' + esc(q.id) + '">' +
+    return '<div class="memo' + (q.memo ? '' : ' is-empty') +
+      (q.memo && memoBy(q) ? ' from-author' : '') + '" data-memo="' + esc(q.id) + '">' +
       memoInner(q) + '</div>';
   }
 
@@ -2234,6 +2241,8 @@
     var t = String(text == null ? '' : text).replace(/\r\n?/g, '\n').trim();
     if (t.length > MEMO_MAX) t = t.slice(0, MEMO_MAX);
     if (t) q.memo = t; else delete q.memo;
+    // 一改就是自己的话了：署名跟着摘掉，否则会显示「原作者 的批注」但内容是改过的
+    delete q.memoBy;
     save();
     return true;
   }
@@ -2244,6 +2253,7 @@
     box.classList.remove('editing');
     // 空态样式（虚线、灰字）也得跟着变 —— 删掉批注后就该回到「写一条」
     box.classList.toggle('is-empty', !q.memo);
+    box.classList.toggle('from-author', !!(q.memo && memoBy(q)));
     box.innerHTML = memoInner(q);
   }
 
@@ -4541,7 +4551,7 @@
       '</div>' +
       '<div class="fix-now">系统现在这么出：<span class="pill">' + typeLabel(q) + '</span>' +
       '<span class="fix-now-stem">' + esc(q.stem) + '</span>' +
-      (q.fix ? '<span class="pill ok">已按你的版本</span>' : '') + '</div>' +
+      (q.fix ? '<span class="pill ok">' + (q.fixBy ? esc(q.fixBy) + ' 改过' : '已按你的版本') + '</span>' : '') + '</div>' +
       '<label class="fld"><span>① 这题该怎么考</span>' +
       '<select id="fixType" class="select">' +
       FIX_TYPE_OPT.map(function (o) {
@@ -4889,7 +4899,8 @@
   }
 
   function fixBtnHtml(q, label) {
-    return '<button class="btn ghost tiny fix-open" data-fix="' + esc(q.id) + '" type="button">' +
+    return '<button class="btn ghost tiny fix-open" data-fix="' + esc(q.id) + '" type="button"' +
+      (q && q.fixBy ? ' title="这道题原作者改过，现在看到的是改后的版本；面板里可以恢复原样"' : '') + '>' +
       (label || '✎ 改题') + '</button>';
   }
 
@@ -7995,6 +8006,9 @@
       var tags = '';
       if (it.major) tags += '<span class="tag plain">' + esc(it.major) + '</span>';
       if (it.subject) tags += '<span class="tag plain">' + esc(it.subject) + '</span>';
+      // 作者带过来的东西先打个招呼：很多人就是冲着别人的批注才取用的
+      if (it.memoCount) tags += '<span class="pill ok">含 ' + it.memoCount + ' 条批注</span>';
+      if (it.fixCount) tags += '<span class="pill warn">' + it.fixCount + ' 道改过</span>';
       return '<div class="item plaza-item" data-id="' + esc(it.id) + '">' +
         '<div class="item-main">' +
         '<div class="item-stem">' + esc(it.course) +
@@ -8081,6 +8095,14 @@
     api('POST', '/api/plaza/take', { id: id }).then(function (j) {
       var qs = (j.questions || []).map(function (q, i) { return normQ(q, i); });
       if (!qs.length) throw new Error('这份题集是空的');
+      /* 作者带过来的批注 / 改法要署名：批注显示成「某某 的批注」（一改就归自己），
+         改过的题记下是谁改的，面板里「恢复原样」才不会有歧义。 */
+      qs.forEach(function (q) {
+        if (q.memo) q.memoBy = j.author || '原作者';
+        if (q.fix) q.fixBy = j.author || '原作者';
+      });
+      var memoN = qs.filter(function (q) { return q.memo; }).length;
+      var fixN = qs.filter(function (q) { return q.fix; }).length;
       var bank = {
         id: 'b_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
         course: j.course + '（广场）',
@@ -8097,6 +8119,9 @@
       var extra = '';
       if (j.bonus && j.bonus.active) extra = ' · 还解锁了 ' + (j.bonus.days || 7) + ' 天冲刺报告体验';
       else if (j.needLoginForBonus) extra = ' · 登录后可领这份题集的冲刺报告体验';
+      // 作者带了批注 / 改法就顺口说一句，不然用户不知道那几行字是谁写的
+      if (memoN) extra += ' · 含 ' + memoN + ' 条作者批注';
+      if (fixN) extra += ' · ' + fixN + ' 道题作者改过';
       toast('已加入「' + bank.course + '」，共 ' + qs.length + ' 题' + extra);
     }).catch(function (e) {
       toast('取用失败：' + ((e && e.message) || '未知错误'));
@@ -8105,6 +8130,40 @@
 
   /* ---- 分享 ---- */
   var shareBankId = null;
+
+  /* 两个勾选：带批注 / 带改过的题。
+     关掉弹窗不记着 —— 每次打开都回到「有就带上」，因为分享时最想要的就是
+     自己整理出来的那部分；不想带的当场取消，勾选状态在弹窗里看得见。
+     换题集时不重置（刚表过态），只按新题集的条数决定勾不勾得动。 */
+  var shareWant = { memo: true, fix: true };
+
+  function bankMemoCount(b) {
+    return (b && b.questions ? b.questions : []).filter(function (q) { return q && q.memo; }).length;
+  }
+  function bankFixCount(b) {
+    return (b && b.questions ? b.questions : []).filter(function (q) { return q && q.fix; }).length;
+  }
+
+  function setChkRow(rowSel, chkSel, key, n) {
+    var row = $(rowSel), chk = $(chkSel);
+    if (!row || !chk) return;
+    chk.disabled = !n;
+    chk.checked = !!n && shareWant[key];
+    row.classList.toggle('off', !n);
+    row.title = n ? '' : (key === 'memo' ? '这份题集里还没有批注' : '这份题集里的题都还是原样');
+  }
+
+  function refreshShareExtras(b) {
+    var mn = bankMemoCount(b), fn = bankFixCount(b);
+    if (!$('#shareMemoN')) return;
+    $('#shareMemoN').textContent = mn;
+    $('#shareFixN').textContent = fn;
+    setChkRow('#shareMemoRow', '#shareMemo', 'memo', mn);
+    setChkRow('#shareFixRow', '#shareFix', 'fix', fn);
+    $('#shareExtraTip').textContent = (mn || fn)
+      ? '批注跟题走，别人答完那道题才看得到；改过的题带着你改后的说法，对方也能「恢复原样」。'
+      : '这份题集还没有批注、也没改过题 —— 刷题时点「✎ 改题」或写条批注，就会出现在这里。';
+  }
 
   function openShare(bankId) {
     if (!Cloud.user) {
@@ -8129,6 +8188,7 @@
     $('#shareErr').hidden = true;
     var qn = b.questions.filter(function (q) { return q.stem; }).length;
     $('#shareMeta').textContent = b.shareId ? ('已分享过，改完会覆盖原来那份 · ' + qn + ' 题') : (qn + ' 题');
+    refreshShareExtras(b);
     $('#shareModal').hidden = false;
     $('#shareMajor').focus();
 
@@ -8158,6 +8218,20 @@
     var qs = b.questions.filter(function (q) { return q && q.stem; });
     if (!qs.length) { shareErr('这个题集里还没有题'); return; }
 
+    /* 只发题目本体 + 勾上的那两样。不勾的字段一个都不发 ——
+       服务端拿不到，就不会存在广场上，也不会在更新时留着上一版的旧批注。 */
+    var withMemo = !!($('#shareMemo') && $('#shareMemo').checked);
+    var withFix = !!($('#shareFix') && $('#shareFix').checked);
+    var payload = qs.map(function (q) {
+      var o = {
+        type: q.type, stem: q.stem, answer: q.answer,
+        opts: q.opts || [], source: q.source || ''
+      };
+      if (withMemo && q.memo) o.memo = q.memo;
+      if (withFix && q.fix) { o.fix = q.fix; o.orig = q.orig || null; }
+      return o;
+    });
+
     var btn = $('#shareDoBtn');
     btn.disabled = true;
     api('POST', '/api/plaza/share', {
@@ -8166,7 +8240,7 @@
       major: major,
       subject: subject,
       note: note,
-      questions: qs
+      questions: payload
     }).then(function (j) {
       b.shareId = j.id;
       b.shareMajor = major;
@@ -8233,8 +8307,13 @@
     $('#shareNote').value = b.shareNote || '';
     var qn = b.questions.filter(function (q) { return q.stem; }).length;
     $('#shareMeta').textContent = b.shareId ? ('已分享过，改完会覆盖原来那份 · ' + qn + ' 题') : (qn + ' 题');
+    refreshShareExtras(b);
   });
   $('#shareDoBtn').addEventListener('click', doShare);
+
+  /* 勾了还是取消了，记在 shareWant 上：换题集、来回切都跟着用户的意思走 */
+  $('#shareMemo').addEventListener('change', function () { shareWant.memo = this.checked; });
+  $('#shareFix').addEventListener('change', function () { shareWant.fix = this.checked; });
 
   $('#noticeModal').addEventListener('click', function (e) {
     if (e.target.dataset && e.target.dataset.noticeclose) closeNotice();

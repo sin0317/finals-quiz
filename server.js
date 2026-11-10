@@ -381,9 +381,59 @@ function cleanText(v, max) {
 }
 
 const PLAZA_MAX_Q = 400;
+const Q_TYPES = { single: 1, multi: 1, fill: 1, term: 1, short: 1 };
+const MEMO_MAX = 500;
+
+function cleanAnswerOf(a) {
+  if (Array.isArray(a)) {
+    const arr = a.map(function (x) { return cleanText(x, 200); })
+      .filter(function (x) { return x; }).slice(0, 10);
+    return arr.length ? arr : null;
+  }
+  const s = cleanText(a, 200);
+  return s || null;
+}
+
+function cleanOptsOf(o) {
+  return Array.isArray(o)
+    ? o.map(function (x) { return cleanText(x, 120); }).filter(function (x) { return x; }).slice(0, 10)
+    : [];
+}
+
+/* 改法：只留「改成什么样」这几个字段（type / stem / answer / opts / note），
+   时间戳之类的不收。缺了题干或答案就算没改，宁可当没带。 */
+function cleanFix(f, fallbackType) {
+  if (!f || typeof f !== 'object') return null;
+  const stem = cleanText(f.stem, 300);
+  const answer = cleanAnswerOf(f.answer);
+  if (!stem || !answer) return null;
+  const out = {
+    type: Q_TYPES[f.type] ? f.type : (Q_TYPES[fallbackType] ? fallbackType : 'single'),
+    stem: stem,
+    answer: answer,
+    opts: cleanOptsOf(f.opts)
+  };
+  const note = cleanText(f.note, 200);
+  if (note) out.note = note;
+  return out;
+}
+
+/* 原样：改题面板的「恢复原样」读它，所以字段跟改法一样，只是不必有 note */
+function cleanOrig(o, fallbackType) {
+  if (!o || typeof o !== 'object') return null;
+  const stem = cleanText(o.stem, 300);
+  if (!stem) return null;
+  return {
+    type: Q_TYPES[o.type] ? o.type : (Q_TYPES[fallbackType] ? fallbackType : 'single'),
+    stem: stem,
+    answer: cleanAnswerOf(o.answer),
+    opts: cleanOptsOf(o.opts)
+  };
+}
 
 /* 只收题目本身需要的字段：id 丢掉（前端会按 stem+answer 重新算，避免和别人的统计撞），
-   作者那边的 source（原文句子）保留 —— 刷题时点「看原文」还用得上。 */
+   作者那边的 source（原文句子）保留 —— 刷题时点「看原文」还用得上。
+   批注和改法由用户在分享时勾选决定带不带；没带过来的字段这里就当没有。 */
 function cleanQuestions(list) {
   const out = [];
   for (let i = 0; i < list.length && out.length < PLAZA_MAX_Q; i++) {
@@ -391,25 +441,27 @@ function cleanQuestions(list) {
     if (!q || typeof q !== 'object') continue;
     const stem = cleanText(q.stem, 300);
     if (!stem) continue;
-    let answer;
-    if (Array.isArray(q.answer)) {
-      answer = q.answer.map(function (a) { return cleanText(a, 200); })
-        .filter(function (a) { return a; }).slice(0, 10);
-      if (!answer.length) continue;
-    } else {
-      answer = cleanText(q.answer, 200);
-      if (!answer) continue;
-    }
-    const opts = Array.isArray(q.opts)
-      ? q.opts.map(function (o) { return cleanText(o, 120); }).filter(function (o) { return o; }).slice(0, 10)
-      : [];
-    out.push({
-      type: q.type === 'multi' ? 'multi' : (q.type === 'fill' ? 'fill' : 'single'),
+    const answer = cleanAnswerOf(q.answer);
+    if (!answer) continue;
+    // term / short 要原样留住：以前只认 multi/fill，手打题分享出去会被降级成单选
+    const type = Q_TYPES[q.type] ? q.type : 'single';
+    const item = {
+      type: type,
       stem: stem,
       answer: answer,
-      opts: opts,
+      opts: cleanOptsOf(q.opts),
       source: cleanText(q.source, 300)
-    });
+    };
+    // 批注是人写的话，换行要留着（跟建议箱一个口径）
+    const memo = cleanFeedbackText(q.memo, MEMO_MAX);
+    if (memo) item.memo = memo;
+    const fix = cleanFix(q.fix, type);
+    if (fix) {
+      item.fix = fix;
+      const orig = cleanOrig(q.orig, type);
+      if (orig) item.orig = orig;
+    }
+    out.push(item);
   }
   return out;
 }
@@ -489,6 +541,7 @@ function recordFeedback(it) {
 
 // 列表里不带题目正文，只有一屏能显示的元信息，省流量
 function briefPlaza(it, u) {
+  const qs = it.questions || [];
   return {
     id: it.id,
     course: it.course,
@@ -496,7 +549,10 @@ function briefPlaza(it, u) {
     subject: it.subject,
     note: it.note || '',
     author: it.author || '同学',
-    qCount: (it.questions || []).length,
+    qCount: qs.length,
+    // 作者带过来的批注 / 改法有几条，列表里给个招呼
+    memoCount: qs.filter(function (q) { return q && q.memo; }).length,
+    fixCount: qs.filter(function (q) { return q && q.fix; }).length,
     createdAt: it.createdAt,
     updatedAt: it.updatedAt || it.createdAt,
     downloads: it.downloads || 0,
