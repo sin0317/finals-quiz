@@ -6,7 +6,7 @@
    还要能「全部给选项」—— 跟刷题板块那个下拉一个意思。
 
    规矩：
-     · 默认仍是「全部考填空」（默写最考验回忆）
+     · 默认「全部给选项」（2026-11-10 改：以前默认全部考填空，用户要求默认给选项）
      · 「全部给选项」只对卷子上真有两个以上选项的题生效；
        名词解释 / 简答、以及没选项的填空题，永远自己写
      · 判定规则跟刷题卡一致：单选比相等，多选比集合
@@ -80,20 +80,20 @@ function setForm(d, v) {
   sel.dispatchEvent(new d.defaultView.Event('change'));
 }
 
-/* ---------------- 一、下拉真的在，默认考填空 ---------------- */
-console.log('\n一、背知识点多了「形式」选择，默认考填空');
+/* ---------------- 一、下拉真的在，默认给选项 ---------------- */
+console.log('\n一、背知识点多了「形式」选择，默认全部给选项');
 {
   const { d, api } = open(SINGLE);
   ok(!!d.querySelector('#rForm'), '工具栏里有形式下拉');
   const vals = Array.prototype.map.call(d.querySelectorAll('#rForm option'), function (o) { return o.value; });
   ok(vals.indexOf('choice') >= 0, '有「全部给选项」这一项', vals);
   ok(vals.indexOf('fill') >= 0, '也有「全部考填空」', vals);
-  ok(d.querySelector('#rForm').value === 'fill', '默认是全部考填空（默写）');
+  ok(d.querySelector('#rForm').value === 'choice', '默认是「全部给选项」（2026-11-10 改，原来默认考填空）');
 
   enterDrill(d);
-  ok(!!d.querySelector('#reciteInput'), '默认渲染填空输入框');
-  ok(!d.querySelector('#reciteOpts'), '没有选项区');
-  ok(api.reciteForm(SINGLE) === 'fill', '单选题默认也是考填空');
+  ok(!!d.querySelector('#reciteOpts'), '默认渲染选项区');
+  ok(!d.querySelector('#reciteInput'), '不用默写，没有填空输入框');
+  ok(api.reciteForm(SINGLE) === 'choice', '单选题默认按「给选项」出');
 }
 
 /* ---------------- 二、切「全部给选项」，单选变选项 ---------------- */

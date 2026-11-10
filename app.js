@@ -19,7 +19,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.17';
+  var FQ_VERSION = '1.21.18';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4200,7 +4200,7 @@
       // 题型排布也一并恢复：不然恢复出来的题可能跟上次看到的考法不一样
       forms: (raw.forms && raw.forms.length === list.length)
         ? raw.forms
-        : decideForms(list, ($('#qForm') || {}).value || 'mix'),
+        : decideForms(list, ($('#qForm') || {}).value || 'choice'),
       resumed: true
     };
     if (raw.drill) DRILL = { done: raw.drill.done || {}, served: raw.drill.served || {} };
@@ -4848,7 +4848,7 @@
     if (!S.quiz || !S.quiz.forms || !S.quiz.list) return;
     var i = S.quiz.list.indexOf(q);
     if (i < 0) return;
-    S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'mix')[0];
+    S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'choice')[0];
   }
 
   /* 改完题，这道题「这次答的」就不作数了 —— 它是照旧题干、旧答案判的，
@@ -5676,7 +5676,7 @@
   function reciteForm(q) {
     if (!q || isTypedQ(q)) return 'fill';
     if (!(q.opts && q.opts.length >= 2)) return 'fill';
-    var mode = ($('#rForm') && $('#rForm').value) || 'fill';
+    var mode = ($('#rForm') && $('#rForm').value) || 'choice';
     if (mode === 'choice') return 'choice';
     if (mode === 'mix') {
       // 混合：练熟了的考默写（更难），还生疏的先给选项
