@@ -19,7 +19,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.15';
+  var FQ_VERSION = '1.21.16';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -7691,6 +7691,46 @@
       .catch(function (e) {
         tbody.innerHTML = '<tr><td colspan="9" class="muted">加载失败：' + esc(e.message) + '</td></tr>';
       });
+    loadAdminFeedback();
+  }
+
+  /* 页脚「提建议」收上来的东西。邮件只是通知，这里是真身：
+     没配 SMTP 的时候，全靠这一块兜着 */
+  var FB_KIND_LABEL = { idea: '建议', bug: '报错', want: '想要的功能' };
+
+  function loadAdminFeedback() {
+    var box = $('#adminFbList');
+    if (!box) return;
+    box.innerHTML = '<div class="muted" style="font-size:12.5px">加载中…</div>';
+    api('GET', '/api/admin/feedback').then(function (j) {
+      var items = j.items || [];
+      var meta = $('#adminFbMeta');
+      if (meta) {
+        var mail = j.mail || {};
+        meta.textContent = items.length + ' 条 · ' + (mail.enabled
+          ? ('会发到 ' + (mail.to || '邮箱'))
+          : '邮件没配（只有这里能看到）');
+      }
+      if (!items.length) {
+        box.innerHTML = '<div class="muted" style="font-size:12.5px">还没有人提建议。</div>';
+        return;
+      }
+      box.innerHTML = items.map(function (it) {
+        var who = it.uid ? (it.name || '登录用户') : '游客';
+        return '<div class="admin-fb-item">' +
+          '<div class="admin-fb-head">' +
+          '<span class="pill">' + esc(FB_KIND_LABEL[it.kind] || '建议') + '</span>' +
+          '<span class="muted">' + esc(fmtDateTime(it.at)) + ' · ' + esc(who) + '</span>' +
+          '<span class="grow"></span>' +
+          '<span class="muted">' + esc(it.view || '—') + (it.ver ? ' · v' + esc(it.ver).replace(/^v/, '') : '') + '</span>' +
+          '</div>' +
+          '<div class="admin-fb-text">' + esc(it.text).replace(/\n/g, '<br>') + '</div>' +
+          (it.contact ? '<div class="admin-fb-meta">联系：' + esc(it.contact) + '</div>' : '') +
+          '</div>';
+      }).join('');
+    }).catch(function (e) {
+      box.innerHTML = '<div class="muted" style="font-size:12.5px">加载失败：' + esc(e.message) + '</div>';
+    });
   }
 
   function renderAdmin(j) {
@@ -8201,9 +8241,178 @@
   });
   $('#noticeCopyBtn').addEventListener('click', copyPageUrl);
 
+  /* =========================================================
+     页脚「提建议」
+     =========================================================
+     不用登录：想吐槽两句的人，不该先被要求注册。
+     提交后服务端一定先落盘、再尽力发一封邮件给站长 —— 邮件发不出去
+     也不该让用户看到报错，他的反馈没丢，只是站长得去后台看。 */
+  var FB = { kind: 'idea', sending: false, done: false };
+  var FB_DRAFT = 'fq_fb_draft_v1';
+  var FB_MIN = 8;
+  var FB_MAX = 2000;
+  var fbDraftTimer = null;
+
+  var VIEW_NAME = {
+    quiz: '刷题', stats: '统计', recite: '背知识点', bank: '题库',
+    wrong: '错题本', fav: '收藏夹', plaza: '广场', sprint: '冲刺报告'
+  };
+
+  function fbEl(id) { return document.getElementById(id); }
+
+  function fbDraftSave() {
+    if (fbDraftTimer) clearTimeout(fbDraftTimer);
+    fbDraftTimer = setTimeout(function () {
+      try {
+        localStorage.setItem(FB_DRAFT, JSON.stringify({
+          kind: FB.kind,
+          text: fbEl('fbText').value,
+          contact: fbEl('fbContact').value
+        }));
+      } catch (e) { /* 存不下就算了，不影响发送 */ }
+    }, 300);
+  }
+
+  function fbCountSync() {
+    var el = fbEl('fbText');
+    var n = el ? el.value.length : 0;
+    var c = fbEl('fbCount');
+    if (c) c.textContent = n + ' / ' + FB_MAX;
+    if (c) c.style.color = n >= FB_MAX ? 'var(--warn)' : '';
+  }
+
+  function fbSyncKind() {
+    var box = fbEl('fbKinds');
+    if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('.fb-kind'), function (b) {
+      b.classList.toggle('on', b.dataset.kind === FB.kind);
+    });
+  }
+
+  function fbResetForm() {
+    FB.kind = 'idea';
+    FB.done = false;
+    fbEl('fbText').value = '';
+    fbEl('fbContact').value = '';
+    fbEl('fbErr').hidden = true;
+    fbEl('fbBody').hidden = false;
+    fbEl('fbDone').hidden = true;
+    fbEl('fbCancelBtn').hidden = false;
+    var btn = fbEl('fbSendBtn');
+    btn.disabled = false;
+    btn.textContent = '发送';
+    fbSyncKind();
+    fbCountSync();
+  }
+
+  function openFeedback() {
+    var m = fbEl('fbModal');
+    if (!m) return;
+    if (FB.done) fbResetForm();
+    // 上次写了一半就关掉的，接着写
+    try {
+      var d = JSON.parse(localStorage.getItem(FB_DRAFT) || 'null');
+      if (d) {
+        if (d.text) fbEl('fbText').value = d.text;
+        if (d.contact) fbEl('fbContact').value = d.contact;
+        if (d.kind) FB.kind = d.kind;
+      }
+    } catch (e) { /* 草稿坏了就空着 */ }
+    fbEl('fbVerTag').textContent = '会带上 v' + FQ_VERSION + ' 和当前页面';
+    fbEl('fbErr').hidden = true;
+    fbSyncKind();
+    fbCountSync();
+    m.hidden = false;
+    try { fbEl('fbText').focus(); } catch (e) { /* 老设备 */ }
+  }
+
+  function closeFeedback() {
+    var m = fbEl('fbModal');
+    if (!m || m.hidden) return;
+    m.hidden = true;
+    // 发成功了才把表单清掉；填一半关掉的留着，下次接着写
+    if (FB.done) fbResetForm();
+  }
+
+  function fbDoneShow() {
+    FB.sending = false;
+    FB.done = true;
+    var contact = (fbEl('fbContact').value || '').trim();
+    fbEl('fbBody').hidden = true;
+    fbEl('fbDone').hidden = false;
+    fbEl('fbDoneNote').textContent = contact
+      ? '你留了联系方式，需要回音时我会顺着这个找你。'
+      : '想听回音的话，下次可以留个联系方式。';
+    fbEl('fbCancelBtn').hidden = true;
+    var btn = fbEl('fbSendBtn');
+    btn.disabled = false;
+    btn.textContent = '知道了';
+    try { localStorage.removeItem(FB_DRAFT); } catch (e) { /* 无所谓 */ }
+  }
+
+  function sendFeedback() {
+    if (FB.sending || FB.done) return;
+    var ta = fbEl('fbText');
+    var errEl = fbEl('fbErr');
+    var text = (ta.value || '').replace(/\r\n?/g, '\n').trim();
+    errEl.hidden = true;
+
+    if (text.length < FB_MIN) {
+      errEl.textContent = '再多写几个字（至少 ' + FB_MIN + ' 个），不然说不清指的是哪儿';
+      errEl.hidden = false;
+      ta.focus();
+      return;
+    }
+
+    var btn = fbEl('fbSendBtn');
+    FB.sending = true;
+    btn.disabled = true;
+    btn.textContent = '发送中…';
+
+    api('POST', '/api/feedback', {
+      kind: FB.kind,
+      text: text.slice(0, FB_MAX),
+      contact: (fbEl('fbContact').value || '').trim(),
+      ver: FQ_VERSION,
+      view: VIEW_NAME[S.view] || S.view || ''
+    }).then(function () {
+      fbDoneShow();
+      toast('收到了，谢谢');
+    }).catch(function (e) {
+      FB.sending = false;
+      btn.disabled = false;
+      btn.textContent = '发送';
+      var msg;
+      if (e && e.status === 429) msg = '刚发过好几条了，过十分钟再来 —— 内容还在。';
+      else if (e && e.status === 404) msg = '这功能刚上线，服务器还是旧版本，刷新一下页面再试。';
+      else msg = '没发出去（' + ((e && e.message) || '网络不通') + '）。内容还在，不用重写。';
+      errEl.textContent = msg;
+      errEl.hidden = false;
+    });
+  }
+
+  $('#fbOpenBtn').addEventListener('click', openFeedback);
+  $('#fbKinds').addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.fb-kind');
+    if (!b) return;
+    FB.kind = b.dataset.kind || 'idea';
+    fbSyncKind();
+    fbDraftSave();
+  });
+  $('#fbText').addEventListener('input', function () { fbCountSync(); fbDraftSave(); });
+  $('#fbContact').addEventListener('input', fbDraftSave);
+  $('#fbSendBtn').addEventListener('click', function () {
+    if (FB.done) { closeFeedback(); return; }
+    sendFeedback();
+  });
+  $('#fbModal').addEventListener('click', function (e) {
+    var el = e.target;
+    if (el && el.dataset && el.dataset.fbclose) { e.preventDefault(); closeFeedback(); }
+  });
+
   // 全局快捷键：Enter 进入下一问
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeCtx(); closeAuth(); closeShare(); closeNotice(); }
+    if (e.key === 'Escape') { closeCtx(); closeAuth(); closeShare(); closeNotice(); closeFeedback(); }
     if (e.key === 'Enter' && document.activeElement === $('body')) {
       var b = $('#reciteNext') || $('#nextQBtn');
       if (b) { e.preventDefault(); b.click(); }

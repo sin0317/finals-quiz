@@ -18,6 +18,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { createPayService } = require('./pay');
 const { createWatchaOAuth } = require('./watcha-oauth');
+const { createMailer } = require('./mailer');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
@@ -48,7 +49,8 @@ const store = {
   guests: {},     // gid -> { gid, firstSeen, lastSeen, visits, ua }
   daily: {},      // 'YYYY-MM-DD' -> { g: 游客访问次数, u: 登录用户访问次数 }
   plaza: {},      // pid -> { id, uid, author, course, major, subject, note, questions, createdAt, downloads }
-  bonus: {}       // uid -> { from, fromName, at, expiresAt } 分享带来的冲刺报告体验权
+  bonus: {},      // uid -> { from, fromName, at, expiresAt } 分享带来的冲刺报告体验权
+  feedback: []    // 页脚「提建议」收上来的，最新的在最后
 };
 
 /* 分享体验权有效期：拿到的是「限时免费」，不是买断 */
@@ -70,7 +72,8 @@ const FILES = {
   users: path.join(DATA_DIR, 'users.json'),
   cloud: path.join(DATA_DIR, 'cloud.json'),
   stats: path.join(DATA_DIR, 'stats.json'),
-  plaza: path.join(DATA_DIR, 'plaza.json')
+  plaza: path.join(DATA_DIR, 'plaza.json'),
+  feedback: path.join(DATA_DIR, 'feedback.json')
 };
 
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* 只读环境就算了 */ }
@@ -93,6 +96,8 @@ function loadAll() {
   store.guests = (s.guests && typeof s.guests === 'object') ? s.guests : {};
   store.daily = (s.daily && typeof s.daily === 'object') ? s.daily : {};
   store.plaza = readJson(FILES.plaza, {}) || {};
+  const fb = readJson(FILES.feedback, []);
+  store.feedback = Array.isArray(fb) ? fb : (Array.isArray(fb.items) ? fb.items : []);
 
   const now = Date.now();
   Object.keys(store.sessions).forEach(function (t) {
@@ -107,8 +112,12 @@ const pay = createPayService(DATA_DIR);
 /* 观猹 OAuth2：授权码 + PKCE。配置缺失时 enabled=false，前端据此隐藏登录入口 */
 const watcha = createWatchaOAuth(DATA_DIR);
 
+/* 建议通知信。mail.config.json 缺失时 enabled=false —— 建议照样存，
+   只是不发信，绝不能因为发不出邮件就把用户的反馈丢掉 */
+const mailer = createMailer(DATA_DIR);
+
 // 防抖写盘：同一次 flush 内多个文件串行写，避免并发 rename 冲突
-const dirty = { users: false, cloud: false, stats: false, plaza: false };
+const dirty = { users: false, cloud: false, stats: false, plaza: false, feedback: false };
 let flushTimer = null;
 let flushing = false;
 
@@ -135,12 +144,13 @@ async function flushAll() {
     if (dirty.cloud) { dirty.cloud = false; jobs.push(writeAtomic(FILES.cloud, store.cloud)); }
     if (dirty.stats) { dirty.stats = false; jobs.push(writeAtomic(FILES.stats, { guests: store.guests, daily: store.daily })); }
     if (dirty.plaza) { dirty.plaza = false; jobs.push(writeAtomic(FILES.plaza, store.plaza)); }
+    if (dirty.feedback) { dirty.feedback = false; jobs.push(writeAtomic(FILES.feedback, store.feedback)); }
     await Promise.all(jobs);
   } catch (e) {
     console.error('[期末刷题] 写盘失败：', e && e.message);
   } finally {
     flushing = false;
-    if (dirty.users || dirty.cloud || dirty.stats || dirty.plaza) flushTimer = setTimeout(flushAll, 300);
+    if (dirty.users || dirty.cloud || dirty.stats || dirty.plaza || dirty.feedback) flushTimer = setTimeout(flushAll, 300);
   }
 }
 
@@ -270,8 +280,7 @@ function userFromReq(req) {
 }
 
 /* ---- 登录爆破的简单节流 ---- */
-const attempts = new Map();
-function throttle(key, limit, windowMs) {
+const attempts = new Map();function throttle(key, limit, windowMs) {
   const now = Date.now();
   const rec = attempts.get(key);
   if (!rec || now - rec.t > windowMs) { attempts.set(key, { t: now, n: 1 }); return true; }
@@ -284,9 +293,15 @@ setInterval(function () {
   attempts.forEach(function (v, k) { if (now - v.t > 15 * 60 * 1000) attempts.delete(k); });
 }, 5 * 60 * 1000).unref();
 
+/* 取客户端 IP：平台网关在前面，真实地址在 x-forwarded-for 的第一段 */
+function clientIp(req) {
+  const xf = req.headers['x-forwarded-for'];
+  const raw = (xf ? String(xf).split(',')[0] : '') || (req.socket && req.socket.remoteAddress) || '?';
+  return String(raw).trim().slice(0, 60);
+}
+
 /* ---- 记录一次访问 ---- */
-function noteVisit(kind) {
-  const d = today();
+function noteVisit(kind) {  const d = today();
   if (!store.daily[d]) store.daily[d] = { g: 0, u: 0 };
   store.daily[d][kind === 'u' ? 'u' : 'g']++;
   // 只保留最近 120 天
@@ -329,7 +344,7 @@ function serveStatic(req, res, urlPath) {
   const topDir = relToRoot.split(path.sep)[0];
   if (topDir === 'data') return fail(res, 403, '禁止访问');
   if (RETIRED_DIRS.indexOf(topDir) >= 0) return fail(res, 404, '该功能已下线');
-  if (['server.js', 'package.json', 'package-lock.json', 'pay.js', 'watcha-oauth.js'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
+  if (['server.js', 'package.json', 'package-lock.json', 'pay.js', 'watcha-oauth.js', 'mailer.js'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
 
   fs.stat(abs, function (err, st) {
     if (err || !st.isFile()) return fail(res, 404, '找不到 ' + rel);
@@ -397,6 +412,79 @@ function cleanQuestions(list) {
     });
   }
   return out;
+}
+
+/* ---------------- 页脚「提建议」 ---------------- */
+
+const FEEDBACK_KINDS = { idea: '建议', bug: '报错', want: '想要的功能' };
+const FEEDBACK_MIN = 8;          // 少于这个字基本是误点
+const FEEDBACK_MAX = 2000;       // 单条上限
+const FEEDBACK_KEEP = 500;       // 只留最近 500 条，免得文件无限长
+
+/* 建议是给人读的，用户会分行分点写 —— 不能像题干那样把换行全压成空格。
+   只做：统一换行、去零宽字符、行尾空格、连续空行压成一个 */
+function cleanFeedbackText(v, max) {
+  let t = String(v == null ? '' : v)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u200b-\u200f\u2028\u2029\ufeff]/g, '')
+    .split('\n')
+    .map(function (line) { return line.replace(/[ \t\u3000]+$/g, ''); })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (t.length > max) t = t.slice(0, max);
+  return t;
+}
+
+function feedbackKind(k) {
+  return FEEDBACK_KINDS[k] ? k : 'idea';
+}
+
+function feedbackMailBody(it) {
+  const who = it.uid ? (it.name || it.username || '登录用户') : '游客';
+  const L = [
+    '【' + FEEDBACK_KINDS[it.kind] + '】期末刷题站',
+    '',
+    '时间：' + new Date(it.at).toLocaleString('zh-CN', { hour12: false }),
+    '来自：' + who + (it.uid ? '（' + it.uid + '）' : ''),
+    '页面：' + (it.view || '—') + ' · ' + (it.ver || '未知版本'),
+    '联系：' + (it.contact || '（没留）'),
+    '',
+    '正文：',
+    it.text,
+    '',
+    '—',
+    '这条也存进了 data/feedback.json · id ' + it.id
+  ];
+  return L.join('\n');
+}
+
+/* 存下来 + 尽力发一封信。发信不 await：SMTP 慢的时候不能把用户的
+   提交卡在那儿，前端只要「收到了」这个结果 */
+function recordFeedback(it) {
+  store.feedback.push(it);
+  if (store.feedback.length > FEEDBACK_KEEP) {
+    store.feedback = store.feedback.slice(-FEEDBACK_KEEP);
+  }
+  markDirty('feedback');
+
+  if (!mailer.enabled()) {
+    it.mailed = false;
+    it.mailErr = 'no-config';
+    return;
+  }
+  mailer.send({
+    subject: '[' + FEEDBACK_KINDS[it.kind] + '] ' + new Date(it.at).toLocaleString('zh-CN', { hour12: false }),
+    text: feedbackMailBody(it)
+  }).then(function (r) {
+    it.mailed = !!r.ok;
+    it.mailErr = r.ok ? '' : (r.error || 'unknown');
+    markDirty('feedback');
+  }).catch(function (e) {
+    it.mailed = false;
+    it.mailErr = (e && e.message) || 'unknown';
+    markDirty('feedback');
+  });
 }
 
 // 列表里不带题目正文，只有一屏能显示的元信息，省流量
@@ -914,6 +1002,55 @@ const routes = {
     delete store.plaza[it.id];
     markDirty('plaza');
     ok(res, { removed: it.id });
+  },
+
+  /* ---------------- 页脚「提建议」 ---------------- */
+
+  /* 不用登录：登录墙放在这儿，等于把「想吐槽两句」的人挡在门外。
+     代价是要自己限流，见下面的 throttle */
+  'POST /api/feedback': async function (req, res) {
+    const ip = clientIp(req);
+    if (!throttle('fb:' + ip, 5, 10 * 60 * 1000)) {
+      return fail(res, 429, '收到好几条了，歇一会儿再提');
+    }
+    let body;
+    try { body = parseJsonBody(await readBody(req)); } catch (e) { return fail(res, 400, '请求格式不对'); }
+
+    const text = cleanFeedbackText(body.text, FEEDBACK_MAX);
+    if (text.length < FEEDBACK_MIN) return fail(res, 400, '再多写几个字吧（至少 ' + FEEDBACK_MIN + ' 个字）');
+
+    const u = userFromReq(req);
+    const it = {
+      id: uid('fb'),
+      at: Date.now(),
+      kind: feedbackKind(body.kind),
+      text: text,
+      contact: cleanText(body.contact, 60),
+      ver: cleanText(body.ver, 20),
+      view: cleanText(body.view, 20),
+      uid: u ? u.id : '',
+      name: u ? (u.name || u.username || '') : '',
+      ip: ip,
+      ua: cleanText(req.headers['user-agent'], 160),
+      mailed: false,
+      mailErr: ''
+    };
+    recordFeedback(it);
+
+    // 给前端的话里不暴露「邮件发没发出去」，那是站长的运维细节
+    ok(res, { id: it.id, thanks: true });
+  },
+
+  /* 站长看收到的建议：邮件只是通知，真身在这儿存着，漏不了 */
+  'GET /api/admin/feedback': function (req, res) {
+    const me = userFromReq(req);
+    if (!me) return fail(res, 401, '请先登录');
+    if (me.role !== 'admin') return fail(res, 403, '只有站长能看这个');
+    ok(res, {
+      items: store.feedback.slice().reverse().slice(0, 200),
+      total: store.feedback.length,
+      mail: { enabled: mailer.enabled(), to: (mailer.config() || {}).to || '' }
+    });
   },
 
   /* ---------------- 冲刺报告：权益查询 / 额度扣减 ---------------- */

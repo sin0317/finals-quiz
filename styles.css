@@ -1630,3 +1630,131 @@ strong, b { font-weight: 800; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ---------------- 页脚「提建议」 ---------------- */
+.app-footer .foot-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  margin-left: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.app-footer .foot-link svg { color: var(--brand); }
+.app-footer .foot-link:hover,
+.app-footer .foot-link:focus-visible {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  outline: none;
+}
+.app-footer .foot-link:active { transform: translateY(1px); }
+
+/* 三种类型：三个胶囊，选中才亮 */
+.fb-kinds { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.fb-kind {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 8px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.fb-kind:hover { border-color: var(--brand); color: var(--brand); }
+.fb-kind.on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 600;
+}
+.fb-textarea {
+  display: block;
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+  min-height: 96px;
+}
+.fb-textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+.fb-count-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -8px 0 14px;
+  font-size: 12.5px;
+}
+
+/* 发出去之后：一句「收到了」就够了，别再来一段感谢信 */
+.fb-done { text-align: center; padding: 20px 4px 12px; }
+.fb-done-icon {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 21px;
+  font-weight: 700;
+}
+.fb-done b { display: block; font-size: 16px; color: var(--ink); margin-bottom: 9px; }
+.fb-done p { margin: 0 0 6px; font-size: 13px; line-height: 1.75; color: var(--ink-2); }
+.fb-done p.muted { color: var(--muted); font-size: 12.5px; }
+
+/* ---------------- 站长看板：收到的建议 ---------------- */
+.admin-fb {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.admin-fb .fld-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.admin-fb-list { max-height: 340px; overflow-y: auto; }
+.admin-fb-item {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.admin-fb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+.admin-fb-text {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink);
+  word-break: break-word;
+}
+.admin-fb-meta { margin-top: 6px; font-size: 12px; color: var(--muted); }

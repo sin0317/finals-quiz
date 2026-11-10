@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.21.15" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.21.16" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -372,6 +372,10 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
         <th>昵称</th><th>注册时间</th><th>最近活跃</th><th>登录</th><th>题集</th><th>题目</th><th>答题</th><th>正确率</th><th>同步时间</th>
       </tr></thead><tbody></tbody></table></div>
       <div class="chart-row" id="adminDaily"></div>
+      <div class="admin-fb" id="adminFb">
+        <div class="fld-head"><span>收到的建议</span><em class="muted" id="adminFbMeta"></em></div>
+        <div id="adminFbList" class="admin-fb-list"></div>
+      </div>
       <div class="row right"><button class="btn ghost" id="adminRefreshBtn">刷新</button></div>
     </div>
 
@@ -458,7 +462,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.21.15</span>
+    <span id="appVer">期末刷题站 v1.21.16</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -466,6 +470,12 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       </svg>
       <span>给我 Star</span>
     </a>
+    <button class="foot-link" id="fbOpenBtn" type="button" title="用着哪儿别扭、哪道题出得不对、想要什么功能 —— 写给我，直接到邮箱">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M8 1.8c-3.6 0-6.5 2.5-6.5 5.6 0 1.7.9 3.2 2.3 4.2v2.5a.4.4 0 0 0 .64.32l2.3-1.6c.4.06.83.1 1.26.1 3.6 0 6.5-2.5 6.5-5.6S11.6 1.8 8 1.8Z"/>
+      </svg>
+      <span>提建议</span>
+    </button>
     <a class="watcha-badge" id="watchaBadge" href="https://watcha.cn/products/qi-mo-shua-ti-zhan?utm_source=product-badge&amp;utm_content=invite" target="_blank" rel="noopener noreferrer" title="期末刷题站在观猹上架了，去点评一句">
       <img src="assets/watcha-badge.png" alt="期末刷题站 观猹徽章" width="400" height="84">
     </a>
@@ -610,11 +620,59 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
   </div>
 </div>
 
+<div id="fbModal" class="modal" hidden>
+  <div class="modal-mask" data-fbclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>给站长提个建议</div>
+      <button class="mini-btn" data-fbclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body" id="fbBody">
+      <p class="modal-tip">用着别扭的地方、哪道题出得不对、想要什么功能 —— 直接写，会发到站长邮箱，不用登录。写清「在哪一步」「点了什么」最好复现。</p>
+      <div class="fb-kinds" id="fbKinds">
+        <button type="button" class="fb-kind on" data-kind="idea">提个建议</button>
+        <button type="button" class="fb-kind" data-kind="bug">哪儿出错了</button>
+        <button type="button" class="fb-kind" data-kind="want">想要的功能</button>
+      </div>
+      <label class="fld">
+        <span>具体说说</span>
+        <textarea id="fbText" class="fb-textarea" rows="5" maxlength="2000" spellcheck="false"
+          placeholder="例如：导入一份答案带括号的卷子，第 3 题的选项被拆成了两条，一条是残句"></textarea>
+      </label>
+      <div class="fb-count-line">
+        <span class="muted" id="fbCount">0 / 2000</span>
+        <span class="grow"></span>
+        <span class="muted" id="fbVerTag"></span>
+      </div>
+      <label class="fld">
+        <span>留个联系方式？（可留空）</span>
+        <input id="fbContact" class="input" maxlength="60" autocomplete="off"
+          placeholder="邮箱 / QQ / 微信，想听回音的时候留一个">
+      </label>
+      <div class="modal-err" id="fbErr" hidden></div>
+    </div>
+    <div class="modal-body" id="fbDone" hidden>
+      <div class="fb-done">
+        <div class="fb-done-icon">✓</div>
+        <b>收到了，谢谢。</b>
+        <p>每一条都会被读到 —— 你踩到的坑，很可能下一个人也会踩。</p>
+        <p class="muted" id="fbDoneNote"></p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="fbFootHint"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-fbclose="1" id="fbCancelBtn">取消</button>
+      <button class="btn primary" id="fbSendBtn">发送</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="vendor/qr-mini.js?v=1.21.15"></script>
-<script src="app.js?v=1.21.15" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="vendor/qr-mini.js?v=1.21.16"></script>
+<script src="app.js?v=1.21.16" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>
