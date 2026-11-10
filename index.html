@@ -3,7 +3,7 @@
 <meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
 <title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.21.12" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
+<link rel="stylesheet" href="styles.css?v=1.21.13" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
 <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
 <body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
 
@@ -322,6 +322,17 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
   <section class="view" id="view-stats" hidden="" data-page-node-id="PNMTL2oAFXNwAWHcJ9eAMB">
     <div class="kpis" id="kpis" data-page-node-id="kB1woHNlVAr7ZvCo5cRtX3"></div>
 
+    <div class="card">
+      <div class="card-head">
+        <h3>今日战绩</h3>
+      </div>
+      <div id="todayLine" class="today-line"></div>
+      <div class="row">
+        <button class="btn primary" id="genCardBtn">生成战绩卡</button>
+        <span class="muted">存成竖图，带站点二维码</span>
+      </div>
+    </div>
+
     <div class="cols" data-page-node-id="iPWSObh68IxvaI0WtEdmRu">
       <div class="card" data-page-node-id="qle7z2AbH0grp97r5GQRRk">
         <div class="card-head" data-page-node-id="Eyxz0VQtUgji1yO6RZ9W3w"><h3 data-page-node-id="KAL9HsKy4iOhwOGIfxGIgm">掌握度分布</h3></div>
@@ -449,7 +460,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.21.12</span>
+    <span id="appVer">期末刷题站 v1.21.13</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -582,10 +593,30 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
   </div>
 </div>
 
+<div id="cardModal" class="modal" hidden>
+  <div class="modal-mask" data-cardclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>今日战绩卡</div>
+      <button class="mini-btn" data-cardclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body card-preview-body">
+      <img id="cardPreview" alt="今日战绩卡">
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="cardTip"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-cardclose="1">关闭</button>
+      <button class="btn primary" id="cardSaveBtn">保存图片</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
 
 <script src="vendor/workbuddy-cloud.js"></script>
-<script src="app.js?v=1.21.12" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="vendor/qr-mini.js?v=1.21.13"></script>
+<script src="app.js?v=1.21.13" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
 
 
 </body></html>

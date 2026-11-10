@@ -11,6 +11,7 @@
   var LS_SR = 'fq_sr_v1';   // 间隔复习的排期：每组抽题都用它算「该不该来」
   var LS_QUIZ = 'fq_quiz_v1';   // 这场刷题刷到哪了：刷新 / 关页面再开都能接着答
   var LS_LOG = 'fq_log_v1';
+  var LS_DAILY = 'fq_daily_v1';   // 每日明细：分享卡要按「今天」算，log 里只有总数
   var LS_CUR = 'fq_current_v1';
   var LS_THEME = 'fq_theme_v1';
 
@@ -18,7 +19,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.12';
+  var FQ_VERSION = '1.21.13';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1936,6 +1937,7 @@
     banks: [],
     stats: {},
     log: [],
+    daily: [],                // [{d:'2026-11-10', q:{qid:{o,b}}}]，只留最近 14 天
     cur: null,
     preview: [],
     view: 'import',
@@ -1956,6 +1958,7 @@
       localStorage.setItem(LS_BANKS, JSON.stringify(S.banks));
       localStorage.setItem(LS_STATS, JSON.stringify(S.stats));
       localStorage.setItem(LS_LOG, JSON.stringify(S.log));
+      localStorage.setItem(LS_DAILY, JSON.stringify(S.daily));
       localStorage.setItem(LS_SR, JSON.stringify(SR));
       localStorage.setItem(LS_CUR, S.cur || '');
     } catch (e) {
@@ -1968,12 +1971,14 @@
       S.banks = JSON.parse(localStorage.getItem(LS_BANKS) || '[]') || [];
       S.stats = JSON.parse(localStorage.getItem(LS_STATS) || '{}') || {};
       S.log = JSON.parse(localStorage.getItem(LS_LOG) || '[]') || [];
+      S.daily = JSON.parse(localStorage.getItem(LS_DAILY) || '[]') || [];
+      if (!Array.isArray(S.daily)) S.daily = [];
       var sr = JSON.parse(localStorage.getItem(LS_SR) || 'null');
       if (sr && typeof sr === 'object') SR = { round: sr.round || 0, items: sr.items || {} };
       S.cur = localStorage.getItem(LS_CUR) || '';
       var th = localStorage.getItem(LS_THEME);
       if (th) document.documentElement.setAttribute('data-theme', th);
-    } catch (e) { S.banks = []; S.stats = {}; S.log = []; }
+    } catch (e) { S.banks = []; S.stats = {}; S.log = []; S.daily = []; }
     if (S.banks.length && !S.banks.some(function (b) { return b.id === S.cur; })) S.cur = S.banks[0].id;
     applyAllFixes();
   }
@@ -2033,6 +2038,71 @@
     SR.items[qid] = it;
   }
 
+  /* ---------------- 每日明细 ---------------- */
+  /* 战绩卡要回答「今天刷了几题、哪道错得最多」，而 S.log 只记了每天的总次数，
+     看不出是哪些题，也分不出对错。所以另存一份当天的逐题计数。
+     只留最近 14 天：再往前没人会拿来做分享卡，留着只占地方。 */
+  var DAILY_KEEP = 14;
+
+  function dailyRow(key, create) {
+    var d = key || today();
+    var row = null;
+    for (var i = 0; i < S.daily.length; i++) {
+      if (S.daily[i] && S.daily[i].d === d) { row = S.daily[i]; break; }
+    }
+    if (!row && create) {
+      row = { d: d, q: {} };
+      S.daily.push(row);
+      S.daily.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+      if (S.daily.length > DAILY_KEEP) S.daily = S.daily.slice(-DAILY_KEEP);
+    }
+    return row || null;
+  }
+
+  /* level 的三种取值和 recordAnswer 里一致：right / mid 算对，其余算错 */
+  function bumpDaily(qid, level) {
+    var row = dailyRow(null, true);
+    var it = row.q[qid] || { o: 0, b: 0 };
+    if (level === 'right' || level === 'mid') it.o++;
+    else it.b++;
+    row.q[qid] = it;
+  }
+
+  /* 某天的汇总。total 是「作答次数」不是「不同题数」——
+     刷两遍同一道题也是刷了两题，跟多邻国那张卡的口径一致。 */
+  function dailySummary(key) {
+    var row = dailyRow(key, false);
+    var out = {
+      d: row ? row.d : (key || today()),
+      total: 0, ok: 0, bad: 0, distinct: 0, acc: 0,
+      worst: null, worstBad: 0
+    };
+    if (!row || !row.q) return out;
+    Object.keys(row.q).forEach(function (qid) {
+      var it = row.q[qid] || { o: 0, b: 0 };
+      out.total += (it.o || 0) + (it.b || 0);
+      out.ok += it.o || 0;
+      out.bad += it.b || 0;
+      out.distinct++;
+      // 错得最多；并列时保留先遇到的（题集顺序靠前的那个）
+      if ((it.b || 0) > out.worstBad) { out.worstBad = it.b; out.worst = qid; }
+    });
+    out.acc = out.total ? Math.round(out.ok / out.total * 100) : 0;
+    return out;
+  }
+
+  /* 今天没记录就退回最近有记录的那天：晚上刷完、过了零点再看分享卡，
+     不至于只剩一张空卡。返回的日期会印在卡片上，不假装是今天。 */
+  function latestDailyKey() {
+    var t = today();
+    if (dailyRow(t, false)) return t;
+    for (var i = S.daily.length - 1; i >= 0; i--) {
+      var row = S.daily[i];
+      if (row && row.q && Object.keys(row.q).length) return row.d;
+    }
+    return t;
+  }
+
   function recordAnswer(qid, level, opts) {
     var st = getStat(qid);
     if (level === 'right') { st.ok++; st.streak++; }
@@ -2042,6 +2112,7 @@
     st.mastery = calcMastery(st);
     st.mastered = st.mastery >= 0.9 && st.streak >= 3;
     S.stats[qid] = st;
+    bumpDaily(qid, level);
     var d = today();
     var row = S.log.filter(function (x) { return x.d === d; })[0];
     if (!row) { row = { d: d, n: 0 }; S.log.push(row); }
@@ -5277,10 +5348,13 @@
         '<button class="btn ghost" id="toWrongView">打开错题本</button></div>';
     }
     html += '<div class="row" style="margin-top:14px"><button class="btn primary" id="againBtn">再来一组</button>' +
+      '<button class="btn ghost" id="cardFromResult">存张战绩卡</button>' +
       '<span class="muted">' + esc(nextTip) + '</span></div></div>';
     $('#quizBody').innerHTML = html;
 
     $('#againBtn').addEventListener('click', function () { startQuiz(true); });
+    // 刚刷完正是最有分享欲的时候，入口就放在结算页，不用再跑去统计页
+    if ($('#cardFromResult')) $('#cardFromResult').addEventListener('click', openCardModal);
     if ($('#drillWrong')) $('#drillWrong').addEventListener('click', function () {
       $('#rRange').value = 'wrong';
       switchView('recite');
@@ -5912,6 +5986,549 @@
   /* =========================================================
      ⑥ 数据统计
      ========================================================= */
+  /* =========================================================
+     今日战绩卡（canvas 画成图，给用户存下来发朋友圈/小红书）
+     ---------------------------------------------------------
+     为什么不直接截图：用户要发的是一张 1080×1440 的干净图，带浏览器
+     地址栏的截图没法用。这里按宣传图那套版式用 canvas 重画一遍，
+     二维码用 vendor/qr-mini.js 现场编码当前地址（换域名不用改代码）。
+     ========================================================= */
+  var CARD_PX = { w: 1080, h: 1440, scale: 2 };
+  var CARD_FONT = '"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif';
+  var CARD_NUM_FONT = '"Arial Black","Microsoft YaHei UI",sans-serif';
+
+  function cardFont(g, weight, size, family) {
+    g.font = weight + ' ' + size + 'px ' + (family || CARD_FONT);
+  }
+  function cardRound(g, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+  function cardMeasureWrap(g, str, maxW) {
+    var out = [], cur = '';
+    for (var i = 0; i < str.length; i++) {
+      var next = cur + str.charAt(i);
+      if (cur && g.measureText(next).width > maxW) { out.push(cur); cur = str.charAt(i); }
+      else cur = next;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  function cardClipLines(g, lines, maxN, maxW) {
+    if (lines.length <= maxN) return lines;
+    var out = lines.slice(0, maxN);
+    var last = out[maxN - 1];
+    while (last.length > 1 && g.measureText(last + '…').width > maxW) last = last.slice(0, -1);
+    out[maxN - 1] = last + '…';
+    return out;
+  }
+
+  /* 当前地址就是二维码的内容：线上带 sharecode，换域名自动跟着变。
+     登录回调会挂 code/state（一次性的），不能印进去。 */
+  function shareUrl() {
+    try {
+      var u = new URL(location.href);
+      ['code', 'state', 'provider', 'error'].forEach(function (k) { u.searchParams.delete(k); });
+      u.hash = '';
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('not-http');
+      return u.toString();
+    } catch (e) {
+      return (typeof CLOUD_CFG !== 'undefined' ? CLOUD_CFG.endpoint : 'https://2119633980357275648.app.workbuddy.host') + '/';
+    }
+  }
+
+  function dayLabel(key) {
+    var p = String(key || today()).split('-');
+    if (p.length < 3) return '';
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var w = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+    return (+p[1]) + ' / ' + (+p[2]) + ' ' + w;
+  }
+
+  /* 题干的纯文本版：canvas 吃不了 HTML，空位统一成一条下划线 */
+  function cardStemText(q) {
+    if (!q) return '';
+    var t = (q.fix && q.fix.stem) || q.stem || '';
+    return String(t).replace(/<[^>]+>/g, '').replace(/[_＿]{2,}/g, ' ______ ')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  function cardData() {
+    var key = latestDailyKey();
+    var sum = dailySummary(key);
+    return {
+      day: key,
+      dayLabel: dayLabel(key),
+      isToday: key === today(),
+      total: sum.total,
+      ok: sum.ok,
+      bad: sum.bad,
+      acc: sum.acc,
+      worstQ: sum.worst ? getQ(sum.worst) : null,
+      worstBad: sum.worstBad,
+      url: shareUrl()
+    };
+  }
+
+  /* ---------------- 画 ---------------- */
+  function paintCardBg(g, W, H) {
+    var bg = g.createLinearGradient(0, 0, W * 0.62, H);
+    bg.addColorStop(0, '#332f86');
+    bg.addColorStop(0.46, '#241f5e');
+    bg.addColorStop(1, '#171337');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+
+    var glow = g.createRadialGradient(950, -170, 40, 950, -170, 740);
+    glow.addColorStop(0, 'rgba(129,140,248,0.42)');
+    glow.addColorStop(1, 'rgba(129,140,248,0)');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, W, H);
+
+    var glow2 = g.createRadialGradient(-70, 1560, 30, -70, 1560, 660);
+    glow2.addColorStop(0, 'rgba(99,102,241,0.30)');
+    glow2.addColorStop(1, 'rgba(99,102,241,0)');
+    g.fillStyle = glow2;
+    g.fillRect(0, 0, W, H);
+
+    // 右上角那片点阵：和版式里 CSS mask 出来的位置对应
+    g.save();
+    g.fillStyle = '#ffffff';
+    for (var y = 0; y < 780; y += 26) {
+      for (var x = 360; x < W; x += 26) {
+        var dd = Math.sqrt((x - 810) * (x - 810) + (y - 150) * (y - 150));
+        if (dd > 600) continue;
+        g.globalAlpha = 0.30 * (1 - dd / 600);
+        g.beginPath();
+        g.arc(x, y, 1.1, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    g.restore();
+  }
+
+  function paintCardHead(g, W, d) {
+    var PAD = 64;
+    var lg = g.createLinearGradient(PAD, 54, PAD + 46, 100);
+    lg.addColorStop(0, '#a5b4fc');
+    lg.addColorStop(0.52, '#6366f1');
+    lg.addColorStop(1, '#4338ca');
+    cardRound(g, PAD, 52, 46, 46, 13);
+    g.fillStyle = lg;
+    g.fill();
+
+    cardFont(g, '800', 25);
+    g.fillStyle = '#fff';
+    g.textAlign = 'center';
+    g.fillText('题', PAD + 23, 84);
+    g.textAlign = 'left';
+
+    cardFont(g, '800', 27);
+    g.fillStyle = '#fff';
+    g.fillText('期末刷题站', PAD + 62, 76);
+
+    cardFont(g, '600', 18);
+    g.fillStyle = 'rgba(255,255,255,0.52)';
+    g.fillText('笔记 → 题目，自己出题自己考', PAD + 62, 100);
+
+    // 日期胶囊
+    cardFont(g, '700', 19);
+    var label = d.dayLabel;
+    var pw = g.measureText(label).width + 38;
+    var px = W - PAD - pw, py = 54, ph = 42;
+    cardRound(g, px, py, pw, ph, 21);
+    g.fillStyle = 'rgba(255,255,255,0.10)';
+    g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.16)';
+    g.lineWidth = 1;
+    g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.82)';
+    g.textAlign = 'center';
+    g.fillText(label, px + pw / 2, py + 28);
+    g.textAlign = 'left';
+  }
+
+  function paintCardTitle(g, d) {
+    var PAD = 64;
+    cardFont(g, '800', 20);
+    g.fillStyle = '#a5b4fc';
+    try { g.letterSpacing = '4px'; } catch (e) { /* 老浏览器不认，挤一点也能看 */ }
+    g.fillText(d.isToday ? '今日战绩' : d.dayLabel + ' 的战绩', PAD, 168);
+    try { g.letterSpacing = '0px'; } catch (e) { /* 忽略 */ }
+
+    cardFont(g, '900', 66);
+    g.fillStyle = '#fff';
+    g.fillText('今天的题，', PAD, 258);
+    g.fillStyle = '#86efac';
+    g.fillText('没白刷。', PAD, 334);
+  }
+
+  function paintCardSticker(g, cardX, cardY, cardW, d) {
+    var cx = cardX + cardW - 74;
+    var cy = cardY - 20;
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(9 * Math.PI / 180);
+    g.beginPath();
+    g.arc(0, 0, 50, 0, Math.PI * 2);
+    g.fillStyle = '#fff';
+    g.fill();
+    var rg = g.createLinearGradient(-40, -40, 40, 40);
+    rg.addColorStop(0, '#f87171');
+    rg.addColorStop(1, '#dc2626');
+    g.beginPath();
+    g.arc(0, 0, 44, 0, Math.PI * 2);
+    g.fillStyle = rg;
+    g.fill();
+    g.textAlign = 'center';
+    cardFont(g, '900', 32, CARD_NUM_FONT);
+    g.fillStyle = '#fff';
+    g.fillText('×' + d.worstBad, 0, -2);
+    cardFont(g, '800', 15);
+    g.fillText('栽在这', 0, 22);
+    g.textAlign = 'left';
+    g.restore();
+  }
+
+  function paintCardChip(g, x, y, big, label, kind, scale) {
+    var k = scale || 1;
+    cardFont(g, '900', Math.round(25 * k), CARD_NUM_FONT);
+    var bw = g.measureText(big).width;
+    cardFont(g, '800', Math.round(21 * k));
+    var lw = g.measureText(label).width;
+    var w = bw + lw + Math.round(46 * k), h = Math.round(54 * k);
+
+    var isErr = kind === 'err';
+    cardRound(g, x, y, w, h, Math.round(13 * k));
+    g.fillStyle = isErr ? '#fef2f2' : '#eafaf0';
+    g.fill();
+    g.strokeStyle = isErr ? '#fbd5d5' : '#c9f0d8';
+    g.lineWidth = 1.5;
+    g.stroke();
+
+    cardFont(g, '900', Math.round(25 * k), CARD_NUM_FONT);
+    g.fillStyle = isErr ? '#b91c1c' : '#166534';
+    g.fillText(big, x + Math.round(20 * k), y + Math.round(37 * k));
+
+    cardFont(g, '800', Math.round(21 * k));
+    g.fillStyle = isErr ? '#b91c1c' : '#166534';
+    g.fillText(label, x + Math.round(20 * k) + bw + 8, y + Math.round(36 * k));
+    return w;
+  }
+
+  function paintCardPanel(g, x, y, w, h) {
+    g.save();
+    g.shadowColor = 'rgba(8,6,30,0.45)';
+    g.shadowBlur = 60;
+    g.shadowOffsetY = 26;
+    cardRound(g, x, y, w, h, 44);
+    g.fillStyle = '#fff';
+    g.fill();
+    g.restore();
+  }
+
+  /* 排版：先把每块的位置算出来，再动手画。
+     分两步是因为卡片高度是固定的（下方还有二维码那一栏），内容一长就得知道
+     到底超了多少，才好决定把字号缩到几成 —— 一路画下去是没法回头的。 */
+  function layoutCard(g, cardW, d, scale) {
+    var k = scale || 1;
+    var PADX = 48;
+    var cw = cardW - PADX * 2;
+    var y = 44;                                   // 相对卡片顶
+
+    var labelBase = y + Math.round(20 * k);
+    y += Math.round(34 * k);
+
+    // 大数字：位数多了先自己缩，缩到底还不能塞进版面就交给外层缩放
+    var numSize = Math.round(232 * k);
+    var numTxt = String(d.total);
+    cardFont(g, '900', numSize, CARD_NUM_FONT);
+    while (numSize > 120 && g.measureText(numTxt).width > cw * 0.70) {
+      numSize -= 6;
+      cardFont(g, '900', numSize, CARD_NUM_FONT);
+    }
+    var numW = g.measureText(numTxt).width;
+    var numBase = y + Math.round(numSize * 0.74);
+    var unitSize = Math.round(60 * k);
+    y = numBase + Math.round(34 * k);
+
+    var chipY = y;
+    var chipH = Math.round(54 * k);
+    y += chipH + Math.round(30 * k);
+
+    var ruleY = y;
+    y += 2 + Math.round(32 * k);
+
+    var wheadBase = y + Math.round(24 * k);
+    y += Math.round(24 * k) + Math.round(30 * k);
+
+    var stemSize = Math.round(32 * k);
+    var stem = d.worstQ ? cardStemText(d.worstQ) : '今天没错题';
+    cardFont(g, '700', stemSize);
+    var stemLines = cardClipLines(g, cardMeasureWrap(g, stem, cw), 3, cw);
+    var lineH = Math.round(50 * k);
+    var stemTop = y + Math.round(30 * k);
+    y = stemTop + (stemLines.length - 1) * lineH + Math.round(28 * k);
+
+    var ansSize = Math.round(26 * k);
+    var ans = d.worstQ ? String(answerText(d.worstQ) || '') : '明天再来一组';
+    cardFont(g, '600', ansSize);
+    var ansLines = cardClipLines(g, cardMeasureWrap(g, ans, cw - 48), 2, cw - 48);
+    var boxTop = y;
+    var boxLabH = Math.round(36 * k);
+    var ansLineH = Math.round(42 * k);
+    var boxH = Math.round(22 * k) + boxLabH + Math.round(10 * k) +
+      ansLines.length * ansLineH + Math.round(22 * k);
+    y = boxTop + boxH + Math.round(42 * k);
+
+    var tailBase = y + Math.round(28 * k);
+
+    return {
+      k: k, PADX: PADX, cw: cw,
+      labelBase: labelBase,
+      numSize: numSize, numTxt: numTxt, numW: numW, numBase: numBase, unitSize: unitSize,
+      chipY: chipY, chipH: chipH, ruleY: ruleY, wheadBase: wheadBase,
+      stemSize: stemSize, stemLines: stemLines, lineH: lineH, stemTop: stemTop,
+      ansSize: ansSize, ansLines: ansLines, boxTop: boxTop, boxH: boxH,
+      boxLabH: boxLabH, ansLineH: ansLineH, tailBase: tailBase,
+      height: tailBase + Math.round(30 * k)
+    };
+  }
+
+  function paintCardContent(g, cardX, cardY, lay, d) {
+    var x = cardX + lay.PADX;
+    var k = lay.k;
+
+    cardFont(g, '800', Math.round(23 * k));
+    g.fillStyle = '#6b7280';
+    g.fillText(d.isToday ? '今日已刷' : '当天已刷', x, cardY + lay.labelBase);
+
+    cardFont(g, '900', lay.numSize, CARD_NUM_FONT);
+    g.fillStyle = '#1f1b5c';
+    g.fillText(lay.numTxt, x, cardY + lay.numBase);
+
+    // 「题」比数字基线再抬 6px：Arial Black 的数字底部留了一点空隙，
+    // 贴同一根基线会看着往下掉
+    cardFont(g, '900', lay.unitSize);
+    g.fillStyle = '#4338ca';
+    g.fillText('题', x + lay.numW + 12, cardY + lay.numBase - 6);
+
+    var w1 = paintCardChip(g, x, cardY + lay.chipY, d.acc + '%', ' 正确率', 'ok', k);
+    paintCardChip(g, x + w1 + 14, cardY + lay.chipY, String(d.bad), ' 道答错', 'err', k);
+
+    g.fillStyle = '#f1f2f6';
+    g.fillRect(x, cardY + lay.ruleY, lay.cw, 2);
+
+    var wy = cardY + lay.wheadBase;
+    cardFont(g, '900', Math.round(24 * k));
+    g.fillStyle = '#1f2434';
+    g.fillText('最缠人的一题', x, wy);
+
+    var titleW = g.measureText('最缠人的一题').width;
+    cardFont(g, '800', Math.round(16 * k));
+    var tag = '错了 ' + d.worstBad + ' 次';
+    var tagW = g.measureText(tag).width + Math.round(22 * k);
+    var tagH = Math.round(32 * k);
+    cardRound(g, x + titleW + 15, wy - tagH + Math.round(10 * k), tagW, tagH, 8);
+    g.fillStyle = '#fee2e2';
+    g.fill();
+    g.fillStyle = '#b91c1c';
+    g.fillText(tag, x + titleW + 15 + Math.round(11 * k), wy);
+
+    cardFont(g, '700', lay.stemSize);
+    g.fillStyle = '#2b3040';
+    lay.stemLines.forEach(function (ln, i) {
+      g.fillText(ln, x, cardY + lay.stemTop + i * lay.lineH);
+    });
+
+    var boxY = cardY + lay.boxTop;
+    cardRound(g, x, boxY, lay.cw, lay.boxH, Math.round(18 * k));
+    g.fillStyle = '#f5fbf7';
+    g.fill();
+    g.strokeStyle = '#d3efdf';
+    g.lineWidth = 1.5;
+    g.stroke();
+
+    cardFont(g, '800', Math.round(18 * k));
+    g.fillStyle = '#15803d';
+    g.fillText('这么答才对', x + 24, boxY + Math.round(22 * k) + Math.round(26 * k));
+
+    cardFont(g, '600', lay.ansSize);
+    g.fillStyle = '#374151';
+    lay.ansLines.forEach(function (ln, i) {
+      g.fillText(ln, x + 24, boxY + Math.round(22 * k) + lay.boxLabH + Math.round(10 * k) +
+        Math.round(30 * k) + i * lay.ansLineH);
+    });
+
+    var tailY = cardY + lay.tailBase;
+    g.fillStyle = 'rgba(99,102,241,0.9)';
+    cardRound(g, x, tailY - Math.round(30 * k), 5, Math.round(44 * k), 3);
+    g.fill();
+    cardFont(g, '800', Math.round(29 * k));
+    g.fillStyle = '#3b4152';
+    g.fillText('错，也是一种进度。', x + 20, tailY);
+  }
+
+  function paintCardFoot(g, W, H, d) {
+    var PAD = 64;
+    var qrSize = 230;
+    var top = H - 34 - qrSize;
+
+    cardRound(g, PAD, top, qrSize, qrSize, 26);
+    g.fillStyle = '#fff';
+    g.fill();
+
+    // 二维码本体：模块边长取整，剩下的用居中偏移吃掉，避免半像素糊掉
+    // 内边距 20：一模块 5px 时正好留出 4 个模块的静区，扫码才认得出边界
+    var inner = qrSize - 40;
+    var ox = PAD + 20, oy = top + 20;
+    try {
+      var q = QRMini.encode(d.url);
+      var cell = Math.max(1, Math.floor(inner / q.size));
+      var side = cell * q.size;
+      ox += Math.floor((inner - side) / 2);
+      oy += Math.floor((inner - side) / 2);
+      g.fillStyle = '#151a2d';
+      for (var r = 0; r < q.size; r++) {
+        for (var c = 0; c < q.size; c++) {
+          if (q.at(r, c)) g.fillRect(ox + c * cell, oy + r * cell, cell, cell);
+        }
+      }
+    } catch (e) {
+      // 链接长得超出版本 6 时兜底：不画码，其余部分照常可用
+      cardFont(g, '700', 18);
+      g.fillStyle = '#9aa1b0';
+      g.textAlign = 'center';
+      g.fillText('二维码生成失败', PAD + qrSize / 2, top + qrSize / 2);
+      g.textAlign = 'left';
+    }
+
+    var tx = PAD + qrSize + 34;
+    cardFont(g, '900', 34);
+    g.fillStyle = '#fff';
+    g.fillText('扫码，把你的笔记', tx, top + 52);
+    g.fillText('也变成题', tx, top + 98);
+
+    cardFont(g, '600', 21);
+    g.fillStyle = 'rgba(255,255,255,0.62)';
+    g.fillText('不内置题库，内容全是你自己的材料', tx, top + 142);
+
+    g.fillStyle = '#6366f1';
+    g.fillRect(tx, top + 164, 3, 22);
+    cardFont(g, '700', 17);
+    g.fillStyle = '#c7d2fe';
+    g.fillText('错题会自动回来找你', tx + 13, top + 182);
+  }
+
+  function drawShareCard(cv, d) {
+    var W = CARD_PX.w, H = CARD_PX.h;
+    cv.width = W * CARD_PX.scale;
+    cv.height = H * CARD_PX.scale;
+    var g = cv.getContext('2d');
+    if (!g) return false;
+    g.setTransform(CARD_PX.scale, 0, 0, CARD_PX.scale, 0, 0);
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+
+    var cardX = 64, cardY = 352, cardW = W - 128, cardH = 800;
+
+    // 排一遍看看多高：超了就把整体缩一点，最多缩到 0.82（再小就不好读了）
+    var lay = layoutCard(g, cardW, d, 1);
+    var avail = cardH - 18;
+    var k = 1;
+    while (lay.height > avail && k > 0.82) {
+      k -= 0.04;
+      lay = layoutCard(g, cardW, d, k);
+    }
+
+    paintCardBg(g, W, H);
+    paintCardHead(g, W, d);
+    paintCardTitle(g, d);
+    paintCardPanel(g, cardX, cardY, cardW, cardH);
+    paintCardContent(g, cardX, cardY, lay, d);
+    paintCardSticker(g, cardX, cardY, cardW, d);
+    paintCardFoot(g, W, H, d);
+    return true;
+  }
+
+  var CARD_CANVAS = null;
+
+  /* 出图统一走这里：弹窗预览和保存用的是同一张 canvas，避免两处画得不一样 */
+  function cardImageUrl() {
+    var d = cardData();
+    if (!d.total) return '';            // 今天一题没刷，就别给一张空卡
+    try {
+      if (!CARD_CANVAS) CARD_CANVAS = document.createElement('canvas');
+      if (!drawShareCard(CARD_CANVAS, d)) return '';
+      return CARD_CANVAS.toDataURL('image/png');
+    } catch (e) {
+      return '';                        // 浏览器画不了（老 WebView / 隐私模式）就走提示这条路
+    }
+  }
+
+  function openCardModal() {
+    var d = cardData();
+    if (!d.total) {
+      toast('今天还没刷题，先刷一组再来');
+      return;
+    }
+    var url = cardImageUrl();
+    if (!url) {
+      toast('这台浏览器画不了图，换个浏览器试试');
+      return;
+    }
+    $('#cardPreview').src = url;
+    $('#cardModal').hidden = false;
+    $('#cardTip').textContent = d.isToday ? '' : '这是 ' + d.dayLabel + ' 的战绩';
+    $('#cardSaveBtn').hidden = false;
+  }
+
+  function closeCardModal() {
+    var m = $('#cardModal');
+    if (!m) return;
+    m.hidden = true;
+    var img = $('#cardPreview');
+    if (img) img.removeAttribute('src');    // 别把几千像素的图一直挂在 DOM 上
+  }
+
+  function saveCardImage() {
+    var cv = CARD_CANVAS;
+    if (!cv) return;
+    var name = '期末刷题站-战绩-' + (cardData().day || today()) + '.png';
+    function fallback() {
+      // 老 Safari 不认 a[download]：图片已经在弹窗里了，长按也能存
+      toast('这台设备不支持直接下载，长按图片保存');
+    }
+    if (!cv.toBlob) return fallback();
+    cv.toBlob(function (blob) {
+      if (!blob) return fallback();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      toast('已存到下载目录');
+    }, 'image/png');
+  }
+
+  $('#genCardBtn').addEventListener('click', openCardModal);
+  $('#cardSaveBtn').addEventListener('click', saveCardImage);
+  $('#cardModal').addEventListener('click', function (e) {
+    if (e.target && e.target.getAttribute('data-cardclose')) closeCardModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('#cardModal').hidden) closeCardModal();
+  });
+
   function renderStats() {
     var qs = getQs();
     var practiced = qs.filter(function (q) { var s = S.stats[q.id]; return s && (s.ok + s.bad) > 0; });
@@ -5928,6 +6545,22 @@
     ].map(function (p) {
       return '<div class="kpi"><div class="kpi-num">' + p[1] + '</div><div class="kpi-label">' + p[0] + '</div></div>';
     }).join('');
+
+    // 今日战绩：先把卡上的数字在页面上露一眼，省得点开才知道今天刷没刷
+    var tline = $('#todayLine');
+    if (tline) {
+      var cd = cardData();
+      if (!cd.total) {
+        tline.innerHTML = '<span class="muted">今天还没开始刷 —— 刷一组就有卡可存</span>';
+      } else {
+        var wq = cd.worstQ ? cardStemText(cd.worstQ) : '';
+        if (wq.length > 30) wq = wq.slice(0, 30) + '…';
+        tline.innerHTML =
+          '<b>' + cd.total + '</b> 题 · 正确率 <b>' + cd.acc + '%</b> · 错 ' + cd.bad + ' 次' +
+          (cd.isToday ? '' : ' <span class="muted">（' + esc(cd.dayLabel) + ' · 不是今天）</span>') +
+          (wq ? '<div class="today-worst">最缠人：' + esc(wq) + '</div>' : '');
+      }
+    }
 
     // 掌握度分布
     var buckets = [
@@ -6966,16 +7599,16 @@
      只在推文里说没人看得见，站内得有一句话。 */
   var LS_NOTICE = 'fq_notice_v1';
   var NOTICE = {
-    id: '2026-11-09-multi-picked',
-    title: '链接换了，多选判分也修好了',
-    lead: '五个选项全勾上、判定还是错 —— 原因是答案里的顿号把「用法、用量不适宜的」拆成两半，判分认不出你选了它。现在按卷子原文拼回整条再判，这道题重新答一次就是对的。另外旧地址 finals-quiz.app.workbuddy.host 已经不维护了，停在旧版本，别从收藏夹进。',
+    id: '2026-11-10-share-card',
+    title: '刷完能存张战绩卡了',
+    lead: '统计页顶上和一组答完的结算页，都多了「生成战绩卡」：当天刷了几题、正确率、错得最多的那道，连同站点二维码，画成一张竖图，存下来直接发群里。图是在你自己手机上画的，不上传。',
     items: [
-      '<b>多选判分改按项配对</b>：答案里一条自带顿号时，以前会被拆成两半，选项文本跟哪个碎片都对不上 —— 选全了照样判错。现在先按卷子选项把碎片拼回整条，再逐项配对；选项差个标点、答案多一句解释，都不算错。',
-      '<b>多选题的选项按卷子来</b>：以前答案里的顿号会把一条选项拆成两条（5 个变 6 个），反过来「A 包含 B」又会把另一条吞掉（4 个变 3 个）。现在选项条数以卷子为准。',
-      '<b>判分不再放过「否定字」</b>：答案是「监督学习」、你写「无监督学习」时，以前会给对号 —— 差一个字，意思正好相反。现在判错，并在答案下面点出差的是哪个字。',
-      '<b>「答案：B」单独占一行的卷子能导入了</b>：以前只认印在括号后面的答案，这种格式会被当成散文，切出一堆「……是____」的残句，看着像根本没解析出题。',
-      '<b>「……是从____」的断句修好了</b>：介词以前会跨过「是」跑到前面去，读起来像笔误。',
-      '<b>题型下拉只列你题库里真有的</b>：导一份只有单选和多选的卷子，不会再摆着名词解释和简答。'
+      '<b>入口有两个</b>：统计页点「生成战绩卡」，或者一组答完在结算页点「存张战绩卡」，都是当场出图 —— 点「保存图片」存到相册，手机也能长按图片存。',
+      '<b>卡上写什么</b>：当天刷的题数、正确率、错了几次，再挑一道当天错得最多的原题，带上正确答案；下面是二维码，扫进来就能接着刷。',
+      '<b>二维码是本地画的</b>：不调任何图片接口，断网也能出图；扫出来的是你现在这个地址，不是写死的常量，换域名不用改代码。',
+      '<b>「最缠人的一题」怎么挑</b>：同一道题按当天的错次累计，错得最多的排第一，错次一样就取先遇到的那道。',
+      '<b>过了零点再点分享</b>：今天一题没刷就退回最近有记录的那天，卡上标的是那天的日期，不会给你一张 0 题的空卡。',
+      '<b>这些数只在你本机</b>：每天按题记一笔对错，只留最近 14 天，不往服务器传。'
     ]
   };
 
@@ -7446,6 +8079,19 @@
     nextRoundTip: nextRoundTip,
     freshProgress: freshProgress,
     syncTypeOptions: syncTypeOptions,   // 题型下拉按题库实际内容重建，测试用
+    /* 战绩卡：数据汇总和出图都单独可测（canvas 在 happy-dom 里没有 2d 上下文，
+       所以绘制只能靠真机核，能测的是「喂进去的数据对不对」） */
+    dailySummary: dailySummary,
+    dailyRows: function () { return S.daily; },   // 只读引用，测试用（bumpDaily 自己不落盘）
+    latestDailyKey: latestDailyKey,
+    bumpDaily: bumpDaily,
+    cardData: cardData,
+    cardImageUrl: cardImageUrl,
+    drawShareCard: drawShareCard,
+    shareUrl: shareUrl,
+    dayLabel: dayLabel,
+    cardStemText: cardStemText,
+    renderStats: renderStats,   // 统计页整块重绘（含「今日战绩」那行），测试用
     /* 手机端工具栏折叠：摘要文案与开合状态，测试用 */
     toolbarSummary: toolbarSummary,
     foldState: function () {

@@ -70,22 +70,25 @@ const modal = (d) => d.querySelector('#noticeModal');
 const seen = (ls) => ls.getItem('fq_notice_v1');
 
 /* ---------------- 一、第一次来就弹，且文案该有的都有 ---------------- */
-console.log('\n一、第一次访问：弹公告，讲清旧地址不维护了');
+console.log('\n一、第一次访问：弹公告，把这一版讲清楚');
 {
   const { d, api, ls } = boot();
   ok(modal(d).hidden === false, '启动后公告是开着的（不用手点）');
-  ok((d.querySelector('#noticeTitle').textContent || '').indexOf('链接') >= 0,
-    '标题说的是链接这事', d.querySelector('#noticeTitle').textContent);
+  const title = d.querySelector('#noticeTitle').textContent || '';
+  ok(title.indexOf('战绩卡') >= 0, '标题说的是「战绩卡」这事', title);
   const lead = d.querySelector('#noticeLead').textContent || '';
-  ok(lead.indexOf('finals-quiz.app.workbuddy.host') >= 0, '点明了旧地址', lead.slice(0, 40));
-  ok(lead.indexOf('不维护') >= 0, '说清旧地址不维护了');
+  ok(lead.indexOf('二维码') >= 0, '导语里点到了二维码', lead.slice(0, 40));
   const items = d.querySelectorAll('#noticeList li');
   ok(items.length >= 3, '新功能列了 ' + items.length + ' 条');
-  // 公告的重点会随版本变（这一版是判分），但每一条变更都得有下落
+  // 公告的重点会随版本变（这一版是战绩卡），但每一条变更都得有下落
   const all = Array.prototype.map.call(items, function (li) { return li.textContent || ''; }).join(' ');
-  ok(all.indexOf('判分') >= 0, '讲到判分这处修正');
-  ok(all.indexOf('题型') >= 0, '题型下拉那条也还在', all.slice(0, 60));
-  ok(d.querySelector('#noticeUrl').hidden === false, '把新地址摆出来了');
+  ok(all.indexOf('错得最多') >= 0, '讲清「最缠人的一题」怎么挑');
+  ok(all.indexOf('保存图片') >= 0, '说清怎么把图存下来', all.slice(0, 60));
+  // 地址类文案一律取 location.host，不许在公告里写死域名（域名换过三次了）
+  const whole = title + lead + all;
+  ok(!/\.workbuddy\.host|https?:\/\//.test(whole), '公告正文里没有写死域名', whole.match(/\.workbuddy\.host|https?:\/\/\S*/));
+  ok(!/url\(/i.test(all), '没有塞图片外链');
+  ok(d.querySelector('#noticeUrl').hidden === false, '把当前地址摆出来了');
   ok(d.querySelector('#noticeUrlText').textContent === 'localhost', '显示的是当前域名',
     d.querySelector('#noticeUrlText').textContent);
   ok(seen(ls) === null, '还没关，就先不记账');
@@ -108,7 +111,9 @@ console.log('\n二、点「知道了」：关掉并记住，不再打扰');
 /* ---------------- 三、已经看过的人，启动时不该再弹 ---------------- */
 console.log('\n三、看过的人第二次打开：启动就是安静的');
 {
-  const { d, api } = boot({ fq_notice_v1: '2026-11-09-multi-picked' });
+  // 别把 id 写死：公告换版这里就会跟着失效，直接问当前这一版的 id
+  const cur = boot().api.NOTICE.id;
+  const { d, api } = boot({ fq_notice_v1: cur });
   ok(modal(d).hidden === true, '不会自己弹出来');
   ok(api.maybeShowNotice() === false, '也不会补弹');
 }
