@@ -91,6 +91,22 @@ function cookieFrom(res) {
   ok(secret.status === 403, 'GET /data/users.json 被拒绝（403）', secret.status);
   const srv = await req('GET', '/server.js');
   ok(srv.status === 403, 'GET /server.js 被拒绝（403）', srv.status);
+  // 发版脚本（scripts/release.sh）里写着部署流程与内部地址，不该被公网读到。
+  // 探针文件真造一个，才能区分「被 403 拦下」和「本来就不存在」。
+  const scriptProbe = path.join(ROOT, 'scripts', '_probe.sh');
+  let scriptMade = false;
+  try {
+    fs.mkdirSync(path.dirname(scriptProbe), { recursive: true });
+    fs.writeFileSync(scriptProbe, '#!/bin/sh\n', 'utf8');
+    scriptMade = true;
+  } catch (e) { /* 造不出来就不测这一条，别把整套带挂 */ }
+  if (scriptMade) {
+    const sc = await req('GET', '/scripts/_probe.sh');
+    ok(sc.status === 403, 'GET /scripts/* 被拒绝（403）', sc.status);
+    try { fs.unlinkSync(scriptProbe); } catch (e) { /* 清理失败不影响结果 */ }
+  } else {
+    ok(true, 'GET /scripts/* 造不出探针，跳过（沙箱只读时正常）');
+  }
   // 已下线的知识库导入：线上沙箱是解压覆盖更新，素材会在服务器上残留，所以必须服务端挡住。
   // 本地没有 kb/ 目录，这里临时造一个探针文件，才能真正区分「被拦截」和「本来就不存在」
   const probeDir = path.join(ROOT, 'kb');
