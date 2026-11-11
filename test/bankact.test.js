@@ -1,0 +1,220 @@
+'use strict';
+/* =========================================================
+   题集级动作：改名 / 删整本
+   ---------------------------------------------------------
+   两件事在这里一起守：
+
+   一、不再用原生弹窗。改名原来用 window.prompt、删整本用 window.confirm，
+       在沙箱 iframe（预览面板、部分 WebView）里会被静默吞掉 ——
+       prompt 返回 null、confirm 返回 false，用户点了看着像没反应。
+       现在两处都走站内确认框，改名的框里带一个能填的输入框。
+
+   二、删整本要留墓碑。云同步是并集合并，本地删了、远端还带着，
+       下次拉取就整本复活 —— 跟单题墓碑是同一个坑，只是粒度大一层。
+       顺带守住「改名不产生双胞胎」：改名等于换身份证（云端按名字认题集），
+       旧名也得留一条墓碑，否则下一轮同步会把旧名那本当成另一本补回来。
+   ========================================================= */
+const T = require('./_harness');
+const ok = T.ok;
+const eq = T.eq;
+const txt = T.txt;
+const $ = T.$;
+
+function seedAll() {
+  const b1 = T.bank(3, { id: 'b1', course: '药理学' });
+  const b2 = T.bank(2, { id: 'b2', course: '药剂学', prefix: 'r' });
+  return T.seedFor([b1, b2]);
+}
+
+/* 右键第一个题集 → 弹出菜单。菜单里 rename / del 都在这上面点。 */
+function openMenu(win, d) {
+  const item = $(d, '#bankList .bank-item');
+  item.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }));
+}
+
+/* ---------------- 一、改名走站内框 ---------------- */
+console.log('\n一、改名：先问，再改');
+{
+  const { win, api, d } = T.openWin(seedAll());
+  openMenu(win, d);
+  ok($(d, '#ctxMenu button[data-act="rename"]') !== null, '菜单里有「重命名」');
+
+  $(d, '#ctxMenu button[data-act="rename"]').click();
+  ok($(d, '#cfmModal').hidden === false, '点了打开站内框，不是原生 prompt');
+  ok(/改个名字/.test(txt($(d, '#cfmTitle'))), '标题说清是改名', txt($(d, '#cfmTitle')));
+  ok($(d, '#cfmField').hidden === false, '框里有能填的输入框');
+  eq($(d, '#cfmInput').value, '药理学', '输入框预填现在的名字');
+  ok(/3 道题/.test(txt($(d, '#cfmText'))), '正文报出这本有几道题', txt($(d, '#cfmText')));
+  ok(/身份证/.test(txt($(d, '#cfmNote'))), '说明里提醒名字是题集的身份证');
+
+  // 取消：一个字都不动
+  $(d, '#cfmCancel').click();
+  ok($(d, '#cfmModal').hidden === true, '点「取消」关掉');
+  eq(api.state().banks[0].course, '药理学', '取消之后名字没变');
+
+  // 真的改
+  openMenu(win, d);
+  $(d, '#ctxMenu button[data-act="rename"]').click();
+  $(d, '#cfmInput').value = '  药理学（期末）  ';
+  $(d, '#cfmOk').click();
+  eq(api.state().banks[0].course, '药理学（期末）', '确认后名字改了，前后空格也去掉了');
+  ok($(d, '#cfmModal').hidden === true, '确认后框关掉');
+  ok(/药理学（期末）/.test(txt($(d, '#bankSelect'))), '顶部下拉跟着换了新名字', txt($(d, '#bankSelect')).slice(0, 60));
+}
+
+/* ---------------- 二、改名不能把名字改成空 ---------------- */
+console.log('\n二、改名：名字不能空着');
+{
+  const { win, api, d } = T.openWin(seedAll());
+  openMenu(win, d);
+  $(d, '#ctxMenu button[data-act="rename"]').click();
+  $(d, '#cfmInput').value = '   ';
+  $(d, '#cfmOk').click();
+  ok($(d, '#cfmModal').hidden === false, '空着点确定不会关框');
+  eq(api.state().banks[0].course, '药理学', '名字也没被写成空');
+  ok(/不能空着/.test(txt($(d, '#toast'))), '给一句提示', txt($(d, '#toast')));
+}
+
+/* ---------------- 三、改名：输入框里按回车等于点确定 ---------------- */
+console.log('\n三、改名：回车直接确认');
+{
+  const { win, api, d } = T.openWin(seedAll());
+  openMenu(win, d);
+  $(d, '#ctxMenu button[data-act="rename"]').click();
+  $(d, '#cfmInput').value = '药理学B';
+  $(d, '#cfmInput').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  eq(api.state().banks[0].course, '药理学B', '输入框里按回车就改好了');
+  ok($(d, '#cfmModal').hidden === true, '回车之后框也关了');
+}
+
+/* ---------------- 四、删整本：先问，再删 ---------------- */
+console.log('\n四、删整本：确认之后才动手');
+{
+  const { win, api, d } = T.openWin(seedAll());
+  openMenu(win, d);
+  $(d, '#ctxMenu button[data-act="del"]').click();
+  ok($(d, '#cfmModal').hidden === false, '先弹站内确认框');
+  ok(/删掉整个题集/.test(txt($(d, '#cfmTitle'))), '标题说清是删整本', txt($(d, '#cfmTitle')));
+  ok(/药理学/.test(txt($(d, '#cfmText'))), '正文点名是哪本', txt($(d, '#cfmText')));
+  ok(/3 道题/.test(txt($(d, '#cfmText'))), '正文报出会一起删几道', txt($(d, '#cfmText')));
+  ok(/第1题/.test(txt($(d, '#cfmQuote'))), '引一段题干，删之前还能认一眼', txt($(d, '#cfmQuote')));
+  ok(/✕ 删题/.test(txt($(d, '#cfmNote'))), '提醒只想删几道就改用「✕ 删题」', txt($(d, '#cfmNote')));
+  eq(T.$$(d, '#bankList .bank-item').length, 2, '还没确认时两本都在');
+
+  $(d, '#cfmCancel').click();
+  eq(api.state().banks.length, 2, '取消之后一本都没少');
+
+  openMenu(win, d);
+  $(d, '#ctxMenu button[data-act="del"]').click();
+  $(d, '#cfmOk').click();
+  eq(api.state().banks.length, 1, '确认后少了一本');
+  eq(api.state().banks[0].course, '药剂学', '删掉的是右键点的那一本');
+  eq(T.$$(d, '#bankList .bank-item').length, 1, '列表跟着少一行');
+  ok(/已删除题集/.test(txt($(d, '#toast'))), '给一句结果提示', txt($(d, '#toast')));
+}
+
+/* ---------------- 五、删整本留墓碑 ---------------- */
+console.log('\n五、删整本的墓碑');
+{
+  const { win, api } = T.openWin(seedAll());
+  const b1 = api.state().banks[0];
+  // 先单独删过一道题（留一条单题墓碑），再删整本
+  api.markGone('q2', b1);
+  ok(api.isGone(api.tombstone(), b1, 'q2'), '删单题先留了一条墓碑');
+
+  api.deleteBankById(b1);
+  ok(api.isBankGone(api.tombstone(), { course: '药理学' }), '整本的墓碑记下了');
+  ok(!api.isGone(api.tombstone(), { course: '药理学' }, 'q2'),
+    '整本都没了，单题墓碑被清掉（否则以后重新导入同一份笔记会被自己挡住）');
+  const keys = Object.keys(api.tombstone());
+  ok(keys.every(function (k) { return k.indexOf('#bank#') === 0; }), '留下的只有题集墓碑', keys);
+}
+
+/* ---------------- 六、云同步不能把删掉的整本补回来 ---------------- */
+console.log('\n六、云同步不复活删掉的题集');
+{
+  const { win, api } = T.openWin(seedAll());
+  const local = api.state().banks.slice();
+  const remote = JSON.parse(JSON.stringify(local));   // 云端还完整带着两本
+  api.deleteBankById(local[0]);                        // 本地删掉「药理学」
+  const merged = api.mergeBanks(api.state().banks, remote);
+  eq(merged.length, 1, '合并之后还是只剩一本（云端那份没被补回来）');
+  eq(merged[0].course, '药剂学', '留下的是没删的那本');
+}
+
+/* ---------------- 七、没删的题集照常合并回来 ---------------- */
+console.log('\n七、没删的题集照常合并');
+{
+  const { win, api } = T.openWin(seedAll());
+  // 云端多一本本地没有的（另一台设备上导的）
+  const extra = T.bank(2, { id: 'b9', course: '药物化学', prefix: 'c' });
+  const merged = api.mergeBanks(api.state().banks, [api.state().banks[0], extra]);
+  eq(merged.length, 3, '本地两本 + 云端独有一本 = 三本，一本都不该丢', merged.length);
+  ok(merged.some(function (b) { return b.course === '药物化学'; }), '并进来的正是那一本');
+}
+
+/* ---------------- 八、删了之后重新导入同名题集 ---------------- */
+console.log('\n八、删完又新建同名题集：老题不回来');
+{
+  const { win, api } = T.openWin(seedAll());
+  const old = JSON.parse(JSON.stringify(api.state().banks[0]));   // 云端那本老的
+  api.deleteBankById(api.state().banks[0]);                       // 本地删掉
+  // 用户重新导入同一门课：新建一本，名字一样，但 createdAt 更新
+  const fresh = T.bank(2, { id: 'b1new', course: '药理学', prefix: 'n' });
+  fresh.createdAt = Date.now() + 1000;
+  api.state().banks.push(fresh);
+  api.state().cur = 'b1new';
+
+  const merged = api.mergeBanks(api.state().banks, [old, api.state().banks[0]]);
+  const got = merged.filter(function (b) { return b.course === '药理学'; })[0];
+  ok(!!got, '新建的那本留住了');
+  eq((got.questions || []).length, 2, '只有新导入的 2 道，云端那本老题没灌回来', (got.questions || []).length);
+}
+
+/* ---------------- 九、改名不产生双胞胎 ---------------- */
+console.log('\n九、改名之后旧名不复活');
+{
+  const { win, api } = T.openWin(seedAll());
+  const before = JSON.parse(JSON.stringify(api.state().banks[0]));   // 云端记着旧名那本
+  const b = api.state().banks[0];
+  b.course = '药理学（期末）';
+  api.markBankGone({ course: '药理学', createdAt: 0 });              // 改名时给旧名留的墓碑
+  const merged = api.mergeBanks(api.state().banks, [before, api.state().banks[1]]);
+  eq(merged.length, 2, '合并后还是两本，没变成三本', merged.length);
+  ok(!merged.some(function (x) { return x.course === '药理学'; }), '旧名那本没被补回来');
+  ok(merged.some(function (x) { return x.course === '药理学（期末）'; }), '新名字那本在');
+}
+
+/* ---------------- 十、清空记录也走站内框 ---------------- */
+console.log('\n十、清空记录不做「点了没反应」');
+{
+  const { win, api, d } = T.openWin(seedAll());
+  $(d, '.tab[data-view="stats"]').click();
+  api.state().stats.q1 = { ok: 1, bad: 1, mastery: 0.5 };
+  api.renderStats();
+
+  $(d, '#resetStatsBtn').click();
+  ok($(d, '#cfmModal').hidden === false, '清空练习记录先弹站内框');
+  ok(/清空所有练习记录/.test(txt($(d, '#cfmTitle'))), '标题说清要清什么', txt($(d, '#cfmTitle')));
+  ok(Object.keys(api.state().stats).length === 1, '还没确认时记录还在');
+
+  $(d, '#cfmOk').click();
+  eq(Object.keys(api.state().stats).length, 0, '确认后记录清空');
+  eq(api.state().banks.length, 2, '题目一道都没删');
+}
+
+/* ---------------- 十一、清空错题记录 ---------------- */
+console.log('\n十一、清空错题记录');
+{
+  const { win, api, d } = T.openWin(seedAll());
+  api.state().stats.q1 = { ok: 0, bad: 2, mastery: 0 };
+  $(d, '.tab[data-view="wrong"]').click();
+  $(d, '#clearWrongBtn').click();
+  ok($(d, '#cfmModal').hidden === false, '先弹站内框');
+  ok(/清空错题记录/.test(txt($(d, '#cfmTitle'))), '标题对得上', txt($(d, '#cfmTitle')));
+  ok(/1 道题/.test(txt($(d, '#cfmText'))), '报出会清几道', txt($(d, '#cfmText')));
+  $(d, '#cfmOk').click();
+  ok(!api.state().stats.q1, '确认后这道题的记录没了');
+}
+
+T.done('题集级动作');

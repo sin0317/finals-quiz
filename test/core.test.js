@@ -247,6 +247,12 @@ const NOTE = [
   // 删除
   a.clickEl(a.$('#ctxMenu button[data-act="del"]'));
   await sleep(150);
+  // 删整本也要先过站内确认框（原生 confirm 在沙箱 iframe 里会被静默吞掉）
+  ok(a.$('#cfmModal').hidden === false, '删题集先弹站内确认框');
+  ok(/删掉整个题集/.test(a.$('#cfmTitle').textContent), '标题说清是删整本', a.$('#cfmTitle').textContent);
+  ok(a.$$('#bankList .bank-item').length === 2, '还没确认时题集一个都没少', a.$$('#bankList .bank-item').length);
+  a.clickEl(a.$('#cfmOk'));
+  await sleep(150);
   ok(a.$$('#bankList .bank-item').length === 1, '删除后只剩 1 个题集', a.$$('#bankList .bank-item').length);
   ok(a.visible('#ctxMenu') === false, '删除后菜单关闭');
 

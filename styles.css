@@ -1079,6 +1079,24 @@ strong, b { font-weight: 800; }
   overscroll-behavior: contain;
 }
 .cfm-note { margin: 0; font-size: 12px; line-height: 1.7; color: var(--muted); }
+/* 要填一句的场合（重命名题集）：标签在上、输入框占满整行。
+   .input 原本是给工具栏用的（min-width / max-width 都是针对那一排），这里按框宽来 */
+.cfm-field { display: block; margin: 0 0 12px; }
+.cfm-field > span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  letter-spacing: .3px;
+  user-select: none;
+}
+.cfm-field > input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  box-sizing: border-box;
+}
 /* 打开时把焦点放在框上（方便键盘 + 读屏），不是放在按钮上 ——
    焦点环画在「取消」上会让人以为那个按钮已经被按下了 */
 #cfmModal .modal-box:focus { outline: none; }
@@ -1163,6 +1181,11 @@ strong, b { font-weight: 800; }
   border-top: 1px solid var(--line);
   background: var(--panel-2);
 }
+/* 确认框底部那行小注：单独占满一整行，字小一号。
+   不然一句长注会把「取消」顶到上一行、把「确定」挤到下一行左边。
+   空着的时候连占位都不要，省掉一条多余的空隙 */
+#cfmHint { flex: 1 0 100%; order: -1; font-size: 11.5px; line-height: 1.6; }
+#cfmHint:empty { display: none; }
 /* 窄屏：弹窗贴着屏幕边，按钮够大，右上角 ✕ 给足点击区 */
 @media (max-width: 560px) {
   .modal { padding: 10px; }

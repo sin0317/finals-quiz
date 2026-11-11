@@ -369,6 +369,12 @@ const QS = [
   b3.click('#plazaRefreshBtn');
   await sleep(400);
   b3.click('[data-unshare]');
+  await sleep(300);
+  // 撤下也走站内确认框：先问一句，确认之后才真的发请求
+  ok(b3.$('#cfmModal').hidden === false, '撤下前先弹站内确认框');
+  const beforeOk = await req('GET', '/api/plaza/list');
+  ok(beforeOk.json.items.length === 1, '还没确认时广场上那份还在', beforeOk.json.items.length);
+  b3.click('#cfmOk');
   await sleep(500);
   const afterDel = await req('GET', '/api/plaza/list');
   ok(afterDel.json.items.length === 0, '撤下后广场空了');

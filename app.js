@@ -76,7 +76,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.22.2';
+  var FQ_VERSION = '1.22.3';
 
   /* 出题形式的默认值：用户在下拉里没选过时，按什么形式考。
      「改默认形式」= 这里 + index.html 里 #qForm / #rForm 的 selected，
@@ -2562,8 +2562,8 @@
       switchBank(bank.id);
       toast('当前题集：' + bank.course);
     } else if (act === 'rename') {
-      var n = (prompt('题集名称', bank.course) || '').trim();
-      if (n && n !== bank.course) { bank.course = n; save(); renderBankSelect(); toast('已重命名'); }
+      // 原来是 window.prompt：沙箱 iframe 里被静默吞掉、返回 null，点了像没反应
+      askRenameBank(bank);
     } else if (act === 'export') {
       exportBankJson(bank);
     } else if (act === 'share') {
@@ -2571,16 +2571,7 @@
     } else if (act === 'md') {
       exportBankMd(bank);
     } else if (act === 'del') {
-      if (!confirm('删除题集「' + bank.course + '」及其 ' + bank.questions.length + ' 道题？删掉就找不回来了。')) return;
-      S.banks = S.banks.filter(function (x) { return x.id !== bank.id; });
-      if (S.cur === bank.id) S.cur = S.banks.length ? S.banks[0].id : '';
-      forgetQuiz();
-      S.recite = null;
-      save();
-      renderBankSelect();
-      if (S.view === 'stats') renderStats();
-      if (S.view === 'wrong') renderWrong();
-      toast('已删除：' + bank.course);
+      askDeleteBank(bank);
     }
   });
 
@@ -5489,6 +5480,38 @@
     S.gone[goneKey(bank, qid)] = Date.now();
     pruneGone();
   }
+  /* ---- 题集级墓碑：整本删了，也怕被云同步补回来 ----
+     键加 `#bank#` 前缀，跟「题集键|题号」两段格式区分开（题号永远不会有这个前缀）。
+     删整本时顺手把这一本所有单题墓碑清掉 —— 整本都没了，留着没意义，
+     还会挡住以后重新导入同一份笔记（同一批题号会被当成「删过的题」）。
+     代价是：删了题集又在 30 天内重新导入同名课程，旧题不会从云端并回来，
+     本地新导入的那份照样能用 —— 这正是想要的效果。 */
+  var BANK_GONE = '#bank#';
+  function bankGoneKey(bank) {
+    var bk = bankKey(bank);
+    return bk ? (BANK_GONE + bk) : '';
+  }
+  function markBankGone(bank) {
+    var k = bankGoneKey(bank);
+    if (!k) return;
+    if (!S.gone) S.gone = {};
+    var bk = bankKey(bank);
+    Object.keys(S.gone).forEach(function (g) {
+      if (g.indexOf(bk + '|') === 0) delete S.gone[g];
+    });
+    S.gone[k] = Date.now();
+    pruneGone();
+  }
+  function isBankGone(gone, bank) {
+    var k = bankGoneKey(bank);
+    return !!(k && gone && gone[k]);
+  }
+  /* 这本是不是「删完之后又新建的同名题集」：看它建的时间晚于墓碑时间 */
+  function bankRebuilt(gone, bank) {
+    var k = bankGoneKey(bank);
+    var t = Number((gone && gone[k]) || 0);
+    return t > 0 && Number((bank && bank.createdAt) || 0) > t;
+  }
   /* 这道题在**这一本**里算不算删掉了：本册的墓碑，或者老版本留下的全局墓碑 */
   function isGone(gone, bank, qid) {
     if (!qid || !gone) return false;
@@ -5548,6 +5571,27 @@
     };
   }
 
+  /* 删掉一整本题集。两处入口（题集右键菜单、数据统计卡片）共用同一套：
+     记一条题集墓碑，再把这一本里所有单题墓碑清掉 —— 整本都没了，留着没意义，
+     还会挡住以后重新导入同一份笔记。题集墓碑是为了挡住云同步把整本补回来：
+     同步是并集，删了不问就会复活，跟删题是同一个坑。 */
+  function deleteBankById(bank) {
+    if (!bank) return false;
+    markBankGone(bank);
+    S.banks = S.banks.filter(function (x) { return x.id !== bank.id; });
+    if (S.cur === bank.id) S.cur = S.banks.length ? S.banks[0].id : '';
+    forgetQuiz();
+    S.recite = null;
+    save();
+    // 立刻推一次，不等 save() 里那 1.8 秒防抖：删完顺手关页面的人最多，
+    // 那一次推送丢了，下次拉取云端就整本回来了
+    flushPush();
+    renderBankSelect();
+    if (S.view === 'stats') renderStats();
+    if (S.view === 'wrong') renderWrong();
+    return true;
+  }
+
   /* 删完这一组的题都没了：不能落到「题库还没有题目」——
      题库里还有，是这一组空了，两回事（跟「抽不到题」那条一致）。 */
   function renderQuizEmptiedGroup() {
@@ -5566,13 +5610,17 @@
   }
 
   /* ---------------- 站内确认框 ----------------
-     为什么自己做：window.confirm 在沙箱 iframe（预览面板、部分 WebView）里会被
-     直接忽略，静默返回 false —— 用户点了「删题」看着像没反应，这就是「删不掉」。
+     为什么自己做：window.confirm / window.prompt 在沙箱 iframe（预览面板、部分 WebView）
+     里会被直接忽略 —— confirm 静默返回 false、prompt 返回 null，用户点了看着像没反应。
+     「删题删不掉」「重命名没反应」都是这一个原因。全站弹窗统一走这里，别再写原生调用。
      另外原生弹窗没法把题干排版出来，两条题干长得一样时分不清删哪条。
-     用法：askConfirm({title, text, quote, note, ok, onOk}) —— 只是问，
-     真正的动作在 onOk 里，由用户点「确定」触发。 */
+     用法：askConfirm({title, text, quote, note, hint, ok, danger, input, onOk}) ——
+     只是问，真正的动作在 onOk 里，由用户点「确定」触发；带 input 时 onOk 收到填的那句。 */
   var cfmOnOk = null;
+  var cfmNeedInput = false;
 
+  /* o.input = {label, value, placeholder, required}
+     o.danger = false 时确认键改普通色（改名这类不是「删东西」的场合） */
   function askConfirm(opt) {
     var m = $('#cfmModal');
     if (!m) return false;
@@ -5583,24 +5631,52 @@
     var quote = $('#cfmQuote');
     quote.textContent = o.quote || '';
     quote.hidden = !o.quote;
+
+    // 要填一句的（重命名题集）才亮出输入框，其余场景连占位都不留
+    var inp = o.input || null;
+    $('#cfmField').hidden = !inp;
+    if (inp) {
+      $('#cfmLabel').textContent = inp.label || '名称';
+      var el = $('#cfmInput');
+      el.value = inp.value == null ? '' : String(inp.value);
+      el.placeholder = inp.placeholder || '';
+    }
+    cfmNeedInput = !!(inp && inp.required !== false);
+
     var note = $('#cfmNote');
     note.textContent = o.note || '';
     note.hidden = !o.note;
     $('#cfmHint').textContent = o.hint || '';
     $('#cfmOk').textContent = o.ok || '确定';
+    // 确认键的颜色跟着「危不危险」走：删东西是红的，改名这类用普通色
+    $('#cfmOk').className = o.danger === false ? 'btn primary' : 'btn danger-solid';
     cfmOnOk = o.onOk || null;
     m.hidden = false;
-    try { $('#cfmModal .modal-box').focus(); } catch (e) { /* 老浏览器 */ }
+    try {
+      if (inp) { $('#cfmInput').focus(); $('#cfmInput').select(); }
+      else $('#cfmModal .modal-box').focus();
+    } catch (e) { /* 老浏览器 */ }
     return true;
   }
 
   function closeConfirm(ok) {
     var m = $('#cfmModal');
     if (!m || m.hidden) return;
+    // 该填的那句空着就别关：关了就当成「确认了」，改名反而会把名字写成空
+    var val = '';
+    if (!$('#cfmField').hidden) {
+      val = String($('#cfmInput').value || '').trim();
+      if (ok && cfmNeedInput && !val) {
+        toast('这一项不能空着');
+        try { $('#cfmInput').focus(); } catch (e) { /* 忽略 */ }
+        return;
+      }
+    }
     m.hidden = true;
     var fn = cfmOnOk;
     cfmOnOk = null;
-    if (ok && fn) fn();
+    cfmNeedInput = false;
+    if (ok && fn) fn(val);
   }
 
   function bindConfirm() {
@@ -5611,6 +5687,12 @@
       if (t && t.getAttribute && t.getAttribute('data-cfmclose')) closeConfirm(false);
     });
     $('#cfmOk').addEventListener('click', function () { closeConfirm(true); });
+    // 输入框里按回车 = 点确定（改名时手本来就在键盘上）
+    if ($('#cfmInput')) {
+      $('#cfmInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); closeConfirm(true); }
+      });
+    }
     // Esc 关：跟公告、建议箱一个习惯。只在这个框开着的时候管
     document.addEventListener('keydown', function (e) {
       if (m.hidden) return;
@@ -5710,6 +5792,59 @@
         askDeleteQuestion(b.dataset.del, b.dataset.delBank || '', b.dataset.delFav === '1');
       });
     });
+  }
+
+  /* ---- 题集级的两个动作（改名 / 删整本），也走站内框 ----
+     这两个以前一个用 window.prompt、一个用 window.confirm，在沙箱 iframe 里
+     都会被静默吞掉：点「重命名」没反应、点「删除题集」也没反应。 */
+  function askRenameBank(bank) {
+    if (!bank) return false;
+    askConfirm({
+      title: '给这个题集改个名字',
+      text: '现在叫「' + bank.course + '」，' + (bank.questions || []).length + ' 道题。',
+      note: '名字是题集的身份证：题库、统计、云同步都按名字认。改成跟别的题集同名，两边会被当成同一本合到一起。',
+      ok: '改名',
+      danger: false,
+      input: { label: '题集名称', value: bank.course, placeholder: '例：临床药物治疗学' },
+      onOk: function (val) {
+        var n = String(val || '').trim();
+        if (!n || n === bank.course) return;
+        var oldName = bank.course;
+        bank.course = n;
+        // 改名等于换了身份证：题集在云端是按名字认的，不给旧名留条墓碑，
+        // 下一轮同步会把「旧名那本」当成另一本补回来 —— 列表里就出现两份一样的
+        markBankGone({ course: oldName, createdAt: 0 });
+        save();
+        flushPush();
+        renderBankSelect();
+        if (S.view === 'stats') renderStats();
+        toast('已重命名为「' + n + '」');
+      }
+    });
+    return true;
+  }
+
+  function askDeleteBank(bank) {
+    if (!bank) return false;
+    var n = (bank.questions || []).length;
+    var sameName = S.banks.filter(function (x) {
+      return x !== bank && String(x.course || '').trim().toLowerCase() === String(bank.course || '').trim().toLowerCase();
+    }).length;
+    askConfirm({
+      title: '删掉整个题集？',
+      text: '「' + bank.course + '」连同里面 ' + n + ' 道题一起删掉，删完找不回来。',
+      quote: n ? ('第一道题是：' + String(bank.questions[0].stem || '').replace(/\s+/g, ' ').trim()) : '',
+      note: '答题记录、掌握度跟着一起没。只想删几道多余的题，用刷题卡上的「✕ 删题」，别删整本。' +
+        (sameName ? '（另有一个同名题集，那一本不会受影响。）' : ''),
+      hint: '删之前可以先右键「导出 JSON」留个底',
+      ok: '删掉整本',
+      onOk: function () {
+        var name = bank.course;
+        deleteBankById(bank);
+        toast('已删除题集：' + name);
+      }
+    });
+    return true;
   }
 
   function renderQuiz() {
@@ -6643,10 +6778,19 @@
     $('#reciteStartBtn').click();
   });
   $('#clearWrongBtn').addEventListener('click', function () {
-    if (!confirm('确定清空错题记录？题目会保留，练习记录会被清除。')) return;
     var ids = getQs().map(function (q) { return q.id; });
-    ids.forEach(function (id) { delete S.stats[id]; });
-    save(); renderWrong(); toast('错题记录已清空');
+    var hit = ids.filter(function (id) { return S.stats[id]; }).length;
+    if (!hit) { toast('这本还没有答过题，没有错题记录'); return; }
+    askConfirm({
+      title: '清空错题记录？',
+      text: '这一本里 ' + hit + ' 道题的作答记录会清掉，题目一道都不会删。',
+      note: '清完「错过 / 已订正 / 已掌握」全部回到未作答，得重新答一遍才会再统计。',
+      ok: '清空记录',
+      onOk: function () {
+        ids.forEach(function (id) { delete S.stats[id]; });
+        save(); renderWrong(); toast('错题记录已清空');
+      }
+    });
   });
   $('#wFilter').addEventListener('change', renderWrong);
 
@@ -7426,30 +7570,46 @@
       try {
         var d = JSON.parse(String(fr.result));
         if (!d.banks) { toast('这不是全部数据文件'); return; }
-        if (!confirm('导入会覆盖当前的题集与记录，继续吗？')) return;
-        S.banks = d.banks; S.stats = d.stats || {}; S.log = d.log || [];
-        S.cur = S.banks.length ? S.banks[0].id : '';
-        forgetQuiz();
-        save(); renderBankSelect(); switchView('stats');
-        toast('数据已导入');
+        var inBanks = d.banks.length;
+        var inQs = d.banks.reduce(function (n, b) { return n + ((b.questions || []).length); }, 0);
+        var nowBanks = S.banks.length;
+        var nowQs = S.banks.reduce(function (n, b) { return n + ((b.questions || []).length); }, 0);
+        askConfirm({
+          title: '用这份备份覆盖当前数据？',
+          text: '备份里有 ' + inBanks + ' 个题集、' + inQs + ' 道题；现在本地有 ' + nowBanks + ' 个题集、' + nowQs + ' 道题。',
+          note: '覆盖之后现在的题集和答题记录会被这份备份替换掉，当前数据不会自动留底。' +
+            '要保险就先用旁边「导出全部数据」存一份。',
+          ok: '覆盖导入',
+          onOk: function () {
+            S.banks = d.banks; S.stats = d.stats || {}; S.log = d.log || [];
+            S.cur = S.banks.length ? S.banks[0].id : '';
+            forgetQuiz();
+            save(); renderBankSelect(); switchView('stats');
+            toast('数据已导入：' + inBanks + ' 个题集、' + inQs + ' 道题');
+          }
+        });
       } catch (e) { toast('解析失败：' + e.message); }
     };
     fr.readAsText(f, 'utf-8');
   });
   $('#resetStatsBtn').addEventListener('click', function () {
-    if (!confirm('清空所有练习记录？题目本身会保留。')) return;
-    S.stats = {}; S.log = [];
-    save(); renderStats(); toast('练习记录已清空');
+    var n = Object.keys(S.stats || {}).length;
+    if (!n) { toast('还没有练习记录'); return; }
+    askConfirm({
+      title: '清空所有练习记录？',
+      text: '全部 ' + n + ' 道题答过的记录会清掉，题目一道都不会删。',
+      note: '统计图、掌握度、错题本都会回到空白，跟刚导入时一样。',
+      ok: '清空记录',
+      onOk: function () {
+        S.stats = {}; S.log = [];
+        save(); renderStats(); toast('练习记录已清空');
+      }
+    });
   });
   $('#delBankBtn').addEventListener('click', function () {
     var b = getBank();
     if (!b) { toast('没有题集'); return; }
-    if (!confirm('删除题集「' + b.course + '」及其全部题目？')) return;
-    S.banks = S.banks.filter(function (x) { return x.id !== b.id; });
-    S.cur = S.banks.length ? S.banks[0].id : '';
-    forgetQuiz();
-    save(); renderBankSelect(); renderStats();
-    toast('题集已删除');
+    askDeleteBank(b);
   });
 
   /* ---------------- 主题 / 导航 ---------------- */
@@ -7827,6 +7987,8 @@
     (remote || []).forEach(function (b) {
       if (!b) return;
       var k = bankKey(b);
+      // 整本删过的题集：云端那份不补回来（重建过的同名题集除外 —— 那是用户后来新下的）
+      if (isBankGone(gone, b) && !bankRebuilt(gone, b)) return;
       if (!map[k]) {
         // 远端独有的一整个题集：题目先过一遍墓碑，别把删掉的又带回来
         var only = {};
@@ -7835,6 +7997,9 @@
         map[k] = only; order.push(k); return;
       }
       var mine = map[k];
+      // 本地有同名、而且这本是「删了之后重新导入的」：以新的为准，
+      // 不把云端那份老题并进来（不然删掉题集再导入同一份笔记，旧题全被灌回来）
+      if (isBankGone(gone, mine) && !bankRebuilt(gone, b)) return;
       // 题集已存在：题目按 id 取并集，本地优先
       var qs = (mine.questions || []).slice();
       var seen = {};
@@ -8305,7 +8470,17 @@
   $('#wbLoginBtn').addEventListener('click', wbSignIn);
   $('#watchaLoginBtn').addEventListener('click', watchaSignIn);
   $('#logoutBtn').addEventListener('click', function () {
-    if (!confirm('退出登录？本地的题集和记录会保留，只是不再自动同步。')) return;
+    var who = (Cloud.user && (Cloud.user.nick || Cloud.user.name || Cloud.user.user_id)) || '';
+    askConfirm({
+      title: '退出登录？',
+      text: (who ? '现在是 ' + who + ' 登着。' : '') + '本地的题集和记录都会留着。',
+      note: '退出后只是不再自动同步到云端。下次用同一个账号登录，云端那份还会跟本地合并回来，不会丢。',
+      ok: '退出登录',
+      danger: false,
+      onOk: doLogout
+    });
+  });
+  function doLogout() {
     api('POST', '/api/logout', {}).catch(function () {}).then(function () {
       // 云端会话也要退，否则下次打开会被 getSession 自动登回来
       if (WBAuth.ready) {
@@ -8318,7 +8493,7 @@
       $('#adminCard').hidden = true;
       toast('已退出，数据仍保留在本机');
     });
-  });
+  }
   $('#syncNowBtn').addEventListener('click', function () {
     cloudPull().then(function () {
       schedulePush();
@@ -8904,15 +9079,23 @@
   }
 
   function unsharePlaza(id) {
-    if (!confirm('把这份题集从广场撤下？别人就看不到了，已经取走的副本不受影响。')) return;
-    api('POST', '/api/plaza/remove', { id: id }).then(function () {
-      S.banks.forEach(function (b) { if (b.shareId === id) delete b.shareId; });
-      save();
-      Plaza.loaded = false;
-      loadPlaza(true);
-      toast('已从广场撤下');
-    }).catch(function (e) {
-      toast('撤下失败：' + ((e && e.message) || '未知错误'));
+    var mine = S.banks.filter(function (b) { return b && b.shareId === id; })[0];
+    askConfirm({
+      title: '从广场撤下？',
+      text: mine ? ('「' + mine.course + '」会从广场消失，别人就看不到了。') : '这份题集会从广场消失，别人就看不到了。',
+      note: '已经取走副本的人不受影响，他们手里那份还是他们的。你自己这本题集也不会被删。',
+      ok: '撤下',
+      onOk: function () {
+        api('POST', '/api/plaza/remove', { id: id }).then(function () {
+          S.banks.forEach(function (b) { if (b.shareId === id) delete b.shareId; });
+          save();
+          Plaza.loaded = false;
+          loadPlaza(true);
+          toast('已从广场撤下');
+        }).catch(function (e) {
+          toast('撤下失败：' + ((e && e.message) || '未知错误'));
+        });
+      }
     });
   }
 
@@ -9231,6 +9414,13 @@
     markGone: markGone,
     isGone: isGone,
     pruneGone: pruneGone,
+    /* 题集级：删整本也留墓碑，否则云同步会把整本补回来 */
+    markBankGone: markBankGone,
+    isBankGone: isBankGone,
+    bankRebuilt: bankRebuilt,
+    deleteBankById: deleteBankById,
+    askRenameBank: askRenameBank,
+    askDeleteBank: askDeleteBank,
     tombstone: function () { return S.gone; },
     statsOf: function () { return S.stats; },
     mergeBanks: mergeBanks,

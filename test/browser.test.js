@@ -307,6 +307,11 @@ function bootApp(opts) {
   f.click('.tab[data-view="stats"]');
   await sleep(300);
   f.click('#logoutBtn');
+  await sleep(250);
+  // 退出也是站内确认框（原生 confirm 在沙箱 iframe 里被吞掉，点了像没反应）
+  ok(f.visible('#cfmModal'), '退出前先弹站内确认框');
+  ok(f.text('#acctName') !== '游客', '还没确认时仍然是登录状态');
+  f.click('#cfmOk');
   await sleep(400);
   ok(f.text('#acctName') === '游客', '退出后回到游客身份');
   ok(f.visible('#loginBtn'), '退出后重新出现登录按钮');
