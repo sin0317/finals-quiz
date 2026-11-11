@@ -1570,6 +1570,14 @@ strong, b { font-weight: 800; }
 .item .memo-text { font-size: 13px; line-height: 1.55; }
 .item .memo-label { font-size: 12px; }
 
+/* 收藏夹一行里有 4 个东西（待巩固 / 背它 / ★已收藏 / ✕删题），
+   窄屏挤不下会横向撑出卡片 —— 让按钮整体换到第二行 */
+@media (max-width: 760px) {
+  #favList .item { flex-wrap: wrap; row-gap: 8px; }
+  #favList .item-main { flex: 1 1 100%; }
+  #favList .item .btn { flex: 0 0 auto; }
+}
+
 /* =========================================================
    ⑧ 冲刺报告（付费）
    ========================================================= */

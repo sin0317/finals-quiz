@@ -23,7 +23,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.22.0';
+  var FQ_VERSION = '1.22.1';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -5564,12 +5564,17 @@
   /* 删题走站内确认框，不用 window.confirm ——
      原生弹窗在沙箱 iframe（站内预览面板、部分 WebView）里会被直接忽略，
      confirm 静默返回 false，用户点了「删题」什么都不会发生。
-     站内这个框还能把题干完整摆出来（两条题干长得一样时才分得清删哪条）。 */
-  function askDeleteQuestion(qid) {
+     站内这个框还能把题干完整摆出来（两条题干长得一样时才分得清删哪条）。
+     bankId 省略时删当前题集；收藏夹「全部题集」列表里每道题来自哪本要说清楚，
+     所以那边会把 bankId 传进来 —— 不然会把别的题集里同题号的那份删掉。 */
+  function askDeleteQuestion(qid, bankId, fromFav) {
     var q = findQ(qid);
     if (!q) { toast('这道题已经不在题集里了'); return false; }
-    var bank = getBank();
-    var inCur = !!(bank && (bank.questions || []).some(function (x) { return x && x.id === qid; }));
+    var bank = bankId
+      ? (S.banks.filter(function (b) { return b && b.id === bankId; })[0] || null)
+      : getBank();
+    if (!bank) { toast('这个题集不见了，刷新一下再试'); return false; }
+    var inCur = (bank.questions || []).some(function (x) { return x && x.id === qid; });
     var others = S.banks.filter(function (b) {
       return b !== bank && (b.questions || []).some(function (x) { return x && x.id === qid; });
     }).length;
@@ -5587,21 +5592,26 @@
       title: '删掉这道题？',
       text: where,
       quote: String((q && q.stem) || '').replace(/\s+/g, ' ').trim(),
-      note: '删掉就找不回来（答过的记录、掌握度会一起清掉）。怕删错，先在顶部「⑥ 数据统计」里导出全部数据备份。',
+      note: '删掉就找不回来（答过的记录、掌握度会一起清掉）。'
+        + (fromFav ? '只是想不再收藏它，点「★ 已收藏」就行 —— 题目会留在题集里。' : '')
+        + '怕删错，先在顶部「⑥ 数据统计」里导出全部数据备份。',
       ok: '删掉',
-      onOk: function () { doDeleteQuestion(qid); }
+      onOk: function () { doDeleteQuestion(qid, bankId); }
     });
     return true;
   }
 
   /* 确认之后才真正动手。跟确认框分开：框只是问，删是删。 */
-  function doDeleteQuestion(qid) {
-    var r = deleteQuestionById(qid);
+  function doDeleteQuestion(qid, bankId) {
+    var r = deleteQuestionById(qid, bankId);
+    var bank = bankId
+      ? (S.banks.filter(function (b) { return b && b.id === bankId; })[0] || null)
+      : getBank();
     if (!r) {
       // 题集里没有它，但这一组还挂着 —— 至少让这一组不再出现，别让人卡在这道题上
       var dropped = dropFromSession(S.quiz, qid) + dropFromSession(S.recite, qid);
       if (!dropped) { toast('这道题已经不在题集里了'); return false; }
-      markGone(qid, getBank());
+      markGone(qid, bank);
       save();
       flushPush();
       if (S.quiz && S.quiz.list && !S.quiz.list.length) {
@@ -5611,10 +5621,12 @@
         renderQuiz();
       }
       if (S.view === 'recite') renderRecite();
+      if (S.view === 'fav') renderFav();
       toast('这一组里不再出现它了');
       return true;
     }
     renderBankSelect();                            // 下拉和题集列表里的「N 题」跟着变
+    renderBankList();
     if (S.quiz && S.quiz.list && !S.quiz.list.length) {
       forgetQuiz();                                // 空会话留着，刷新会恢复成一张空卡
       renderQuizEmptiedGroup();
@@ -5623,6 +5635,7 @@
     }
     if (S.view === 'recite') renderRecite();
     if (S.view === 'stats') renderStats();
+    if (S.view === 'fav') renderFav();              // 收藏夹里删完那一行立刻消失
     toast(r.otherBanks
       ? ('已从「' + r.bank.course + '」里删掉，这本还剩 ' + r.left + ' 道（别的题集里那份没动）')
       : ('已删掉这道题，这本还剩 ' + r.left + ' 道'));
@@ -5630,10 +5643,12 @@
   }
 
   function bindDelButtons() {
-    $$('#quizBody [data-del]').forEach(function (b) {
+    $$('#quizBody [data-del], #favList [data-del]').forEach(function (b) {
       if (b.dataset.delBound) return;
       b.dataset.delBound = '1';
-      b.addEventListener('click', function () { askDeleteQuestion(b.dataset.del); });
+      b.addEventListener('click', function () {
+        askDeleteQuestion(b.dataset.del, b.dataset.delBank || '', b.dataset.delFav === '1');
+      });
     });
   }
 
@@ -6642,10 +6657,15 @@
         '</div>' +
         '<span class="pill ' + stPill(s).cls + '">' + stPill(s).txt + '</span>' +
         '<button class="btn ghost" data-drill="' + esc(q.id) + '">背它</button>' +
-        '<button class="btn ghost tiny fav-toggle on" data-fav="' + esc(q.id) + '" type="button" title="取消收藏">★ 已收藏</button>' +
+        '<button class="btn ghost tiny fav-toggle on" data-fav="' + esc(q.id) + '" type="button" title="取消收藏（题目留在题集里）">★ 已收藏</button>' +
+        // 删题：从**这道题所在的题集**里拿掉，不是取消收藏。
+        // 「全部题集」下每行来自不同的本，所以要把题集 id 一起带上，否则会删错本。
+        '<button class="btn ghost tiny del-q" data-del="' + esc(q.id) + '" data-del-bank="' + esc(r.bank.id || '') + '" data-del-fav="1" type="button" ' +
+        'title="从「' + esc(r.bank.course) + '」里删掉这道题（不是取消收藏；删了找不回来）">✕ 删题</button>' +
         '</div>';
     }).join('');
     bindFavButtons();
+    bindDelButtons();
     $$('#favList [data-drill]').forEach(function (b) {
       b.addEventListener('click', function () {
         var q = findQ(b.dataset.drill);
@@ -6679,11 +6699,21 @@
   $('#favClearBtn').addEventListener('click', function () {
     var rows = favList($('#favScope').value);
     if (!rows.length) { toast('收藏夹已经是空的'); return; }
-    if (!confirm('清空 ' + rows.length + ' 道题的收藏？题目本身不会被删，只是不再标星。')) return;
-    rows.forEach(function (r) { delete r.q.fav; });
-    save();
-    renderFav();
-    toast('已清空收藏');
+    // 用站内框，不用 window.confirm：沙箱 iframe 里原生弹窗会被静默吞掉，
+    // 点了像没反应（删题那次就是这个坑）
+    askConfirm({
+      title: '清空收藏？',
+      text: ($('#favScope').value === 'all' ? '把 ' + rows.length + ' 道题（跨题集）的收藏标记都去掉。'
+        : '把「' + ((getBank() || {}).course || '当前题集') + '」这 ' + rows.length + ' 道题的收藏标记都去掉。'),
+      note: '题目本身不会被删，只是不再标星 —— 想连题目一起移出题集，用每行的「✕ 删题」。',
+      ok: '清空',
+      onOk: function () {
+        rows.forEach(function (r) { delete r.q.fav; });
+        save();
+        renderFav();
+        toast('已清空收藏');
+      }
+    });
   });
 
   /* =========================================================

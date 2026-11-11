@@ -194,7 +194,18 @@ console.log('\n五、清空收藏');
   api.toggleFav('q1'); api.toggleFav('q2');
   d.querySelector('.tab[data-view="fav"]').click();
   d.querySelector('#favClearBtn').click();
-  ok(api.state().banks[0].questions.every(function (q) { return !q.fav; }), '全部取消收藏');
+  // 站内确认框（原生 confirm 在沙箱 iframe 里会被吞掉）
+  ok(!d.querySelector('#cfmModal').hidden, '先弹站内确认框，不直接清');
+  ok(/题目本身不会被删/.test(txt(d.querySelector('#cfmNote'))), '框里说清只取消标记、不删题');
+  const favN = () => api.state().banks[0].questions.filter(function (q) { return !!q.fav; }).length;
+  ok(favN() === 2, '还没确定时一条收藏都没动', favN());
+  d.querySelector('#cfmCancel').click();
+  ok(d.querySelector('#cfmModal').hidden === true, '点「取消」关掉');
+  ok(favN() === 2, '取消之后收藏还在', favN());
+
+  d.querySelector('#favClearBtn').click();
+  d.querySelector('#cfmOk').click();
+  ok(api.state().banks[0].questions.every(function (q) { return !q.fav; }), '点了「清空」才真的全取消');
   ok(/收藏夹是空的/.test(txt(d.querySelector('#favList'))), '页面回到空状态');
   ok(api.state().banks[0].questions.length === 5, '题目本身不会被删', api.state().banks[0].questions.length);
 }
@@ -237,6 +248,84 @@ console.log('\n七、收藏跟着题目走，不单独存一份');
   ok(api.favList('bank').length === 0, '题目没了，收藏也跟着没了（不会留下指向空气的收藏）');
   d.querySelector('.tab[data-view="fav"]').click();
   ok(/收藏夹是空的/.test(txt(d.querySelector('#favList'))), '页面同步显示空');
+}
+
+/* ---------------- 八、收藏夹里把题目移出题集 ---------------- */
+console.log('\n八、收藏夹里删题（不是取消收藏）');
+{
+  const { win, api } = openWin(seed());
+  const d = win.document;
+  api.toggleFav('q2');
+  api.toggleFav('q4');
+  d.querySelector('.tab[data-view="fav"]').click();
+
+  ok(d.querySelectorAll('#favList [data-del]').length === 2, '每条收藏都带一个删题入口',
+    d.querySelectorAll('#favList [data-del]').length);
+  const btn = d.querySelector('#favList [data-del]');
+  ok(/不是取消收藏/.test(btn.getAttribute('title')), '按钮上说清这不是取消收藏', btn.getAttribute('title'));
+  ok(!!d.querySelector('#favList .fav-toggle'), '取消收藏那个按钮还在（两件事分开）');
+
+  btn.click();
+  ok(!d.querySelector('#cfmModal').hidden, '先弹站内确认框（不用原生 confirm）');
+  ok(/收藏夹测试/.test(txt(d.querySelector('#cfmText'))), '框里说清从哪本题集删', txt(d.querySelector('#cfmText')));
+  ok(/★ 已收藏/.test(txt(d.querySelector('#cfmNote'))), '顺带点明「只是不想收藏」该点哪',
+    txt(d.querySelector('#cfmNote')));
+  ok(/第[24]题/.test(txt(d.querySelector('#cfmQuote'))), '把题干摆出来，分得清删哪一条',
+    txt(d.querySelector('#cfmQuote')));
+  ok(api.state().banks[0].questions.length === 5, '还没确定，一道都没少', api.state().banks[0].questions.length);
+
+  d.querySelector('#cfmCancel').click();
+  ok(api.state().banks[0].questions.length === 5, '取消之后题还在', api.state().banks[0].questions.length);
+
+  d.querySelector('#favList [data-del]').click();
+  d.querySelector('#cfmOk').click();
+  ok(api.state().banks[0].questions.length === 4, '确定之后从题集里去掉一条', api.state().banks[0].questions.length);
+  ok(!api.state().banks[0].questions.some(function (q) { return q.id === 'q4'; }), '少掉的正是点的那一道');
+  ok(d.querySelectorAll('#favList .item').length === 1, '列表里那一行立刻消失',
+    d.querySelectorAll('#favList .item').length);
+  ok(/已删掉这道题/.test(txt(d.querySelector('#toast'))), '给了一句人话', txt(d.querySelector('#toast')));
+  ok(Object.keys(api.state().gone || {}).some(function (k) { return /q4$/.test(k); }),
+    '留了墓碑，云同步的并集合并不会把它拉回来', Object.keys(api.state().gone || {}));
+
+  // 取消收藏 ≠ 删题：点★只去掉标记，题目留在题集里
+  d.querySelector('#favList .fav-toggle').click();
+  ok(api.state().banks[0].questions.length === 4, '点「★ 已收藏」只取消收藏，题还在',
+    api.state().banks[0].questions.length);
+  ok(/收藏夹是空的/.test(txt(d.querySelector('#favList'))), '取消完回到空态');
+}
+
+/* ---------------- 九、「全部题集」下只删那一本 ---------------- */
+console.log('\n九、全部题集下删题，只动它所在的那一本');
+{
+  const two = makeBank(3, 'b_fav').concat(makeBank(2, 'b_other').map(function (b) {
+    b.course = '另一门课'; return b;
+  }));
+  const { win, api } = openWin({ fq_banks_v1: JSON.stringify(two), fq_current_v1: 'b_fav' });
+  const d = win.document;
+  // 两本里各有一份 q1（题号相同、内容不同）：收藏是记在题上的，各是各的
+  api.state().banks[0].questions[0].fav = 1000;
+  api.state().banks[1].questions[0].fav = 2000;
+
+  d.querySelector('.tab[data-view="fav"]').click();
+  d.querySelector('#favScope').value = 'all';
+  d.querySelector('#favScope').dispatchEvent(new win.Event('change'));
+  ok(d.querySelectorAll('#favList .item').length === 2, '两本各一份，都列出来',
+    d.querySelectorAll('#favList .item').length);
+
+  const other = d.querySelector('#favList [data-del-bank="b_other"]');
+  ok(!!other, '每行的删题按钮记住自己属于哪本题集', other && other.dataset.delBank);
+  other.click();
+  ok(/另一门课/.test(txt(d.querySelector('#cfmText'))), '框里说的是那道题所在的题集',
+    txt(d.querySelector('#cfmText')));
+  d.querySelector('#cfmOk').click();
+
+  ok(api.state().banks[1].questions.length === 1, '删的是「另一门课」那一本',
+    api.state().banks[1].questions.length);
+  ok(api.state().banks[0].questions.length === 3, '当前这本一道没动', api.state().banks[0].questions.length);
+  ok(d.querySelectorAll('#favList .item').length === 1, '列表只剩当前这本那份',
+    d.querySelectorAll('#favList .item').length);
+  ok(Object.keys(api.state().gone || {}).some(function (k) { return /^另一门课\|q1$/.test(k); }),
+    '墓碑按题集记，不会挡掉别本的同题号', Object.keys(api.state().gone || {}));
 }
 
 console.log('\n—— ' + pass + ' 通过 / ' + fail + ' 失败 ——\n');
