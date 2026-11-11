@@ -23,7 +23,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.21.21';
+  var FQ_VERSION = '1.22.0';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -3879,6 +3879,83 @@
      沙箱 iframe 里直接被吞掉，点了像没反应）。
      ========================================================= */
   var qaPreset = null;
+  /* 挖空时记下的原词，按空位顺序。为什么不能只靠答案框那一串字：
+     「安全、有效、经济」这种答案本身就带顿号，填空的答案又是按顿号拆的，
+     两个空会被拆成三段，判分永远对不上。挖出来的答案就原样记着。 */
+  var qaPicks = [];
+  var qaPicksText = '';   // 挖完那刻答案框里的原文，用来判断用户后来有没有手动改
+
+  /* 选中题干里的一段字 → 换成 ____，同时把这段字填进答案框。
+     改题面板和「手动加题」共用一套：挖出来的空，答案必须是原文里那几个字，
+     不许让人再手抄一遍 —— 抄错一个字，判分就永远不对。 */
+  function blankFromSelection(ta, ansEl) {
+    if (!ta) return null;
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    if (s == null || s === e) return null;
+    var picked = String(ta.value).slice(s, e).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+    if (!picked) return null;
+    // 空位两边各留一个空格，避免「是____。」糊在一起看不清
+    var before = String(ta.value).slice(0, s).replace(/[\s\u3000]+$/, ' ');
+    if (!/\s$/.test(before)) before += ' ';
+    var after = String(ta.value).slice(e).replace(/^[\s\u3000]+/, '');
+    ta.value = before + '____' + after;
+    if (ansEl) {
+      var cur = String(ansEl.value || '').trim();
+      if (!cur) ansEl.value = picked;
+      else if (cur.indexOf(picked) < 0) ansEl.value = cur.replace(/[、，,]\s*$/, '') + '、' + picked;
+    }
+    var pos = before.length + 4;
+    try { ta.selectionStart = ta.selectionEnd = pos; ta.focus(); } catch (err) { /* 老浏览器 */ }
+    return picked;
+  }
+
+  /* 题库里的「填空」才认挖空；选择/名词解释/简答挖了也没用 */
+  function qaBlankWhy() {
+    var t = ($('#qaType') || {}).value || 'fill';
+    if (t === 'fill') return '';
+    if (t === 'single' || t === 'multi') {
+      return '选择题不挖空 —— 题干写完整，正确答案放进下面的选项里';
+    }
+    return '名词解释 / 简答是整段默写，不挖空';
+  }
+
+  /* 挖空按钮上实时显示「选中了几个字」，不然没人知道要先去选 */
+  function syncQaBlankBtn() {
+    var btn = $('#qaBlankBtn'), ta = $('#qaStem');
+    if (!btn || !ta) return;
+    var n = 0, picked = '';
+    try {
+      if (ta.selectionStart != null && ta.selectionEnd > ta.selectionStart) {
+        picked = String(ta.value).slice(ta.selectionStart, ta.selectionEnd).trim();
+        n = picked.length;
+      }
+    } catch (e) { /* 拿不到选区就当没选 */ }
+    var bad = qaBlankWhy();
+    btn.classList.toggle('on', !!n && !bad);
+    btn.textContent = n ? ('✂ 挖空这 ' + n + ' 字') : '✂ 选中的字挖成空';
+    btn.title = bad
+      ? bad
+      : (n ? ('把「' + picked.slice(0, 24) + (picked.length > 24 ? '…' : '') + '」挖成空，并填进答案')
+        : '先在题干里选中要考的那几个字，再点这里（Alt+W）');
+  }
+
+  function doQaBlank() {
+    var why = qaBlankWhy();
+    if (why) { toast(why); try { $('#qaType').focus(); } catch (e) {} return false; }
+    var ta = $('#qaStem');
+    var picked = blankFromSelection(ta, $('#qaAns'));
+    if (!picked) {
+      var has = ta && ta.selectionStart != null && ta.selectionEnd > ta.selectionStart;
+      toast(has ? '选中的是空白，重新选几个字' : '先在题干里选中要考的那几个字');
+      try { if (ta) ta.focus(); } catch (e) {}
+      return false;
+    }
+    qaPicks.push(picked);
+    qaPicksText = String(($('#qaAns') || {}).value || '');
+    toast('已挖空：' + picked);
+    syncQaBlankBtn();
+    return true;
+  }
 
   function qaBankOf() {
     return S.banks.filter(function (b) { return b.id === S.cur; })[0] || null;
@@ -3916,7 +3993,7 @@
       $('#qaHint').textContent = need
         ? '一行一个选项，至少两个。答案可以直接写字母（B / ACD），按上面的顺序认。'
         : (t === 'fill'
-          ? '题干里要考的地方用 ____ 挖空；两个空就写两个 ____，答案按顺序用顿号隔开。'
+          ? '题干写完，选中要考的那几个字点右上角「✂」就变成空，答案自动填好；两个空就挖两次，答案按顺序用顿号隔开。'
           : '答案整段写下来：名词解释写解释，简答按要点分条（换行或分号隔开）。');
     }
   }
@@ -3924,6 +4001,8 @@
   function openAddQuestion(preset) {
     var p = preset || {};
     qaPreset = p;
+    qaPicks = [];
+    qaPicksText = '';
     renderQaBanks(p.bankId);
     if (p.newBank) { $('#qaBank').value = '__new'; syncQaCourse(); }
     $('#qaType').value = p.type || 'fill';
@@ -3931,6 +4010,7 @@
     $('#qaAns').value = p.answer || '';
     $('#qaOpts').value = (p.opts || []).join('\n');
     syncQaOpts();
+    syncQaBlankBtn();
     $('#qaModal').hidden = false;
     setTimeout(function () {
       try { (p.stem ? $('#qaAns') : $('#qaStem')).focus(); } catch (e) { /* 老浏览器 */ }
@@ -3981,9 +4061,15 @@
     } else if (type === 'fill') {
       // 题干里挖了几个空，就按顿号拆几段答案
       var blanks = (stem.match(/_{2,}/g) || []).length;
-      answer = blanks > 1
-        ? ansRaw.split(/[、，,]/).map(function (s) { return s.trim(); }).filter(Boolean)
-        : ansRaw;
+      /* 挖空挖出来的答案原样用：本身带顿号的答案（「安全、有效、经济」）拆开就错位了。
+         用户后来手动改过答案框，就还是按顿号拆 —— 那串字是他自己写的规矩。 */
+      if (qaPicks.length && blanks > 0 && qaPicks.length === blanks && ansRaw === qaPicksText) {
+        answer = blanks > 1 ? qaPicks.slice() : qaPicks[0];
+      } else {
+        answer = blanks > 1
+          ? ansRaw.split(/[、，,]/).map(function (s) { return s.trim(); }).filter(Boolean)
+          : ansRaw;
+      }
     } else {
       answer = ansRaw;
     }
@@ -4024,6 +4110,8 @@
     // 连着加第二道时，题干和答案清掉，题集 / 题型留着
     $('#qaStem').value = '';
     $('#qaAns').value = '';
+    qaPicks = [];
+    qaPicksText = '';
     closeAddQuestion();
     return true;
   }
@@ -5031,23 +5119,13 @@
 
     // 选中一段文字 → 变成 ____，同时把这段字填进答案
     $('#fixBlankBtn').addEventListener('click', function () {
-      var ta = $('#fixStem');
-      var s = ta.selectionStart, e = ta.selectionEnd;
-      if (s == null || s === e) { warn('先在题干里选中要挖掉的那几个字'); return; }
-      var picked = ta.value.slice(s, e).replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
-      if (!picked) { warn('选中的是空白，重新选一段字'); return; }
-      // 挖空位置两边各留一个空格，避免「是____。」糊在一起看不清
-      var before = ta.value.slice(0, s).replace(/[\s\u3000]+$/, ' ');
-      if (!/\s$/.test(before)) before += ' ';
-      var after = ta.value.slice(e).replace(/^[\s\u3000]+/, '');
-      ta.value = before + '____' + after;
-      var ansEl = $('#fixAns');
-      var cur = ansEl.value.trim();
-      if (!cur) ansEl.value = picked;
-      else if (cur.indexOf(picked) < 0) ansEl.value = cur.replace(/[、，,]\s*$/, '') + '、' + picked;
-      var pos = before.length + 4;
-      ta.selectionStart = ta.selectionEnd = pos;
-      ta.focus();
+      var picked = blankFromSelection($('#fixStem'), $('#fixAns'));
+      if (!picked) {
+        var ta = $('#fixStem');
+        var has = ta && ta.selectionStart != null && ta.selectionEnd > ta.selectionStart;
+        warn(has ? '选中的是空白，重新选几个字' : '先在题干里选中要挖掉的那几个字');
+        return;
+      }
       toast('已挖空：' + picked);
     });
 
@@ -8814,12 +8892,32 @@
     m.addEventListener('click', function (e) {
       if (e.target && e.target.getAttribute && e.target.getAttribute('data-qaclose')) closeAddQuestion();
     });
-    if ($('#qaType')) $('#qaType').addEventListener('change', syncQaOpts);
+    if ($('#qaType')) $('#qaType').addEventListener('change', function () { syncQaOpts(); syncQaBlankBtn(); });
     if ($('#qaBank')) $('#qaBank').addEventListener('change', syncQaCourse);
     if ($('#qaSave')) $('#qaSave').addEventListener('click', function () { saveAddQuestion(); });
+
+    /* 快捷挖空：选中 → 点一下（或 Alt+W）→ 变成 ____，选中的字直接进答案框 */
+    if ($('#qaBlankBtn')) $('#qaBlankBtn').addEventListener('click', doQaBlank);
+    var stemEl = $('#qaStem');
+    if (stemEl) {
+      ['mouseup', 'keyup', 'select', 'click', 'input', 'touchend'].forEach(function (ev) {
+        stemEl.addEventListener(ev, function () { setTimeout(syncQaBlankBtn, 0); });
+      });
+    }
+    if ($('#qaAns')) $('#qaAns').addEventListener('input', function () {
+      // 手改过答案就不再走「原样用挖出来的词」那条路
+      if (this.value !== qaPicksText) qaPicksText = null;
+    });
+
     document.addEventListener('keydown', function (e) {
       if (m.hidden) return;
       if (e.key === 'Escape' || e.keyCode === 27) { e.preventDefault(); closeAddQuestion(); }
+      // Alt+W：选中几个字，一下变成空，手不用离开键盘
+      if (e.altKey && (e.key === 'w' || e.key === 'W' || e.keyCode === 87)) {
+        e.preventDefault();
+        doQaBlank();
+        return;
+      }
       // Ctrl+Enter 直接存：写题的人手都在键盘上
       if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.keyCode === 13)) {
         e.preventDefault();
@@ -9169,6 +9267,10 @@
     openAddQuestion: openAddQuestion,
     closeAddQuestion: closeAddQuestion,
     saveAddQuestion: saveAddQuestion,
+    blankFromSelection: blankFromSelection,
+    doQaBlank: doQaBlank,
+    syncQaBlankBtn: syncQaBlankBtn,
+    qaPicks: function () { return qaPicks.slice(); },
     lettersToOpts: lettersToOpts,
     doSupplement: doSupplement,
     clipText: clipText

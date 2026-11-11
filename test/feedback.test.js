@@ -24,6 +24,9 @@ const PORT = 5900 + Math.floor(Math.random() * 300);
 const BASE = 'http://127.0.0.1:' + PORT;
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'fqfb-'));
 const RealURL = globalThis.URL;
+/* 版本号别在测试里写死 —— 每次发版都要改一遍断言，等于测试在守上一版。
+   真正该守的是「带上了版本号」这件事本身，值跟 package.json 走。 */
+const APPVER = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 
 let pass = 0, fail = 0;
 function ok(cond, msg, extra) {
@@ -242,7 +245,7 @@ function bootApp(opts) {
     app.click('#fbOpenBtn');
     ok(app.q('#fbModal').hidden === false, '点一下就开');
     ok(app.q('#fbErr').hidden === true, '还没报错');
-    ok(app.q('#fbVerTag').textContent.indexOf('1.21.') >= 0,
+    ok(app.q('#fbVerTag').textContent.indexOf(APPVER) >= 0,
       '提前说清会带上版本号', app.q('#fbVerTag').textContent);
     app.click('[data-fbclose]');
     ok(app.q('#fbModal').hidden === true, '点遮罩 / ✕ 能关');
@@ -272,7 +275,7 @@ function bootApp(opts) {
     ok(call.body && call.body.kind === 'bug', '带着选中的类型', call.body && call.body.kind);
     ok(call.body && call.body.text.indexOf('第 3 题') > 0, '正文带上了');
     ok(call.body && call.body.contact === 'my@qq.com', '联系方式带上了');
-    ok(call.body && /^1\.21\./.test(call.body.ver), '版本号带上了，站长好定位', call.body && call.body.ver);
+    ok(call.body && call.body.ver === APPVER, '版本号带上了，站长好定位', call.body && call.body.ver);
     ok(call.body && typeof call.body.view === 'string' && call.body.view.length >= 0, '当前页面带上了', call.body && call.body.view);
 
     await sleep(60);

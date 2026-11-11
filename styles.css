@@ -1879,6 +1879,21 @@ strong, b { font-weight: 800; }
 .qa-top .fld { margin-bottom: 12px; }
 .qa-top .select { width: 100%; }
 .qa-hint { margin: 2px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+
+/* 题干右上角「✂ 挖空」：选中几个字，按钮就报出字数；点一下变 ____ 并填答案 */
+.qa-stem-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 5px;
+}
+.qa-stem-head > span { font-size: 12.5px; color: var(--muted); }
+.qa-blank {
+  flex: 0 0 auto; font: inherit; font-size: 11.5px; line-height: 1.5;
+  padding: 2px 9px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--line); transition: color .12s, border-color .12s, background .12s;
+}
+.qa-blank:hover { color: var(--brand); border-color: var(--brand); background: var(--brand-soft); }
+.qa-blank.on { color: var(--brand); border-color: var(--brand); background: var(--brand-soft); }
 @media (max-width: 560px) {
   .qa-top { grid-template-columns: 1fr; gap: 0; }
   .rp-name { max-width: 100%; }
