@@ -164,33 +164,18 @@ PORT=8080 npm start    # 换端口
 
 ## 测试
 
-27 套脚本、1189 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先（笔记命中原卷）、加粗识别、广场、作答与回看、用户改题（含选项编辑、改完重答）、题目批注、背诵形式、收藏夹、补充导入、分组推进与间隔复习、刷新续答、观猹登录：
+42 套脚本、1800 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先、加粗识别、广场、作答与回看、用户改题、题目批注、背诵形式、收藏夹、删题与墓碑、导入账单、手动加题与快捷挖空、分组推进与间隔复习、刷新续答、观猹登录、付费与冲刺报告。
 
 ```bash
-node test/api.test.js       # 56 项，起临时端口 + 临时数据目录，跑完整接口链路
-node test/browser.test.js   # 63 项
-node test/core.test.js      # 92 项，含逐页切换、知识卡片、页脚版本号、Star 链接、观猹徽章、右键菜单
-node test/bank.test.js      # 31 项，题库还原、分区题型、挖空粒度
-node test/bold.test.js      # 49 项，加粗识别、兜底不丢句、挖空边界
-node test/plaza.test.js     # 64 项，广场接口 + 前端
-node test/review.test.js    # 51 项，填空判分、答完不自动跳、回看、反馈滚动
-node test/paper.test.js     # 38 项，原卷分区题型、多选全选、名词解释、简答要点、手打判分
-node test/fix.test.js       # 49 项，改题型/题干/答案、挖空按钮、持久化、恢复原样、降级、背诵卡、背知识点页改完同步到刷题
-node test/opts.test.js      # 50 项，选择题选项铺开、勾选即答案、改文字、加删、单选互斥、只剩一个降级、填空收起选项区
-node test/paperdoc.test.js  # 126 项，原卷原样录入：分区、答案括号内/后/写成词、选项排版花活、缺答案跳过、两步导入、多份原卷合成、名词解释/简答、不内置某专业题库、选中文件后真正读进列表
-node test/preferpaper.test.js # 47 项，真题优先：笔记命中原卷就用原题、没考过挖成填空、不自造干扰项、已有题只补讲解
-node test/batch.test.js     # 43 项，再来一组接着往下、答对跳过、间隔复习排期、冷却不卡死
-node test/resume.test.js    # 30 项，刷新续答：进度与题目、看答案时刷新、草稿、结账页、换题集作废、重新开始
-node test/fav.test.js       # 40 项，收藏：刷题卡收藏/取消、回顾态、收藏夹列表与排序、范围只刷收藏、清空、跟题集走
-node test/sup.test.js       # 49 项，补充导入：自动分辨卷子/笔记、已有题去重、失败提示、老版 .doc 转 docx
-node test/memo.test.js      # 46 项，批注：答题前不露、答完跟正确答案一起显示、就地增改删、错题本/收藏夹可改、导出导入都带着
-node test/refix.test.js     # 32 项，改完题回到初见：清掉本次作答、重新判分、结账不翻倍、不误伤别的题
-node test/reciteform.test.js # 55 项，背诵形式：全部考填空/全部给选项/混合、单选多选判定、手打题永远手打
-node test/watcha.test.js    # 51 项，观猹登录：授权地址参数、PKCE 校验、state 拦截与重放、账号复用、错误分支
-node test/watchaui.test.js   # 19 项，观猹登录前端：入口显隐、发起登录、回调换号、不抢 WorkBuddy 的回调
+node test/run.js            # 跑全部，最后一行给「几套全绿 / 合计几项 / 用时」
+node test/run.js fav delq   # 只跑名字里带 fav / delq 的
+node test/run.js --quiet    # 只打汇总；失败时照样把 ✗ 行贴出来
 ```
 
-前端几套用 [happy-dom](https://github.com/capricorn86/happy-dom) 跑，需先 `npm i -D happy-dom`（或全局装好再把 `NODE_PATH` 指过去）。
+不用再设 `NODE_PATH`：`_harness.js` 会自己去工作空间根找 happy-dom。
+
+前端几套用 [happy-dom](https://github.com/capricorn86/happy-dom) 跑（`npm i -D happy-dom`）。
+新测试请用 `test/_harness.js`，别再抄那 30 行初始化；每套的用例数见 `docs/使用说明.md` 第七节。
 
 ## 项目结构
 
@@ -198,12 +183,17 @@ node test/watchaui.test.js   # 19 项，观猹登录前端：入口显隐、发�
 index.html   页面结构
 styles.css   样式（深浅色）
 app.js       全部前端逻辑：出题、判分、刷题、背诵、统计、云同步、题库还原、原卷照抄
+             （文件开头有一份「模块地图」，改东西先看那儿）
 server.js    后端，只用 Node 自带模块（http / fs / crypto）
 pay.js       爱猹收（观猹支付）接入层：查权益 / 扣额度，失败一律关闭
 watcha-oauth.js  观猹 OAuth2 接入层：授权码 + PKCE、换 token、取用户信息
+mailer.js    「提建议」直接发到站长邮箱（零依赖 SMTP）
 vendor/      WorkBuddy 登录 SDK（本地托管，不走外网 CDN）
-data/        运行时生成的数据（users.json / cloud.json / stats.json / plaza.json），不进版本库
-test/        测试脚本
+data/        运行时数据与配置，不进版本库；发版只带三个 *.config.json（见 docs/开发手册.md）
+test/        42 套回归 + _harness.js（公共骨架）+ run.js（一键跑分器）
+scripts/     release.sh：把「挪 data → 提交 → 推送 → 核验 → 挪回」固化成两条命令
+docs/        使用说明.md（给用户）· 开发手册.md（给自己：改一个功能要动哪几处）
+             · 更新日志.md
 ```
 
 数据结构就是几个 JSON 文件，没有数据库。`data/` 在 `.gitignore` 里，部署后自动生成。

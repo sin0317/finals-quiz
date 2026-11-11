@@ -343,6 +343,8 @@ function serveStatic(req, res, urlPath) {
   const relToRoot = path.relative(ROOT, abs);
   const topDir = relToRoot.split(path.sep)[0];
   if (topDir === 'data') return fail(res, 403, '禁止访问');
+  // scripts/ 是发版脚本，里面写着部署流程和内部地址 —— 不该让公网读到
+  if (topDir === 'scripts') return fail(res, 403, '禁止访问');
   if (RETIRED_DIRS.indexOf(topDir) >= 0) return fail(res, 404, '该功能已下线');
   if (['server.js', 'package.json', 'package-lock.json', 'pay.js', 'watcha-oauth.js', 'mailer.js'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
 

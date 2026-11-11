@@ -1,6 +1,59 @@
 /* =========================================================
    期末刷题 · 把笔记变成题目
    纯前端实现，数据保存在浏览器 localStorage
+   ---------------------------------------------------------
+   ⚠️ 这是地图。改东西先在这儿找落点，别从 9000 行里从头 grep。
+   行号会漂，所以只写函数名 —— 用 `grep -n "function 名字" app.js` 定位。
+
+   【数据与存储】
+     存储键 LS_* ··················· 文件开头
+     save / load / getBank / getQs · 一切持久化都过这几个
+     getStat / stPill / calcMastery / srGap · 掌握度与间隔复习
+     bankKey / mergeBanks / mergeStats / mergeLog · 云同步合并（只增不减）
+
+   【导入笔记 → 出题】（第二步）
+     主链：readAsText / loadAny → parsePaperRuns → extractPoints → buildFromNote
+     原卷识别：isPaperQ / stemCore / findPaperMatch / preferPaper
+     分区标题：sectionKind / splitSentencesWithSection
+     挖空位置：hanLen / numBlank / fixBlank / bestWei ···· 出题质量的命门
+     导入账单：reportTotal / renderReport / clipText
+     手动加题：openAddQuestion / saveAddQuestion / blankFromSelection
+
+   【导入原卷】（第一步，可选）
+     parsePaper / paperSections / paperKind / splitOpts / paperAnswerOf
+     老 .doc：isCfb / cfbRead / docText → 转 docx 再解析
+
+   【刷题】
+     会话：S.quiz = { list, forms, results, idx } ··· 三个平行数组，删题要一起摘
+     选题：filterPool / pickQuestions / byOrder
+     出题形式：decideForms / reciteForm / syncFormsAfterFix ··· 默认值在三处，一起改
+     判分：gradeTyped 分发 → gradeAnswer（填空）/ gradeShort（简答）/ gradeTerm（名词解释）
+     渲染与选项点击：renderQuiz（.opt 带 data-v，在函数内绑定）
+     删题：askDeleteQuestion → doDeleteQuestion → deleteQuestionById（并 markGone 留墓碑）
+
+   【其它页签】
+     背知识点 renderRecite（reciteForm 决定给不给选项）
+     错题本 renderWrong ｜ 收藏夹 renderFav ｜ 统计 renderStats
+     今日战绩卡 canvas：paintCardBg / paintCardHead / paintCardTitle
+     冲刺报告（付费）：buildSprintModel / sprintReportHtml
+
+   【账号与同步】
+     云端：cloudInit / cloudPull / pushNow / flushPush / schedulePush
+     登录：wbInit / wbBind / wbRestore（WorkBuddy）· watchaSignIn / watchaConfig（观猹）
+     广场与分享：loadPlaza / refreshShareExtras / bankMemoCount
+
+   【服务端】server.js
+     接口白名单、cleanQuestions（题型白名单 Q_TYPES）、广场、反馈、付费回调。
+     pay.js / watcha-oauth.js / mailer.js 各管一块配置；/data/* 永不外露（403）。
+
+   ---------------------------------------------------------
+   高频踩坑（每条都真踩过，改之前先对一眼）：
+     1. window.confirm / prompt 在沙箱 iframe 里被静默吞掉 → 用 askConfirm
+     2. 先取 input.files 再清 value 会把 FileList 清空 → 先 slice 再清
+     3. 云同步是并集，删了会被拉回来 → 必须留墓碑 fq_gone_v1
+     4. 加一种题型要动五处：FIX_TYPES / TYPE_LABEL（本文件）、index.html 两个下拉、
+        server.js 的 Q_TYPES（漏了会被 cleanQuestions 降级成单选 —— 踩过）
+     5. 改完跑 `node test/run.js`，42 套全绿才算完（不用再记 NODE_PATH）
    ========================================================= */
 (function () {
   'use strict';
@@ -23,7 +76,14 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.22.1';
+  var FQ_VERSION = '1.22.2';
+
+  /* 出题形式的默认值：用户在下拉里没选过时，按什么形式考。
+     「改默认形式」= 这里 + index.html 里 #qForm / #rForm 的 selected，
+     两处必须一致 —— 只改 HTML 不改这里，老用户（localStorage 里没有这个值）
+     还是会掉回旧默认；只改这里不改 HTML，新用户看到的下拉是另一个值。
+     三个调用点都用这个常量，别再写字面量 'choice'。 */
+  var DEFAULT_FORM = 'choice';
 
   /* ---------------- 小工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -4608,7 +4668,7 @@
       // 题型排布也一并恢复：不然恢复出来的题可能跟上次看到的考法不一样
       forms: (raw.forms && raw.forms.length === list.length)
         ? raw.forms
-        : decideForms(list, ($('#qForm') || {}).value || 'choice'),
+        : decideForms(list, ($('#qForm') || {}).value || DEFAULT_FORM),
       resumed: true
     };
     if (raw.drill) DRILL = { done: raw.drill.done || {}, served: raw.drill.served || {} };
@@ -5246,7 +5306,7 @@
     if (!S.quiz || !S.quiz.forms || !S.quiz.list) return;
     var i = S.quiz.list.indexOf(q);
     if (i < 0) return;
-    S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : 'choice')[0];
+    S.quiz.forms[i] = decideForms([q], $('#qForm') ? $('#qForm').value : DEFAULT_FORM)[0];
   }
 
   /* 改完题，这道题「这次答的」就不作数了 —— 它是照旧题干、旧答案判的，
@@ -6083,7 +6143,25 @@
 
   /* =========================================================
      ③ 背知识点（苏格拉底式）
+     ---------------------------------------------------------
+     「背它」按钮：把这一道题单独当知识卡片看一遍。
+     错题本 / 收藏夹 / 统计里的薄弱题都走这一个出口 —— 以前这段初始化
+     在三处各抄了一遍（十一个字段：list/phase/cardIdx/seenIdx/idx/prev/
+     hint/ok/mid/bad/answered），少写一个就是「背到一半跳回去」这种怪 bug，
+     而且三份迟早会走岔。要改开背的初始状态，只改这一个函数。
      ========================================================= */
+  function drillOne(q) {
+    if (!q) return false;
+    S.recite = {
+      list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
+      idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
+      answered: false
+    };
+    switchView('recite');
+    renderRecite();
+    return true;
+  }
+
   $('#reciteStartBtn').addEventListener('click', function () {
     S.recite = null;
     var range = $('#rRange').value;
@@ -6235,7 +6313,7 @@
   function reciteForm(q) {
     if (!q || isTypedQ(q)) return 'fill';
     if (!(q.opts && q.opts.length >= 2)) return 'fill';
-    var mode = ($('#rForm') && $('#rForm').value) || 'choice';
+    var mode = ($('#rForm') && $('#rForm').value) || DEFAULT_FORM;
     if (mode === 'choice') return 'choice';
     if (mode === 'mix') {
       // 混合：练熟了的考默写（更难），还生疏的先给选项
@@ -6605,15 +6683,7 @@
 
     $$('#wrongList [data-drill]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var q = getQ(b.dataset.drill);
-        if (!q) return;
-        S.recite = {
-          list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
-          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
-          answered: false
-        };
-        switchView('recite');
-        renderRecite();
+        drillOne(getQ(b.dataset.drill));
       });
     });
     $$('#wrongList [data-clear]').forEach(function (b) {
@@ -6668,15 +6738,7 @@
     bindDelButtons();
     $$('#favList [data-drill]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var q = findQ(b.dataset.drill);
-        if (!q) return;
-        S.recite = {
-          list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
-          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
-          answered: false
-        };
-        switchView('recite');
-        renderRecite();
+        drillOne(findQ(b.dataset.drill));
       });
     });
   }
@@ -7346,15 +7408,7 @@
 
     $$('#weakList [data-drill]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var q = getQ(b.dataset.drill);
-        if (!q) return;
-        S.recite = {
-          list: [q], phase: 'cards', cardIdx: 0, seenIdx: {},
-          idx: 0, prev: null, hint: false, ok: 0, mid: 0, bad: 0,
-          answered: false
-        };
-        switchView('recite');
-        renderRecite();
+        drillOne(getQ(b.dataset.drill));
       });
     });
   }

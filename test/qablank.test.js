@@ -14,35 +14,11 @@
      · 用户后来手动改了答案，就按他自己写的来
      · Alt+W 和点按钮等价                                              */
 
-const fs = require('fs');
-const path = require('path');
-const { Window } = require('happy-dom');
-const ROOT = path.resolve(__dirname, '..');
+/* 公共骨架（index.html 正文 + app.js + happy-dom + ok 计数）收在 _harness 里，
+   这里只写这一套要守的线。以前这 30 行在 42 套里各抄了一遍。 */
+const T = require('./_harness');
+const { ok, openWin, $, txt } = T;
 
-let pass = 0, fail = 0;
-function ok(cond, msg, extra) {
-  if (cond) { pass++; console.log('  ✓ ' + msg); }
-  else { fail++; console.log('  ✗ ' + msg + (extra !== undefined ? '  → ' + JSON.stringify(extra) : '')); }
-}
-
-const HTML = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const BODY = (HTML.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [])[1].replace(/<script[\s\S]*?<\/script>/gi, '');
-const APP_SRC = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
-
-function openWin(seed) {
-  const win = new Window({ url: 'http://localhost/' });
-  win.document.body.innerHTML = BODY;
-  win.crypto = require('crypto').webcrypto;
-  win.Element.prototype.scrollIntoView = function () {};
-  win.confirm = function () { return true; };
-  win.alert = function () {};
-  try { win.localStorage.clear(); } catch (e) { /* happy-dom 自带实现 */ }
-  if (seed) Object.keys(seed).forEach(function (k) { win.localStorage.setItem(k, seed[k]); });
-  const api = win.eval('(function(){' + APP_SRC + '; return window.FQInternals; })()');
-  return { win, api, d: win.document };
-}
-const $ = (d, s) => d.querySelector(s);
-function txt(el) { return (el && el.textContent || '').replace(/\s+/g, ' ').trim(); }
 function toastOf(d) { return txt($(d, '#toast')); }
 function bankList(win) { return JSON.parse(win.localStorage.getItem('fq_banks_v1') || '[]'); }
 
@@ -257,5 +233,4 @@ console.log('\n九、连加两道不串答案');
     '第二道的答案还是两段', q2.answer);
 }
 
-console.log('\n— 通过 ' + pass + ' 项，失败 ' + fail + ' 项 —');
-process.exit(fail ? 1 : 0);
+T.done('快捷挖空');
