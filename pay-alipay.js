@@ -66,7 +66,7 @@ function loadConfig(dataDir) {
     price: pick('ALIPAY_PRICE', f.price, ''),
     priceLabel: pick('ALIPAY_PRICE_LABEL', f.priceLabel, ''),
     subject: pick('ALIPAY_SUBJECT', f.subject, '期末刷题站 · 冲刺报告永久解锁'),
-    body: pick('ALIPAY_BODY', f.body, '期末刷题站 v1.26.1 · 冲刺报告一次购买永久解锁')
+    body: pick('ALIPAY_BODY', f.body, '期末刷题站 v1.30.1 · 冲刺报告一次购买永久解锁')
   };
 
   cfg.enabled = !!(cfg.appId && cfg.privateKey && cfg.alipayPublicKey);
