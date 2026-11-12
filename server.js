@@ -1,6 +1,31 @@
 #!/usr/bin/env node
 'use strict';
 
+/* 本地开发时从 .env 读取环境变量；部署平台注入的同名变量优先（不覆盖）。
+   测试环境（NODE_ENV=test）不加载，避免云端存储干扰本地文件断言。 */
+(function loadDotEnv() {
+  if (process.env.NODE_ENV === 'test' || process.env.FQ_NO_DOTENV) return;
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const file = path.join(__dirname, '.env');
+    if (!fs.existsSync(file)) return;
+    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq < 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let val = trimmed.slice(eq + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && !(key in process.env)) process.env[key] = val;
+    }
+  } catch (_) { /* 忽略 .env 读取失败，走默认/平台环境变量 */ }
+})();
+
 /* =========================================================================
    期末刷题站 · 极简后端（零第三方依赖，只用 Node 内置模块）
    -------------------------------------------------------------------------
@@ -16,9 +41,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { createPayService } = require('./pay');
-const { createWatchaOAuth } = require('./watcha-oauth');
+
 const { createMailer } = require('./mailer');
+
+const { createRemoteStore } = require('./store-remote');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
@@ -26,6 +54,10 @@ const ROOT = __dirname;
 const DATA_DIR = process.env.FQ_DATA_DIR
   ? path.resolve(process.env.FQ_DATA_DIR)
   : path.join(ROOT, 'data');
+
+/* 数据落哪儿：配了 Upstash 就上云，没配就写本地 data/。五份文档结构不变 */
+const remote = createRemoteStore(process.env);
+const DOC_NAMES = ['users', 'cloud', 'stats', 'plaza', 'feedback'];
 
 const SESSION_DAYS = 30;
 const MAX_BODY = 8 * 1024 * 1024; // 题集可能不小，给到 8MB
@@ -86,17 +118,23 @@ function readJson(file, fallback) {
   } catch (e) { return fallback; }
 }
 
+/* 读一份文档：配了云端就读云端快照，否则读本地文件 */
+function readDoc(name, fallback) {
+  if (remote.enabled) return remote.read(name, fallback);
+  return readJson(FILES[name], fallback);
+}
+
 function loadAll() {
-  const u = readJson(FILES.users, {});
+  const u = readDoc('users', {});
   store.users = (u.users && typeof u.users === 'object') ? u.users : {};
   store.sessions = (u.sessions && typeof u.sessions === 'object') ? u.sessions : {};
   store.bonus = (u.bonus && typeof u.bonus === 'object') ? u.bonus : {};
-  store.cloud = readJson(FILES.cloud, {}) || {};
-  const s = readJson(FILES.stats, {});
+  store.cloud = readDoc('cloud', {}) || {};
+  const s = readDoc('stats', {});
   store.guests = (s.guests && typeof s.guests === 'object') ? s.guests : {};
   store.daily = (s.daily && typeof s.daily === 'object') ? s.daily : {};
-  store.plaza = readJson(FILES.plaza, {}) || {};
-  const fb = readJson(FILES.feedback, []);
+  store.plaza = readDoc('plaza', {}) || {};
+  const fb = readDoc('feedback', []);
   store.feedback = Array.isArray(fb) ? fb : (Array.isArray(fb.items) ? fb.items : []);
 
   const now = Date.now();
@@ -104,13 +142,9 @@ function loadAll() {
     if (!store.sessions[t] || store.sessions[t].exp < now) delete store.sessions[t];
   });
 }
-loadAll();
 
 /* 爱猹收：查权益与扣额度。配置缺失时 enabled=false，前端据此隐藏付费入口 */
 const pay = createPayService(DATA_DIR);
-
-/* 观猹 OAuth2：授权码 + PKCE。配置缺失时 enabled=false，前端据此隐藏登录入口 */
-const watcha = createWatchaOAuth(DATA_DIR);
 
 /* 建议通知信。mail.config.json 缺失时 enabled=false —— 建议照样存，
    只是不发信，绝不能因为发不出邮件就把用户的反馈丢掉 */
@@ -134,20 +168,32 @@ async function writeAtomic(file, obj) {
   await fs.promises.rename(tmp, file);
 }
 
+/* 写一份文档：配了云端就整份 SET 上去，否则原子写本地文件 */
+function writeDoc(name, obj) {
+  if (remote.enabled) return remote.write(name, obj);
+  return writeAtomic(FILES[name], obj);
+}
+
 async function flushAll() {
   if (flushing) { flushTimer = setTimeout(flushAll, 300); return; }
   flushTimer = null;
   flushing = true;
   const jobs = [];
   try {
-    if (dirty.users) { dirty.users = false; jobs.push(writeAtomic(FILES.users, { users: store.users, sessions: store.sessions, bonus: store.bonus })); }
-    if (dirty.cloud) { dirty.cloud = false; jobs.push(writeAtomic(FILES.cloud, store.cloud)); }
-    if (dirty.stats) { dirty.stats = false; jobs.push(writeAtomic(FILES.stats, { guests: store.guests, daily: store.daily })); }
-    if (dirty.plaza) { dirty.plaza = false; jobs.push(writeAtomic(FILES.plaza, store.plaza)); }
-    if (dirty.feedback) { dirty.feedback = false; jobs.push(writeAtomic(FILES.feedback, store.feedback)); }
+    if (dirty.users) { dirty.users = false; jobs.push(writeDoc('users', { users: store.users, sessions: store.sessions, bonus: store.bonus })); }
+    if (dirty.cloud) { dirty.cloud = false; jobs.push(writeDoc('cloud', store.cloud)); }
+    if (dirty.stats) { dirty.stats = false; jobs.push(writeDoc('stats', { guests: store.guests, daily: store.daily })); }
+    if (dirty.plaza) { dirty.plaza = false; jobs.push(writeDoc('plaza', store.plaza)); }
+    if (dirty.feedback) { dirty.feedback = false; jobs.push(writeDoc('feedback', store.feedback)); }
     await Promise.all(jobs);
   } catch (e) {
     console.error('[期末刷题] 写盘失败：', e && e.message);
+    // 写失败就把脏标记全部放回去，5 秒后再试一次 —— 不能静默丢用户数据
+    dirty.users = dirty.cloud = dirty.stats = dirty.plaza = dirty.feedback = true;
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushAll, 5000);
+      if (flushTimer.unref) flushTimer.unref();
+    }
   } finally {
     flushing = false;
     if (dirty.users || dirty.cloud || dirty.stats || dirty.plaza || dirty.feedback) flushTimer = setTimeout(flushAll, 300);
@@ -156,7 +202,7 @@ async function flushAll() {
 
 /* 一次性清理：开发期做接口冒烟测试时留下的假账号（无云端身份、固定用户名）。
    不清理的话它会永久占着「第一个注册者 = 站长」的位置，让真正的站点主人当不成站长。 */
-(function purgeSmokeTestAccounts() {
+function purgeSmokeTestAccounts() {
   const bad = [];
   Object.keys(store.users).forEach(function (k) {
     const u = store.users[k];
@@ -170,7 +216,7 @@ async function flushAll() {
   markDirty('users');
   markDirty('cloud');
   console.log('[期末刷题] 已清理 ' + bad.length + ' 个冒烟测试账号');
-})();
+}
 
 /* ========================= 工具 ========================= */
 
@@ -346,7 +392,7 @@ function serveStatic(req, res, urlPath) {
   // scripts/ 是发版脚本，里面写着部署流程和内部地址 —— 不该让公网读到
   if (topDir === 'scripts') return fail(res, 403, '禁止访问');
   if (RETIRED_DIRS.indexOf(topDir) >= 0) return fail(res, 404, '该功能已下线');
-  if (['server.js', 'package.json', 'package-lock.json', 'pay.js', 'watcha-oauth.js', 'mailer.js'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
+  if (['server.js', 'package.json', 'package-lock.json', 'pay.js', 'mailer.js'].indexOf(relToRoot) >= 0) return fail(res, 403, '禁止访问');
 
   fs.stat(abs, function (err, st) {
     if (err || !st.isFile()) return fail(res, 404, '找不到 ' + rel);
@@ -355,6 +401,23 @@ function serveStatic(req, res, urlPath) {
     // 页面、样式、脚本一律不许缓存：以前发版后用户刷新还是旧 JS，
     // 看到的还是修好之前的 bug，排查了半天才发现是浏览器缓存
     const noStore = ['.html', '.htm', '.js', '.css'].indexOf(ext) >= 0;
+
+    // app.js 有 400 多 KB，手机上不压缩首屏要等好几秒。
+    // 文本类资源超过 1KB 就 gzip，二进制（图片）不碰。
+    const compressible = ['.html', '.htm', '.js', '.css', '.json', '.svg', '.txt'].indexOf(ext) >= 0;
+    const acceptsGzip = /\bgzip\b/i.test(String(req.headers['accept-encoding'] || ''));
+    if (compressible && acceptsGzip && st.size > 1024) {
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Cache-Control': noStore ? 'no-store, must-revalidate' : 'no-cache',
+        'Last-Modified': st.mtime.toUTCString(),
+        'Content-Encoding': 'gzip',
+        'Vary': 'Accept-Encoding'
+      });
+      fs.createReadStream(abs).pipe(zlib.createGzip({ level: 6 })).pipe(res);
+      return;
+    }
+
     res.writeHead(200, {
       'Content-Type': type,
       'Content-Length': st.size,
@@ -558,64 +621,48 @@ function briefPlaza(it, u) {
     createdAt: it.createdAt,
     updatedAt: it.updatedAt || it.createdAt,
     downloads: it.downloads || 0,
+    demo: !!it.demo,
     mine: !!(u && it.uid === u.id)
   };
 }
 
+/* 官方示例题集：固定 id + 固定 uid，任何人删不掉、也改不了。
+   题从 assets/demo-bank.json 读，启动时兜底写进广场 —— 云端数据被清空也能自己长回来 */
+const DEMO_PLAZA_ID = 'p_demo';
+
+function ensureDemoPlaza() {
+  if (process.env.NODE_ENV === 'test') return; // 测试里广场保持干净，别被示例题集影响断言
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'demo-bank.json'), 'utf8'));
+  } catch (e) {
+    console.error('[期末刷题] 示例题集读不到：', (e && e.message) || '未知错误');
+    return;
+  }
+  const qs = cleanQuestions(raw && raw.questions);
+  if (!qs.length) return;
+  const old = store.plaza[DEMO_PLAZA_ID];
+  if (old && Array.isArray(old.questions) && old.questions.length === qs.length) return;
+
+  store.plaza[DEMO_PLAZA_ID] = {
+    id: DEMO_PLAZA_ID,
+    uid: 'u_demo',
+    author: '官方示例',
+    course: cleanText(raw.course, 40) || '官方示例题集',
+    major: '药学',
+    subject: '临床药物治疗学',
+    note: '官方示例：' + qs.length + ' 道单选 / 多选，全部来自真实历年卷，选项只认原卷',
+    questions: qs,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    downloads: 0,
+    demo: true
+  };
+  markDirty('plaza');
+}
+
 function tagRank(map) {
   return Object.keys(map).sort(function (a, b) { return map[b] - map[a] || a.localeCompare(b, 'zh'); });
-}
-
-/* ---- 观猹账号：用观猹的 user_id 当稳定主键，同一个人换设备登录能认回同一个账号 ---- */
-function watchaUsername(info) {
-  const raw = String(info.nickname || '').trim();
-  // 昵称里可能有空格、颜文字，账号名只留能显示的字符
-  let base = raw.replace(/[^A-Za-z0-9_\-.·一-龥]/g, '').slice(0, 20);
-  if (base.length < 2) base = ('观猹' + String(info.userId).slice(-4)).slice(0, 20);
-  return base;
-}
-
-function upsertWatchaUser(info) {
-  const watchaId = String(info.userId);
-  const now = Date.now();
-  let user = null;
-  Object.keys(store.users).forEach(function (k) {
-    if (store.users[k].watchaId === watchaId) user = store.users[k];
-  });
-  const isNew = !user;
-  if (user) {
-    user.lastLoginAt = now;
-    user.lastSeenAt = now;
-    user.loginCount = (user.loginCount || 0) + 1;
-    if (info.nickname) user.name = info.nickname.slice(0, 20);
-    if (info.avatarUrl) user.avatar = info.avatarUrl;
-  } else {
-    const id = uid('u');
-    const base = watchaUsername(info);
-    let nick = base;
-    let n = 1;
-    while (n <= 99 && Object.keys(store.users).some(function (k) { return store.users[k].username === nick; })) {
-      n += 1;
-      nick = base + n;
-    }
-    if (n > 99) nick = base + '_' + id.slice(-4);
-    const hasAdmin = Object.keys(store.users).some(function (k) { return store.users[k].role === 'admin'; });
-    user = {
-      id: id,
-      username: nick,
-      name: info.nickname ? info.nickname.slice(0, 20) : nick,
-      avatar: info.avatarUrl || '',
-      watchaId: watchaId,
-      provider: 'watcha',
-      role: hasAdmin ? 'user' : 'admin',
-      createdAt: now,
-      lastLoginAt: now,
-      lastSeenAt: now,
-      loginCount: 1
-    };
-    store.users[id] = user;
-  }
-  return { user: user, isNew: isNew };
 }
 
 /* ========================= 接口 ========================= */
@@ -714,10 +761,7 @@ const routes = {
       if (store.users[k].username.toLowerCase() === key) found = store.users[k];
     });
     if (!found) return fail(res, 401, '昵称或密码不对');
-    if (!found.hash || !found.salt) {
-      const via = found.provider === 'watcha' ? '观猹' : (found.provider === 'workbuddy' ? 'WorkBuddy' : '第三方');
-      return fail(res, 400, '这个账号是用' + via + '登录的，请点「使用' + via + '登录」');
-    }
+    if (!found.hash || !found.salt) return fail(res, 401, '这个账号没有设置密码，请重新注册');
     if (!verifyPassword(password, found)) return fail(res, 401, '昵称或密码不对');
 
     const now = Date.now();
@@ -730,116 +774,6 @@ const routes = {
     markDirty('users');
     setSessionCookie(res, token, true);
     ok(res, { user: publicUser(found) });
-  },
-
-  /* WorkBuddy 账号登录：前端用云服务 OAuth 拿到身份后，来这里换本站会话。
-     以 WorkBuddy 的用户 id（cloudId）作为稳定主键，同一个人换设备登录能自动认回同一个账号。 */
-  'POST /api/cloud-login': async function (req, res) {
-    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').toString();
-    if (!throttle('clogin:' + ip, 40, 10 * 60 * 1000)) return fail(res, 429, '操作太频繁了，歇一会儿再试');
-    let body;
-    try { body = parseJsonBody(await readBody(req)); } catch (e) { return fail(res, 400, '请求格式不对'); }
-
-    const cloudId = String(body.cloudId || '').trim();
-    const name = String(body.name || '').trim().slice(0, 20);
-    const avatar = String(body.avatar || '').slice(0, 500);
-    if (!/^[A-Za-z0-9_:.\-]{6,128}$/.test(cloudId)) return fail(res, 400, '登录信息不完整，请重新登录');
-
-    const now = Date.now();
-    let user = null;
-    Object.keys(store.users).forEach(function (k) {
-      if (store.users[k].cloudId === cloudId) user = store.users[k];
-    });
-
-    const isNew = !user;
-    if (user) {
-      user.lastLoginAt = now;
-      user.lastSeenAt = now;
-      user.loginCount = (user.loginCount || 0) + 1;
-      if (name) user.name = name;
-      if (avatar) user.avatar = avatar;
-    } else {
-      const id = uid('u');
-      // 昵称撞车就加序号，免得站长看板上分不清谁是谁
-      const base = name || ('同学' + id.slice(-4));
-      let nick = base;
-      let n = 1;
-      while (n <= 99 && Object.keys(store.users).some(function (k) { return store.users[k].username === nick; })) {
-        n += 1;
-        nick = base + n;
-      }
-      if (n > 99) nick = base + '_' + id.slice(-4);
-      const hasAdmin = Object.keys(store.users).some(function (k) { return store.users[k].role === 'admin'; });
-      user = {
-        id: id,
-        username: nick,
-        name: name || nick,
-        avatar: avatar,
-        cloudId: cloudId,
-        provider: 'workbuddy',
-        role: hasAdmin ? 'user' : 'admin',
-        createdAt: now,
-        lastLoginAt: now,
-        lastSeenAt: now,
-        loginCount: 1
-      };
-      store.users[id] = user;
-    }
-
-    const token = crypto.randomBytes(32).toString('hex');
-    store.sessions[token] = { uid: user.id, exp: now + SESSION_DAYS * 86400 * 1000 };
-    markDirty('users');
-    setSessionCookie(res, token, true);
-    ok(res, { user: publicUser(user), isNew: isNew });
-  },
-
-  /* ---- 观猹账号登录：标准 OAuth2 授权码 + PKCE ---- */
-
-  /* 前端先问一句「观猹登录配好了没」，没配好就把入口藏起来，别让人点了才报错 */
-  'GET /api/watcha/config': function (req, res) {
-    ok(res, { enabled: watcha.enabled });
-  },
-
-  /* 发起登录：生成 state + PKCE 校验串（都留在服务端），返回观猹授权页地址 */
-  'GET /api/watcha/auth': function (req, res) {
-    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').toString();
-    if (!throttle('wauth:' + ip, 30, 10 * 60 * 1000)) return fail(res, 429, '操作太频繁了，歇一会儿再试');
-    if (!watcha.enabled) return fail(res, 503, '观猹登录还没配置好');
-    const redirectUri = watcha.resolveRedirectUri(req, queryOf(req).get('redirectTo'));
-    if (!redirectUri) return fail(res, 500, '回调地址算不出来，请稍后再试');
-    const a = watcha.beginAuth(redirectUri);
-    ok(res, { url: a.url, state: a.state });
-  },
-
-  /* 回调换号：验 state → code 换 token → 取用户信息 → 建本站会话 */
-  'POST /api/watcha/exchange': async function (req, res) {
-    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').toString();
-    if (!throttle('wex:' + ip, 20, 10 * 60 * 1000)) return fail(res, 429, '操作太频繁了，歇一会儿再试');
-    if (!watcha.enabled) return fail(res, 503, '观猹登录还没配置好');
-    let body;
-    try { body = parseJsonBody(await readBody(req)); } catch (e) { return fail(res, 400, '请求格式不对'); }
-    const code = String(body.code || '').trim();
-    const state = String(body.state || '').trim();
-    if (!code || !state) return fail(res, 400, '回调参数不全，请重新登录');
-
-    // state 一次性，用过就没了：挡 CSRF 和重放
-    const st = watcha.consumeState(state);
-    if (!st) return fail(res, 400, '登录状态已过期，请重新发起登录');
-
-    let info;
-    try {
-      const tk = await watcha.exchangeCode({ code: code, codeVerifier: st.verifier, redirectUri: st.redirectUri });
-      info = await watcha.fetchUserInfo(tk.accessToken);
-    } catch (e) {
-      return fail(res, 502, '观猹登录失败：' + ((e && e.message) || '未知错误'));
-    }
-
-    const made = upsertWatchaUser(info);
-    const token = crypto.randomBytes(32).toString('hex');
-    store.sessions[token] = { uid: made.user.id, exp: Date.now() + SESSION_DAYS * 86400 * 1000 };
-    markDirty('users');
-    setSessionCookie(res, token, true);
-    ok(res, { user: publicUser(made.user), isNew: made.isNew });
   },
 
   'POST /api/logout': function (req, res) {
@@ -928,6 +862,8 @@ const routes = {
       });
     }
     items.sort(function (a, b) {
+      /* 官方示例固定排在最前面，评委一进广场就能看到 */
+      if (!!b.demo !== !!a.demo) return (b.demo ? 1 : 0) - (a.demo ? 1 : 0);
       if (sort === 'hot') return (b.downloads || 0) - (a.downloads || 0) || b.createdAt - a.createdAt;
       return b.createdAt - a.createdAt;
     });
@@ -1311,11 +1247,27 @@ server.on('error', function (e) {
   process.exit(1);
 });
 
-server.listen(PORT, HOST, function () {
-  console.log('[期末刷题] 已启动： http://localhost:' + PORT);
-  console.log('[期末刷题] 数据目录： ' + DATA_DIR);
-  console.log('[期末刷题] 当前账号数：' + Object.keys(store.users).length + '，游客数：' + Object.keys(store.guests).length);
-});
+function start() {
+  loadAll();
+  ensureDemoPlaza();
+  purgeSmokeTestAccounts();
+  server.listen(PORT, HOST, function () {
+    console.log('[期末刷题] 已启动： http://localhost:' + PORT);
+    console.log('[期末刷题] 数据存储： ' + (remote.enabled ? 'Upstash Redis（云端）' : '本地文件 ' + DATA_DIR));
+    console.log('[期末刷题] 当前账号数：' + Object.keys(store.users).length + '，游客数：' + Object.keys(store.guests).length);
+  });
+}
+
+/* 配了云端就先拉一次快照再监听；拉不下来就降级本地，绝不能因为云存储挂了起不来 */
+if (remote.enabled) {
+  remote.loadAll(DOC_NAMES).then(start).catch(function (e) {
+    console.error('[期末刷题] 云端存储连不上，退回本地文件：', (e && e.message) || '未知错误');
+    remote.state.enabled = false;
+    start();
+  });
+} else {
+  start();
+}
 
 function shutdown() {
   console.log('\n[期末刷题] 正在保存数据…');

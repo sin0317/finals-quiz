@@ -1,4 +1,5 @@
 'use strict';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 /* 题集广场：接口 + 前端链路
    接口部分：起临时端口 + 临时数据目录，跑分享 / 列表 / 筛选 / 取用 / 撤下
    前端部分：happy-dom 加载真实 index.html + app.js，接真实后端走一遍点击

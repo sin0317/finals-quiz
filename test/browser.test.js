@@ -1,4 +1,5 @@
 'use strict';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 /* 前端 E2E：用 happy-dom 加载真实 index.html + app.js，打真实后端
    覆盖：离线纯本地 / 在线游客 / 注册登录 / 题集上云 / 换设备合并 / 站长看板
    运行： NODE_PATH=<workspace>/node_modules node test/browser.test.js        */
@@ -73,7 +74,6 @@ function bootApp(opts) {
   win.confirm = function () { return opts.confirmAnswer !== false; };
   win.prompt = function (msg, def) { return opts.promptAnswer != null ? opts.promptAnswer : def; };
   win.alert = function () {};
-  if (opts.wbMock) win.WorkBuddyCloud = opts.wbMock;
 
   class FileReaderShim {
     readAsText() { setTimeout(() => { this.result = ''; this.onload && this.onload(); }, 0); }
@@ -316,83 +316,6 @@ function bootApp(opts) {
   ok(f.text('#acctName') === '游客', '退出后回到游客身份');
   ok(f.visible('#loginBtn'), '退出后重新出现登录按钮');
   ok(f.$$('#bankList .bank-item').length === 1, '退出后本地题集仍然保留（不会白刷）', f.$$('#bankList .bank-item').length);
-
-  // ============ F. WorkBuddy 账号登录 ============
-  function makeWBMock(o) {
-    const calls = { cfg: null, oauth: null, callback: 0, signOut: 0, getSession: 0 };
-    const mock = {
-      createWorkBuddyCloud: function (cfg) {
-        calls.cfg = cfg;
-        return {
-          auth: {
-            getSession: function () {
-              calls.getSession++;
-              return Promise.resolve({ data: o.session || null, error: null });
-            },
-            handleWorkBuddyCallback: function () {
-              calls.callback++;
-              if (o.cbError) return Promise.resolve({ data: null, error: { message: o.cbError } });
-              return Promise.resolve({ data: o.cbSession || null, error: null });
-            },
-            signInWithOAuth: function (opt) {
-              calls.oauth = opt;
-              return Promise.resolve({ data: { url: 'https://relay.example/authorize?x=1' }, error: null });
-            },
-            signOut: function () { calls.signOut++; return Promise.resolve({ data: null }); }
-          }
-        };
-      }
-    };
-    return { mock: mock, calls: calls };
-  }
-
-  // F1. 没有 SDK 时不能让登录入口变成死按钮
-  const g1 = bootApp({});
-  await sleep(200);
-  ok(g1.text('#acctName') === '游客', 'F1 没加载 SDK 时仍是可用的游客态');
-  g1.click('#loginBtn');
-  await sleep(60);
-  g1.click('#wbLoginBtn');
-  await sleep(120);
-  ok(/没加载|刷新/.test(g1.text('#authErr') || ''), 'F1 SDK 缺失时给出明确提示而不是静默失败', g1.text('#authErr'));
-
-  // F2. 授权回调落地：换会话 + 清参数但保住 sharecode
-  const wb2 = makeWBMock({ cbSession: { user: { id: 'wb_uid_e2e_9001', name: '小艾', avatarUrl: '' } } });
-  const g2 = bootApp({ url: BASE + '/?code=abc&state=xyz&provider=workbuddy&sharecode=TESTCODE', wbMock: wb2.mock });
-  await sleep(900);
-  ok(wb2.calls.callback === 1, 'F2 回调落地页调用了 handleWorkBuddyCallback', wb2.calls.callback);
-  ok(g2.text('#acctName') === '小艾', 'F2 云端身份换成本站会话后显示云端昵称', g2.text('#acctName'));
-  ok(String(g2.win.location.search).indexOf('sharecode=TESTCODE') >= 0, 'F2 sharecode 被保留（分享进来的同学不会掉页）', g2.win.location.search);
-  ok(!(/[?&]code=/.test(String(g2.win.location.search))), 'F2 回调参数 code 被清掉', g2.win.location.search);
-  ok(!(/[?&]provider=/.test(String(g2.win.location.search))), 'F2 回调参数 provider 被清掉', g2.win.location.search);
-  ok(!(/[?&]state=/.test(String(g2.win.location.search))), 'F2 回调参数 state 被清掉', g2.win.location.search);
-
-  // F3. 普通访问：云端会话还在就自动认回
-  const wb3 = makeWBMock({ session: { user: { id: 'wb_uid_e2e_9001', name: '小艾', avatarUrl: '' } } });
-  const g3 = bootApp({ wbMock: wb3.mock });
-  await sleep(900);
-  ok(wb3.calls.callback === 0, 'F3 普通访问不走回调兑换', wb3.calls.callback);
-  ok(g3.text('#acctName') === '小艾', 'F3 云端会话仍在时自动恢复登录', g3.text('#acctName'));
-
-  // F4. 登录发起：provider 与 redirectTo 都要对
-  const wb4 = makeWBMock({});
-  const g4 = bootApp({ url: BASE + '/?sharecode=TESTCODE', wbMock: wb4.mock });
-  await sleep(600);
-  g4.click('#loginBtn');
-  await sleep(60);
-  g4.click('#wbLoginBtn');
-  await sleep(300);
-  ok(wb4.calls.oauth && wb4.calls.oauth.provider === 'workbuddy', 'F4 用 workbuddy 作为登录 provider', wb4.calls.oauth && wb4.calls.oauth.provider);
-  ok(/sharecode=TESTCODE/.test((wb4.calls.oauth && wb4.calls.oauth.redirectTo) || ''), 'F4 redirectTo 保留 sharecode', wb4.calls.oauth && wb4.calls.oauth.redirectTo);
-  ok(!!(wb4.calls.cfg && wb4.calls.cfg.endpoint && wb4.calls.cfg.publishableKey), 'F4 初始化带上 endpoint 与 publishableKey', wb4.calls.cfg && Object.keys(wb4.calls.cfg));
-  ok(!!(wb4.calls.cfg && wb4.calls.cfg.oauthRelayBaseUrl), 'F4 初始化带上 oauthRelayBaseUrl', wb4.calls.cfg && wb4.calls.cfg.oauthRelayBaseUrl);
-
-  // F5. 回调出错时要留在登录框，不能假装登录成功
-  const wb5 = makeWBMock({ cbError: '授权已过期' });
-  const g5 = bootApp({ url: BASE + '/?code=abc&state=xyz&provider=workbuddy', wbMock: wb5.mock });
-  await sleep(900);
-  ok(g5.text('#acctName') === '游客', 'F5 回调失败时不会伪装成已登录', g5.text('#acctName'));
-  ok(/授权已过期/.test(g5.text('#authErr') || ''), 'F5 回调失败把原因说清楚', g5.text('#authErr'));
 
   child.kill('SIGTERM');
   await sleep(300);

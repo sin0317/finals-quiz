@@ -1,4 +1,5 @@
 'use strict';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 /* 爱猹收接入冒烟测试：临时端口 + 临时数据目录，验证登录/幂等/失败关闭
    运行： node test/pay.test.js
    说明：沙箱商品未完成档位配置时，access 会返回 unavailable / 503，

@@ -187,7 +187,7 @@ console.log('\n[9] 二维码扫的是当前地址：一次性参数要摘掉');
   const daily = [{ d: dayKey(0), q: { q1: { o: 1, b: 0 } } }];
   const { api } = boot(seedWith(daily));
   const saved = globalThis.location;
-  globalThis.location = new globalThis.URL('https://x.app.workbuddy.host/?sharecode=ABC&code=zz&state=yy#/quiz');
+  globalThis.location = new globalThis.URL('https://x.app.traesite7.host/?sharecode=ABC&code=zz&state=yy#/quiz');
   const u = api.shareUrl();
   globalThis.location = saved;
   ok(u.indexOf('sharecode=ABC') > 0, '分享码要留住', u);

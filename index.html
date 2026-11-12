@@ -1,42 +1,42 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light" data-page-node-id="lJ3zm3qDca58QK24v3j80F"><head data-page-node-id="cuYSCazRPhSqSBPRmIFqC0">
-<meta charset="UTF-8" data-page-node-id="uQRXTGZgD0Y26dVJJ3t5As">
-<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="FQ5BpKjlzcc9uARbLEK6pI">
-<title data-page-node-id="O2OVcbJky2VQspp3BCHo6p">期末刷题 · 把笔记变成题目</title>
-<link rel="stylesheet" href="styles.css?v=1.22.3" data-page-node-id="SshuibjWrSpQBLprnJrYRg">
-<style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
-<body data-page-node-id="05NYeFX7dmAxSVUvpYUZep" style="">
+<html lang="zh-CN" data-theme="light"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>期末刷题 · 把笔记变成题目</title>
+<link rel="stylesheet" href="styles.css?v=1.25.0">
+</head>
+<body style="">
 
-<header class="topbar" data-page-node-id="vpAszC9CQ8kBrNG97IlcRX">
-  <div class="brand" data-page-node-id="RY7KSNqDP4itvhzVATpvAn">
-    <span class="logo" data-page-node-id="unDdTRDgHdCjFSzH7iu3kh">期末</span>
-    <span class="brand-text" data-page-node-id="dm7Ac4zcQpBa2LM8Pcbl1P">笔记变题库</span>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">期末</span>
+    <span class="brand-text">笔记变题库</span>
   </div>
-  <nav class="tabs" id="tabs" data-page-node-id="aDXFhL8tzFSNlILRaNVnyR">
-    <button class="tab active" data-view="import" data-page-node-id="NOuGHHiaIGaCMUBy2W1Vlu">① 导入笔记</button>
-    <button class="tab" data-view="quiz" data-page-node-id="yRTfBVuG8tFuKhu56isBvF">② 刷题</button>
-    <button class="tab" data-view="recite" data-page-node-id="KKYhACmzkDuQpNNfzdbYl0">③ 背知识点</button>
-    <button class="tab" data-view="wrong" data-page-node-id="J4oyPeG9TXPrmhvoA8gdkq">④ 错题本</button>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="import">① 导入笔记</button>
+    <button class="tab" data-view="quiz">② 刷题</button>
+    <button class="tab" data-view="recite">③ 背知识点</button>
+    <button class="tab" data-view="wrong">④ 错题本</button>
     <button class="tab" data-view="fav" id="favTab">⑤ 收藏夹</button>
-    <button class="tab" data-view="stats" data-page-node-id="1o8Ffh3dtIcMucePEy1mHg">⑥ 数据统计</button>
+    <button class="tab" data-view="stats">⑥ 数据统计</button>
     <button class="tab" data-view="plaza">⑦ 题集广场</button>
     <button class="tab" data-view="sprint">⑧ 冲刺报告</button>
   </nav>
-  <div class="topbar-right" data-page-node-id="47nPBZ8RLH3nwh00L3NbRx">
+  <div class="topbar-right">
     <button id="acctBtn" class="acct-btn" title="账号与同步">
       <span class="acct-avatar" id="acctAvatar">游</span>
       <span class="acct-name" id="acctName">游客</span>
       <span class="acct-dot" id="acctDot" title="同步状态"></span>
     </button>
-    <select id="bankSelect" class="select mini" title="当前题集" data-page-node-id="ceeF4nn5OQPCCGNL0Oiqs7"></select>
-    <button id="themeBtn" class="icon-btn" title="切换深浅色" data-page-node-id="7d74N3MH7ECAnAfqTbrRO0">🌙</button>
+    <select id="bankSelect" class="select mini" title="当前题集"></select>
+    <button id="themeBtn" class="icon-btn" title="切换深浅色">🌙</button>
   </div>
 </header>
 
-<main class="wrap" data-page-node-id="r0jMQqLFvKrizUIZ0FNtOm">
+<main class="wrap">
 
   <!-- ============ 导入：第一步原卷（可选）→ 第二步笔记 ============ -->
-  <section class="view active" id="view-import" data-page-node-id="vnSqztJkPUlV6JB0zUPFVv">
+  <section class="view active" id="view-import">
 
     <!-- 流程条：先说清「谁先谁后、哪一步可以跳过」 -->
     <div class="flow">
@@ -57,10 +57,10 @@
       </div>
     </div>
 
-    <div class="card tight" data-page-node-id="tTD58CHkpHE0gdS2r27Ci0">
+    <div class="card tight">
       <div class="row">
         <label class="fld-label" for="courseName">课程</label>
-        <input id="courseName" class="input" placeholder="两步要填同一个名字，例如：中国近代史" data-page-node-id="2GNtEXBXKvi4jNvLD8hfUt">
+        <input id="courseName" class="input" placeholder="两步要填同一个名字，例如：中国近代史">
       </div>
     </div>
 
@@ -101,18 +101,18 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
         <button class="btn" id="pickFileBtn" type="button">选择笔记文件（可多选）</button>
         <button class="btn ghost" id="loadSampleBtn" type="button">载入示例笔记</button>
         <button class="btn ghost" id="noteClearBtn" type="button">清空</button>
-        <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc,.csv" multiple hidden data-page-node-id="fDp1g3YhJ24sqiOwX2Sytg">
+        <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc,.csv" multiple hidden>
       </div>
       <div id="noteFiles" class="file-list" hidden></div>
-      <div id="dropZone" class="textarea" placeholder="" data-page-node-id="9RVOIMlwe4JpPzKfAa7LbK">
+      <div id="dropZone" class="textarea" placeholder="">
         <textarea id="noteText" class="textarea-inner" rows="7" placeholder="把笔记整段粘进来。多用「……是……」「……包括……」这样的判断句，提炼最准。
 
 例如：
 林则徐是开眼看世界的第一人。"></textarea>
       </div>
       <div class="row right">
-        <span class="muted" id="noteStat" data-page-node-id="BvMPvwrERWtZFgFz2m1sKq"></span>
-        <button class="btn primary" id="extractBtn" type="button" data-page-node-id="fDHAOqKYdbneEEsCNn6BqL">一键提炼知识点</button>
+        <span class="muted" id="noteStat"></span>
+        <button class="btn primary" id="extractBtn" type="button">一键提炼知识点</button>
       </div>
     </div>
 
@@ -143,30 +143,30 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       <div id="reportBody"></div>
     </div>
 
-    <div class="card" id="previewCard" hidden="" data-page-node-id="EMuEPNkastADHWqyICIDA0">
-      <div class="card-head" data-page-node-id="hobyNoFzplqTPDPMNFkqaB">
-        <h2 data-page-node-id="pKVidiCCGp5DWoknRZLA4C" id="previewTitle">核对题目，确认后保存</h2>
-        <span class="hint" id="previewHint" data-page-node-id="FjvEH58peRcxh7Zi8zlfQR">标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选</span>
+    <div class="card" id="previewCard" hidden="">
+      <div class="card-head">
+        <h2 id="previewTitle">核对题目，确认后保存</h2>
+        <span class="hint" id="previewHint">标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选</span>
       </div>
-      <div class="table-wrap" data-page-node-id="oFailoM5P4xZr4yu9TZlsh">
-        <table id="previewTable" data-page-node-id="G3a2FyDWBPFFm95OSTHn7V">
-          <thead data-page-node-id="NFeDCquXfYRKEDeXr3FJJD">
-            <tr data-page-node-id="RxH2qk3wQ2tibrqDxdMzdk">
-              <th class="c-chk" data-page-node-id="KfBOQNX6EnT3cz09YRLDsv"><input type="checkbox" id="chkAll" data-page-node-id="vs5eolcnTxZKJU6i0ZYIeG"></th>
-              <th class="c-type" data-page-node-id="ye7aFgnYlP1UzWRpo5kqaR">题型</th>
-              <th data-page-node-id="7LetMH3Hae7kwm4FTidHIS">题干（挖空处用 ____ 表示）</th>
-              <th class="c-ans" data-page-node-id="wFcPxju5iYFLxpExY2xmUs">正确答案</th>
-              <th class="c-op" data-page-node-id="uAEn0dCGjvaW80QGfcPCTR"></th>
+      <div class="table-wrap">
+        <table id="previewTable">
+          <thead>
+            <tr>
+              <th class="c-chk"><input type="checkbox" id="chkAll"></th>
+              <th class="c-type">题型</th>
+              <th>题干（挖空处用 ____ 表示）</th>
+              <th class="c-ans">正确答案</th>
+              <th class="c-op"></th>
             </tr>
           </thead>
-          <tbody id="previewBody" data-page-node-id="oWtwtH6WeYf74RodPcF2Pf"></tbody>
+          <tbody id="previewBody"></tbody>
         </table>
       </div>
-      <div class="row" data-page-node-id="xijCEqIFqPPzZQ9lGpjQuZ">
-        <span class="muted" id="previewCount" data-page-node-id="xNw5g0fSfxpGGUo1NF4IdN"></span>
-        <div class="grow" data-page-node-id="v6ZYdYz3UYA3SkHgFkSRo4"></div>
-        <button class="btn ghost" id="delSelectedBtn" data-page-node-id="AQjKgSWWBgq7CZgJFlJqbg">删除选中</button>
-        <button class="btn primary" id="saveBankBtn" data-page-node-id="4icWKs5E9mPgoF4CN2yzAq">保存到题集</button>
+      <div class="row">
+        <span class="muted" id="previewCount"></span>
+        <div class="grow"></div>
+        <button class="btn ghost" id="delSelectedBtn">删除选中</button>
+        <button class="btn primary" id="saveBankBtn">保存到题集</button>
       </div>
     </div>
 
@@ -179,20 +179,20 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       <div id="bankList" class="list"></div>
     </div>
 
-    <div class="card" data-page-node-id="gwpA3j1oDFrh6J0mF7TagU">
-      <div class="card-head" data-page-node-id="7XG5yAYEDFSpXKCiTZdZAc">
-        <h2 data-page-node-id="xvPSyYuQuqOYUamccuugus">题集文件（换电脑 / 分享给同学）</h2>
+    <div class="card">
+      <div class="card-head">
+        <h2>题集文件（换电脑 / 分享给同学）</h2>
       </div>
-      <div class="row" data-page-node-id="alvteHHTOkShjp9DM80Q0o">
-        <button class="btn ghost" id="exportBtn" data-page-node-id="xnLvJrZNaukQSaMBE2YP6Y">导出当前题集 JSON</button>
-        <button class="btn ghost" id="importBtn" data-page-node-id="kkWSJEIKsJuZoYQgpDlES9">导入题集 JSON</button>
-        <input type="file" id="importFile" accept=".json,application/json" hidden="" data-page-node-id="bTenKzHlyyGN4Tvr7YAxm4">
-        <div class="grow" data-page-node-id="hoZHzOrC4y3KgH1JnLKweS"></div>
-        <button class="btn" id="exportMdBtn" data-page-node-id="P0s3yzABtW0PwGbFizMfrl">导出 Markdown（可直接粘进乐享 / 笔记软件）</button>
+      <div class="row">
+        <button class="btn ghost" id="exportBtn">导出当前题集 JSON</button>
+        <button class="btn ghost" id="importBtn">导入题集 JSON</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden="">
+        <div class="grow"></div>
+        <button class="btn" id="exportMdBtn">导出 Markdown（可直接粘进乐享 / 笔记软件）</button>
       </div>
-      <details class="detail" data-page-node-id="0ZlHcNL2UaBdJwi4MV31lb">
-        <summary data-page-node-id="q5qQV2OWkTCUZXZusoegp8">题集 JSON 格式说明</summary>
-        <pre data-page-node-id="RKboXcpf7naWU6qmhG2Cmn">{
+      <details class="detail">
+        <summary>题集 JSON 格式说明</summary>
+        <pre>{
   "course": "中国近代史",
   "questions": [
     { "type": "single", "stem": "林则徐是____", "answer": "开眼看世界的第一人", "source": "原文句子" },
@@ -204,7 +204,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
   </section>
 
   <!-- ============ 刷题 ============ -->
-  <section class="view" id="view-quiz" hidden="" data-page-node-id="63QlFxUXZu9pYpe9OjAc2a">
+  <section class="view" id="view-quiz" hidden="">
     <!-- 手机上六个下拉太占地方：默认收成这一条，点开才是整块工具栏 -->
     <div class="tb-compact" id="quizTbBar">
       <button class="tb-open" id="quizTbOpen" type="button" aria-expanded="false" aria-controls="quizTb" title="展开或收起筛选项">
@@ -214,18 +214,18 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       </button>
       <button class="btn primary tb-go" id="quizGoBtn" type="button">开始</button>
     </div>
-    <div class="toolbar tb-collapsed" id="quizTb" data-page-node-id="wJ1qN2LxMpBDJ1vIpsDx27">
-      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="qRange" class="select" data-page-node-id="ESwDEg34efww6hREIIePdF">
-        <option value="all" data-page-node-id="CPzwRN6IvnKynVDYOr6ybO">全部</option>
-        <option value="weak" data-page-node-id="c07Gk1LapsnucyIVB3D0yF">未掌握</option>
-        <option value="wrong" data-page-node-id="5d3XtZdpDDWkEsAnL6OPRr">错题</option>
-        <option value="new" data-page-node-id="H7S5Cr0QpjxyWOZFYgTHhL">没练过</option>
+    <div class="toolbar tb-collapsed" id="quizTb">
+      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="qRange" class="select">
+        <option value="all">全部</option>
+        <option value="weak">未掌握</option>
+        <option value="wrong">错题</option>
+        <option value="new">没练过</option>
         <option value="fav">只刷收藏</option>
       </select></label>
-      <label class="tfield" data-sum="1"><span class="tl">题型</span><select id="qType" class="select" data-page-node-id="Ej4mXSX4Jm3q6isPQ9juV5">
-        <option value="all" data-page-node-id="1uhgWD82ochYF4fWtegfZL">全部</option>
-        <option value="single" data-page-node-id="PcjOpkgoj1FU6dGC82Slzw">单选</option>
-        <option value="multi" data-page-node-id="blIPTiIzZREgSD2aWBx5pE">多选</option>
+      <label class="tfield" data-sum="1"><span class="tl">题型</span><select id="qType" class="select">
+        <option value="all">全部</option>
+        <option value="single">单选</option>
+        <option value="multi">多选</option>
         <option value="fill">填空</option>
         <option value="term">名词解释</option>
         <option value="short">简答</option>
@@ -236,30 +236,30 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
         <option value="choice" selected>全部给选项</option>
         <option value="fill">全部考填空</option>
       </select></label>
-      <label class="tfield" data-sum="1"><span class="tl">题量</span><select id="qCount" class="select" data-page-node-id="c4dYGAzSAFNCVuWItiH0Fm">
-        <option value="10" data-page-node-id="kfKHoApxGrspAEIzxFHPQt">10</option>
-        <option value="20" selected="" data-page-node-id="GUZOveJh4SBkfwL663Foto">20</option>
-        <option value="40" data-page-node-id="seSu6uvlNgMeTBIIPwdPRr">40</option>
-        <option value="0" data-page-node-id="keWB5mn5UDPyl2nDc8qQ8b">全部</option>
+      <label class="tfield" data-sum="1"><span class="tl">题量</span><select id="qCount" class="select">
+        <option value="10">10</option>
+        <option value="20" selected="">20</option>
+        <option value="40">40</option>
+        <option value="0">全部</option>
       </select></label>
-      <label class="tfield"><span class="tl">顺序</span><select id="qOrder" class="select" data-page-node-id="wgCcmfOq8R4SY0sbURp89w">
-        <option value="seq" data-page-node-id="TzdHFn7uw4uS8DfkmSAhtF">跟着笔记走</option>
-        <option value="rand" data-page-node-id="YGLQ705w0jLxvxp1QOKUWN">随机 · 生的优先</option>
+      <label class="tfield"><span class="tl">顺序</span><select id="qOrder" class="select">
+        <option value="seq">跟着笔记走</option>
+        <option value="rand">随机 · 生的优先</option>
       </select></label>
       <label class="tfield"><span class="tl">抽题</span><select id="qMode" class="select" title="间隔复习：答对的题隔几组再来，答错的下组必来，不够再补新题；只刷没见过的：练过一次就不再出现">
         <option value="srs" selected>间隔复习</option>
         <option value="fresh">只刷没见过的</option>
       </select></label>
-      <div class="grow" data-page-node-id="NMGvypGhQ6SQkMdyEkLaMY"></div>
-      <button class="btn primary" id="quizStartBtn" data-page-node-id="hxHNnlj2emeyemlZjuKX3L">开始刷题</button>
+      <div class="grow"></div>
+      <button class="btn primary" id="quizStartBtn">开始刷题</button>
     </div>
-    <div id="quizBody" data-page-node-id="JbZCAcH2GV9a3xp1Ze7IpE"></div>
+    <div id="quizBody"></div>
     <!-- 用户反馈：教这题该怎么出（点「✏️ 改题」展开） -->
     <div id="fixPanel" class="fix-panel" hidden></div>
   </section>
 
   <!-- ============ 背知识点 ============ -->
-  <section class="view" id="view-recite" hidden="" data-page-node-id="pfYohoqLe96TNANkljatcQ">
+  <section class="view" id="view-recite" hidden="">
     <div class="tb-compact" id="reciteTbBar">
       <button class="tb-open" id="reciteTbOpen" type="button" aria-expanded="false" aria-controls="reciteTb" title="展开或收起筛选项">
         <span class="tb-ic" aria-hidden="true">⚙</span>
@@ -268,17 +268,17 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       </button>
       <button class="btn primary tb-go" id="reciteGoBtn" type="button">开始</button>
     </div>
-    <div class="toolbar tb-collapsed" id="reciteTb" data-page-node-id="2FSIYD6mjG5IYYhCliAqDZ">
-      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="rRange" class="select" data-page-node-id="CP8tariVXs63DPhPmOoG14">
-        <option value="all" data-page-node-id="O0vF1CuXH75t39phQ4FViE">全部</option>
-        <option value="weak" data-page-node-id="V11EyBMF4ilL02fzlHxvOu">未掌握</option>
-        <option value="wrong" data-page-node-id="DQBMbevSWZVduyrRUtGAYp">错题</option>
-        <option value="new" data-page-node-id="64ZpGOh1QcXUjHERTc4wfB">没练过</option>
+    <div class="toolbar tb-collapsed" id="reciteTb">
+      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="rRange" class="select">
+        <option value="all">全部</option>
+        <option value="weak">未掌握</option>
+        <option value="wrong">错题</option>
+        <option value="new">没练过</option>
         <option value="fav">只看收藏</option>
       </select></label>
-      <label class="tfield"><span class="tl">顺序</span><select id="rOrder" class="select" data-page-node-id="zrB5IjzhwgjgVnPkJK6W0g">
-        <option value="seq" data-page-node-id="NQCBGAuCHmYrTzI9mgkRos">跟着笔记走</option>
-        <option value="rand" data-page-node-id="iRLe2iXXqkYb3VI4WSo1FE">随机 · 生的优先</option>
+      <label class="tfield"><span class="tl">顺序</span><select id="rOrder" class="select">
+        <option value="seq">跟着笔记走</option>
+        <option value="rand">随机 · 生的优先</option>
       </select></label>
       <!-- 形式的默认值：改这里的 selected 必须同时改 app.js 的 DEFAULT_FORM，两处要一致 -->
       <label class="tfield" data-sum="1"><span class="tl">形式</span><select id="rForm" class="select" title="默认全部给选项；想更狠就切「全部考填空」（默写最考验回忆）。名词解释、简答、以及卷子上没有选项的题，永远是自己写">
@@ -286,28 +286,28 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
         <option value="choice" selected>全部给选项</option>
         <option value="mix">混合</option>
       </select></label>
-      <label class="switch" data-page-node-id="zzmReE32IAPfhm7dMDbOj8"><input type="checkbox" id="rHint" data-page-node-id="yx3FyUTg9R1RQIF565heH9"> 给首字提示</label>
-      <div class="grow" data-page-node-id="CUAs99EeS52k0DFX57TDbV"></div>
-      <button class="btn primary" id="reciteStartBtn" data-page-node-id="4g1nOQ3hnDu0iGrJDaEnBO">开始看知识点</button>
+      <label class="switch"><input type="checkbox" id="rHint"> 给首字提示</label>
+      <div class="grow"></div>
+      <button class="btn primary" id="reciteStartBtn">开始看知识点</button>
     </div>
-    <div id="reciteBody" data-page-node-id="yCPScYveCnVygNnTnPQDHC"></div>
+    <div id="reciteBody"></div>
     <!-- 背知识点里也能直接改题：这块地方跟刷题页那块是同一个面板的两个落点 -->
     <div id="fixPanelRecite" class="fix-panel" hidden></div>
   </section>
 
   <!-- ============ 错题本 ============ -->
-  <section class="view" id="view-wrong" hidden="" data-page-node-id="shut4dyKyfBLfk02MfzlyY">
-    <div class="toolbar" data-page-node-id="rT8uF3ecpNbhKvP78VqRWB">
-      <label class="tfield"><span class="tl">显示</span><select id="wFilter" class="select" data-page-node-id="FxUqpYZ326eCrqBRnSQfFb">
-        <option value="wrong" data-page-node-id="i9RfEticfGzptfduo2iM1u">只看错题</option>
-        <option value="weak" data-page-node-id="LdsSARh6aAYj9Ei0jNVu6O">未掌握（含已订正）</option>
-        <option value="all" data-page-node-id="mMa2O6MacCXFY5f0Tsakcb">全部题目</option>
+  <section class="view" id="view-wrong" hidden="">
+    <div class="toolbar">
+      <label class="tfield"><span class="tl">显示</span><select id="wFilter" class="select">
+        <option value="wrong">只看错题</option>
+        <option value="weak">未掌握（含已订正）</option>
+        <option value="all">全部题目</option>
       </select></label>
-      <div class="grow" data-page-node-id="lnsgNKj8BngnJVxnXFnJYk"></div>
-      <button class="btn primary" id="wrongDrillBtn" data-page-node-id="frRyQ7W2Kn54urD3FIGKZx">错题特训</button>
-      <button class="btn ghost" id="clearWrongBtn" data-page-node-id="4Ceahh5vRAOmzQBNHUarue">清空错题记录</button>
+      <div class="grow"></div>
+      <button class="btn primary" id="wrongDrillBtn">错题特训</button>
+      <button class="btn ghost" id="clearWrongBtn">清空错题记录</button>
     </div>
-    <div id="wrongList" class="list" data-page-node-id="vskMqGB8GitCPOPKC0LjCP"></div>
+    <div id="wrongList" class="list"></div>
   </section>
 
   <!-- ============ 收藏夹 ============ -->
@@ -329,8 +329,8 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
   </section>
 
   <!-- ============ 数据统计 ============ -->
-  <section class="view" id="view-stats" hidden="" data-page-node-id="PNMTL2oAFXNwAWHcJ9eAMB">
-    <div class="kpis" id="kpis" data-page-node-id="kB1woHNlVAr7ZvCo5cRtX3"></div>
+  <section class="view" id="view-stats" hidden="">
+    <div class="kpis" id="kpis"></div>
 
     <div class="card">
       <div class="card-head">
@@ -343,20 +343,20 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       </div>
     </div>
 
-    <div class="cols" data-page-node-id="iPWSObh68IxvaI0WtEdmRu">
-      <div class="card" data-page-node-id="qle7z2AbH0grp97r5GQRRk">
-        <div class="card-head" data-page-node-id="Eyxz0VQtUgji1yO6RZ9W3w"><h3 data-page-node-id="KAL9HsKy4iOhwOGIfxGIgm">掌握度分布</h3></div>
-        <div id="dist" class="dist" data-page-node-id="NBn7uVOwEw13CN7lZtJGcF"></div>
+    <div class="cols">
+      <div class="card">
+        <div class="card-head"><h3>掌握度分布</h3></div>
+        <div id="dist" class="dist"></div>
       </div>
-      <div class="card" data-page-node-id="BhFnwp1aSR2EZhwA3HiS5F">
-        <div class="card-head" data-page-node-id="XuVf4OxzacTHIBOQwkkuMG"><h3 data-page-node-id="RBAsNzEhYzYHJtsmIphLJZ">最近 7 天练习量</h3></div>
-        <div id="weekly" class="weekly" data-page-node-id="3N2sxG1zwAVhALgtU76BPn"></div>
+      <div class="card">
+        <div class="card-head"><h3>最近 7 天练习量</h3></div>
+        <div id="weekly" class="weekly"></div>
       </div>
     </div>
 
-    <div class="card" data-page-node-id="Y6XzC1kr64G6ZqBxYICZWw">
+    <div class="card">
       <div class="card-head"><h3>最该再背一遍的知识点</h3></div>
-      <div id="weakList" class="list" data-page-node-id="4yJRSX5haCDNZtR74kC9w2"></div>
+      <div id="weakList" class="list"></div>
     </div>
 
     <div class="card" id="acctCard">
@@ -391,15 +391,15 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       <div class="row right"><button class="btn ghost" id="adminRefreshBtn">刷新</button></div>
     </div>
 
-    <div class="card" data-page-node-id="c5Rj1ZPQ7fGbdkS53hzztT">
-      <div class="card-head" data-page-node-id="0MugIRz4RwQPQB5uPd3F92"><h3 data-page-node-id="ZrGeP6V4FHcdmpyTnj0v7e">数据管理</h3></div>
-      <div class="row" data-page-node-id="6VpPbP2aoEioAD7PI9ZWIM">
-        <button class="btn ghost" id="exportAllBtn" data-page-node-id="xfNaUYQS6u54xQqaX59xYf">导出全部数据</button>
-        <button class="btn ghost" id="importAllBtn" data-page-node-id="YpS5hJXgjDdjXuY4kyYYYE">导入全部数据</button>
-        <input type="file" id="importAllFile" accept=".json" hidden="" data-page-node-id="MZM1jnsrsvd8AN7ASFVozh">
-        <div class="grow" data-page-node-id="tzBCXDQAvwKupNqh0nJIUC"></div>
-        <button class="btn danger" id="resetStatsBtn" data-page-node-id="yF3EHExxRtwwbc41cJFkfw">清空练习记录</button>
-        <button class="btn danger" id="delBankBtn" data-page-node-id="6rM7W5bVDWKh5mkQFkZfqA">删除当前题集</button>
+    <div class="card">
+      <div class="card-head"><h3>数据管理</h3></div>
+      <div class="row">
+        <button class="btn ghost" id="exportAllBtn">导出全部数据</button>
+        <button class="btn ghost" id="importAllBtn">导入全部数据</button>
+        <input type="file" id="importAllFile" accept=".json" hidden="">
+        <div class="grow"></div>
+        <button class="btn danger" id="resetStatsBtn">清空练习记录</button>
+        <button class="btn danger" id="delBankBtn">删除当前题集</button>
       </div>
     </div>
   </section>
@@ -459,6 +459,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
       <div class="row" id="sprintBuyRow">
         <button class="btn primary" id="sprintBuyBtn">解锁冲刺报告</button>
       </div>
+      <p class="hint">不想付费也行：去「题集广场」取用任意一份题集，加入就送 7 天冲刺报告体验。</p>
       <div class="sprint-qr" id="sprintQr" hidden>
         <img id="sprintQrImg" alt="支付宝扫码支付" width="180" height="180">
         <p class="hint" id="sprintScanTip" hidden>用支付宝扫上面的二维码付款，付完点下面的「我付好了」刷新权益。</p>
@@ -474,7 +475,7 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
 
   <!-- ============ 页脚（版本号） ============ -->
   <footer class="app-footer">
-    <span id="appVer">期末刷题站 v1.22.3</span>
+    <span id="appVer">期末刷题站 v1.25.0</span>
     <span class="foot-sep">·</span>
     <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
@@ -516,15 +517,6 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
     </div>
     <div class="modal-body">
       <p class="modal-tip" id="authTip">不登录也能正常使用；登录后题集会存到云端，换台设备继续刷。</p>
-      <button class="btn wb-btn" id="wbLoginBtn" type="button">
-        <span class="wb-mark">W</span>
-        <span>使用 WorkBuddy 登录</span>
-      </button>
-      <button class="btn watcha-btn" id="watchaLoginBtn" type="button" hidden>
-        <span class="watcha-mark">猹</span>
-        <span>使用观猹登录</span>
-      </button>
-      <div class="or-line"><span>或使用昵称密码</span></div>
       <label class="fld">
         <span>昵称</span>
         <input id="authUser" class="input" placeholder="例如：小明 / xiaoming" maxlength="20" autocomplete="username">
@@ -765,11 +757,10 @@ A.安全  B.有效  C.经济  D.适当"></textarea>
   </div>
 </div>
 
-<div id="toast" class="toast" data-page-node-id="NdZyEBR38dhAflTOWqIfC5"></div>
+<div id="toast" class="toast"></div>
 
-<script src="vendor/workbuddy-cloud.js"></script>
-<script src="vendor/qr-mini.js?v=1.22.3"></script>
-<script src="app.js?v=1.22.3" data-page-node-id="HOPtS18dPFdBumMV5mjkF5"></script>
+<script src="vendor/qr-mini.js?v=1.25.0"></script>
+<script src="app.js?v=1.25.0"></script>
 
 
 </body></html>

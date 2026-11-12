@@ -1,4 +1,5 @@
 'use strict';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 /* 分享裂变：取用别人的题集 → 送 7 天冲刺报告体验权
    运行： node test/bonus.test.js
    用沙箱配置，不会碰真实支付。 */

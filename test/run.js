@@ -26,7 +26,7 @@ const filters = argv.filter(function (a) { return a.charAt(0) !== '-'; });
 
 /* happy-dom 装在【工作空间根】。子进程是独立的 node，NODE_PATH 得显式传下去，
    否则每套测试都会在 require 那一行倒掉。 */
-const env = Object.assign({}, process.env);
+const env = Object.assign({}, process.env, { NODE_ENV: 'test' });
 const wsModules = path.resolve(ROOT, '..', 'node_modules');
 const localModules = path.join(ROOT, 'node_modules');
 const extraPaths = [wsModules, localModules].filter(function (p) { return fs.existsSync(p); });

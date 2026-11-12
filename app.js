@@ -39,12 +39,12 @@
 
    【账号与同步】
      云端：cloudInit / cloudPull / pushNow / flushPush / schedulePush
-     登录：wbInit / wbBind / wbRestore（WorkBuddy）· watchaSignIn / watchaConfig（观猹）
+     登录：openAuth / submitAuth（昵称 + 密码）
      广场与分享：loadPlaza / refreshShareExtras / bankMemoCount
 
    【服务端】server.js
      接口白名单、cleanQuestions（题型白名单 Q_TYPES）、广场、反馈、付费回调。
-     pay.js / watcha-oauth.js / mailer.js 各管一块配置；/data/* 永不外露（403）。
+     pay.js / mailer.js 各管一块配置；/data/* 永不外露（403）。
 
    ---------------------------------------------------------
    高频踩坑（每条都真踩过，改之前先对一眼）：
@@ -76,7 +76,7 @@
      页脚那行字由下面 stampVersion() 用这个值覆盖写一遍 —— 这样页脚显示的是
      「这份 app.js 自己是哪一版」，而不是 HTML 里可能被缓存下来的旧字。
      用户看到 v1.4.1 就说明浏览器确实拿到新脚本了，排查问题时一眼能确认。 */
-  var FQ_VERSION = '1.22.3';
+  var FQ_VERSION = '1.25.0';
 
   /* 出题形式的默认值：用户在下拉里没选过时，按什么形式考。
      「改默认形式」= 这里 + index.html 里 #qForm / #rForm 的 selected，
@@ -2495,7 +2495,8 @@
     var el = $('#bankList');
     if (!el) return;
     if (!S.banks.length) {
-      el.innerHTML = '<div class="muted">还没有题集 —— 在上面贴一段笔记，提炼后点「保存到题集」就会出现在这里。</div>';
+      el.innerHTML = '<div class="muted">还没有题集 —— 在上面贴一段笔记，提炼后点「保存到题集」就会出现在这里。' +
+        '先看看效果：<button class="btn primary" data-demo-take="1">载入官方示例题集</button></div>';
       return;
     }
     el.innerHTML = S.banks.map(function (b) {
@@ -2533,6 +2534,8 @@
   }
 
   $('#bankList').addEventListener('click', function (e) {
+    var demo = e.target.closest('[data-demo-take]');
+    if (demo) { e.stopPropagation(); takeDemoBank(demo); return; }
     var more = e.target.closest('.bank-more');
     if (more) {
       e.stopPropagation();
@@ -6978,7 +6981,7 @@
       if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('not-http');
       return u.toString();
     } catch (e) {
-      return (typeof CLOUD_CFG !== 'undefined' ? CLOUD_CFG.endpoint : 'https://2119633980357275648.app.workbuddy.host') + '/';
+      return (typeof location !== 'undefined' && location.origin ? location.origin : '') + '/';
     }
   }
 
@@ -8089,7 +8092,7 @@
       sub = '登录后可换设备继续刷，题集和练习记录会自动跟着走';
       hint = '未登录，数据只存在这台设备的浏览器里';
     } else {
-      sub = '已登录' + (u.provider === 'workbuddy' ? '（WorkBuddy 账号）' : (u.provider === 'watcha' ? '（观猹账号）' : '')) +
+      sub = '已登录' +
         ' · 上次同步 ' + (Cloud.lastSyncAt ? ago(Cloud.lastSyncAt) : '尚未同步') +
         (u.role === 'admin' ? ' · 你是站长，可在下方查看站点使用情况' : '');
       hint = '云同步已开启 · 上次同步 ' + (Cloud.lastSyncAt ? fmtTime(Cloud.lastSyncAt) : '—');
@@ -8188,224 +8191,17 @@
     });
   }
 
-  /* ---------------- WorkBuddy 账号登录（走云服务 OAuth 中继） ----------------
-     流程：点按钮 → SDK 生成 PKCE → 跳 WorkBuddy 授权页 → 中继回调到本站根
-          → handleWorkBuddyCallback 换回云端会话 → 拿云端 uid 换本站会话。 */
-  /* 站点地址会变（换账号、换沙箱都遇到过），写死一次就得改一次代码。
-     默认用当前页自己的源；file:// 或取不到时退回线上地址。 */
-  var SITE_ORIGIN = (function () {
-    try {
-      var o = window.location && window.location.origin;
-      return (o && /^https?:\/\//.test(o)) ? o : '';
-    } catch (e) { return ''; }
-  })();
-  var CLOUD_CFG = {
-    endpoint: SITE_ORIGIN || 'https://2119633980357275648.app.workbuddy.host',
-    oauthRelayBaseUrl: 'https://www.workbuddy.cn/v2/as/genie-baas/oauth',
-    publishableKey: 'wbpk_idrw8H9MnUVN6sG965sN3U_ErepyHkZC72EhMXZ1ac0ILh555i9TdEw'
-  };
-  var WBAuth = { client: null, ready: false, why: '' };
-
-  function wbInit() {
-    try {
-      if (!window.WorkBuddyCloud || typeof window.WorkBuddyCloud.createWorkBuddyCloud !== 'function') {
-        WBAuth.why = '登录组件没加载';
-        return false;
-      }
-      WBAuth.client = window.WorkBuddyCloud.createWorkBuddyCloud({
-        endpoint: CLOUD_CFG.endpoint,
-        oauthRelayBaseUrl: CLOUD_CFG.oauthRelayBaseUrl,
-        publishableKey: CLOUD_CFG.publishableKey
-      });
-      WBAuth.ready = true;
-      return true;
-    } catch (e) {
-      WBAuth.why = (e && e.message) || '初始化失败';
-      return false;
-    }
-  }
-
   /* 只删回调参数，保住 ?sharecode= 这类业务参数，否则分享进来的同学会掉到错误页面 */
-  function wbStripCb() {
+  function stripAuthCb() {
     try {
       var u = new URL(window.location.href);
-      ['code', 'state', 'provider'].forEach(function (k) { u.searchParams.delete(k); });
+      ['code', 'state', 'provider', 'error', 'error_description'].forEach(function (k) { u.searchParams.delete(k); });
       window.history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch (e) { /* 老浏览器就算了 */ }
   }
 
-  /* 云端身份 → 本站会话（云端 uid 作为稳定主键，换设备能认回同一个账号） */
-  function wbBind(session) {
-    var cu = session && session.user;
-    if (!cu || !cu.id) return Promise.reject(new Error('没拿到 WorkBuddy 身份'));
-    return api('POST', '/api/cloud-login', {
-      cloudId: cu.id,
-      name: String(cu.name || '').slice(0, 20),
-      avatar: cu.avatarUrl || ''
-    }).then(function (j) {
-      Cloud.user = j.user;
-      renderAccount();
-      return j;
-    });
-  }
-
-  /* 页面入口：要么是授权回调落地，要么是普通访问（试着恢复已有云端会话） */
-  function wbRestore() {
-    if (!WBAuth.ready) return Promise.resolve(null);
-    var url;
-    try { url = new URL(window.location.href); } catch (e) { return Promise.resolve(null); }
-
-    var hasCb = url.searchParams.has('code') || url.searchParams.has('error');
-    if (!hasCb) {
-      return WBAuth.client.auth.getSession().then(function (r) {
-        if (!r || !r.data) return null;
-        return wbBind(r.data).catch(function () { return null; });
-      }).catch(function () { return null; });
-    }
-
-    var provider = url.searchParams.get('provider');
-    if (provider !== 'workbuddy') {
-      wbStripCb();
-      return Promise.reject(new Error('授权回调缺少有效的登录方式，请重新登录'));
-    }
-    if (typeof WBAuth.client.auth.handleWorkBuddyCallback !== 'function') {
-      wbStripCb();
-      return Promise.reject(new Error('当前登录组件版本不支持这种登录方式'));
-    }
-
-    return WBAuth.client.auth.handleWorkBuddyCallback().then(function (r) {
-      if (r && r.error) {
-        wbStripCb();
-        throw new Error(r.error.message || 'WorkBuddy 登录失败');
-      }
-      if (!r || !r.data) { wbStripCb(); return null; }
-      wbStripCb();
-      return wbBind(r.data);
-    }, function (e) {
-      wbStripCb();
-      throw e;
-    });
-  }
-
-  function wbSignIn() {
-    if (!Cloud.online) return authErr('现在是纯本地模式，无法登录 —— 需要通过服务端地址打开本页');
-    if (!WBAuth.ready) return authErr('WorkBuddy 登录组件没加载成功，刷新一下页面再试');
-    var btn = $('#wbLoginBtn');
-    btn.disabled = true;
-
-    var back = null;
-    try {
-      back = new URL(window.location.href);
-      back.pathname = '/';
-      ['code', 'state', 'provider'].forEach(function (k) { back.searchParams.delete(k); });
-    } catch (e) { /* 老浏览器用默认 */ }
-
-    var p;
-    try {
-      p = WBAuth.client.auth.signInWithOAuth({
-        provider: 'workbuddy',
-        redirectTo: back ? back.toString() : undefined
-      });
-    } catch (e) {
-      btn.disabled = false;
-      return authErr(e.message || 'WorkBuddy 登录发起失败');
-    }
-
-    Promise.resolve(p).then(function (r) {
-      if (r && r.error) {
-        btn.disabled = false;
-        return authErr(r.error.message || 'WorkBuddy 登录发起失败');
-      }
-      var go = r && r.data && r.data.url;
-      if (!go) {
-        btn.disabled = false;
-        return authErr('没拿到授权地址，请稍后再试');
-      }
-      window.location.assign(go); // 必须同标签页跳转，PKCE 证明存在当前标签页
-    }).catch(function (e) {
-      btn.disabled = false;
-      authErr(e.message || 'WorkBuddy 登录发起失败');
-    });
-  }
-
   /* ---- 登录弹窗 ---- */
   var authMode = 'login';
-  /* ---- 观猹登录：标准 OAuth2 授权码 + PKCE ----
-     state 与 code_verifier 都留在服务端，前端只负责跳转和拿回 code。 */
-  var Watcha = { enabled: false };
-
-  /* 观猹的回调不带 provider=workbuddy，靠这个跟 WorkBuddy 的回调区分开 */
-  function watchaIsCallback() {
-    try {
-      var u = new URL(window.location.href);
-      return u.searchParams.has('code') && !u.searchParams.get('provider');
-    } catch (e) { return false; }
-  }
-
-  /* 服务端说没配好就把入口藏起来，别让人点了才看到报错 */
-  function watchaConfig() {
-    var btn = $('#watchaLoginBtn');
-    if (!btn) return Promise.resolve(false);
-    return api('GET', '/api/watcha/config').then(function (j) {
-      Watcha.enabled = !!j.enabled;
-      btn.hidden = !Watcha.enabled;
-      return Watcha.enabled;
-    }).catch(function () {
-      Watcha.enabled = false;
-      btn.hidden = true;
-      return false;
-    });
-  }
-
-  /* 发起登录前把当前地址带上：线上有分享码门禁，回调地址不带 sharecode
-     会被平台拦在门外，所以要用带着分享码的这个地址当 redirect_uri。
-     回调参数要先摘掉，hash 也不带（OAuth 不许 redirect_uri 带 fragment）。 */
-  function watchaRedirectTo() {
-    try {
-      var u = new URL(window.location.href);
-      ['code', 'state', 'provider', 'error', 'error_description'].forEach(function (k) {
-        u.searchParams.delete(k);
-      });
-      u.hash = '';
-      return u.toString();
-    } catch (e) { return ''; }
-  }
-
-  function watchaSignIn() {
-    if (!Cloud.online) return authErr('现在是纯本地模式，无法登录 —— 需要通过服务端地址打开本页');
-    var btn = $('#watchaLoginBtn');
-    if (btn) btn.disabled = true;
-    var q = '/api/watcha/auth?redirectTo=' + encodeURIComponent(watchaRedirectTo());
-    api('GET', q).then(function (j) {
-      if (!j || !j.url) throw new Error('没拿到授权地址，请稍后再试');
-      window.location.assign(j.url);
-    }).catch(function (e) {
-      if (btn) btn.disabled = false;
-      authErr((e && e.message) || '观猹登录发起失败');
-    });
-  }
-
-  /* 回跳换号：拿 code + state 去后端换本站会话 */
-  function watchaExchange() {
-    var u;
-    try { u = new URL(window.location.href); } catch (e) { return Promise.reject(new Error('地址不对')); }
-    var code = u.searchParams.get('code') || '';
-    var state = u.searchParams.get('state') || '';
-    var err = u.searchParams.get('error') || '';
-    var desc = u.searchParams.get('error_description') || '';
-    if (err) {
-      wbStripCb();
-      return Promise.reject(new Error(desc || (err === 'access_denied' ? '你取消了授权' : '观猹登录失败')));
-    }
-    if (!code || !state) return Promise.reject(new Error('回调参数不全，请重新登录'));
-    return api('POST', '/api/watcha/exchange', { code: code, state: state }).then(function (j) {
-      wbStripCb();
-      Cloud.user = j.user || null;
-      renderAccount();
-      return j;
-    });
-  }
-
   function openAuth(mode) {
     setAuthMode(mode || 'login');
     $('#authErr').hidden = true;
@@ -8467,8 +8263,6 @@
     else toast('现在是本地模式，无法登录 —— 需要通过服务端地址打开本页');
   });
   $('#loginBtn').addEventListener('click', function () { openAuth('login'); });
-  $('#wbLoginBtn').addEventListener('click', wbSignIn);
-  $('#watchaLoginBtn').addEventListener('click', watchaSignIn);
   $('#logoutBtn').addEventListener('click', function () {
     var who = (Cloud.user && (Cloud.user.nick || Cloud.user.name || Cloud.user.user_id)) || '';
     askConfirm({
@@ -8482,10 +8276,6 @@
   });
   function doLogout() {
     api('POST', '/api/logout', {}).catch(function () {}).then(function () {
-      // 云端会话也要退，否则下次打开会被 getSession 自动登回来
-      if (WBAuth.ready) {
-        try { Promise.resolve(WBAuth.client.auth.signOut()).catch(function () {}); } catch (e) { /* 忽略 */ }
-      }
       Cloud.user = null;
       clearTimeout(Cloud.pushTimer);
       Cloud.pushTimer = null;
@@ -8704,36 +8494,14 @@
   // 更新公告：第一次看到这一版的人弹一次，关掉就记住，不再打扰
   maybeShowNotice();
 
-  // 先处理 WorkBuddy 授权回来的人（换好会话），再走常规的 ping / 拉取
-  wbInit();
-  // 必须在 wbRestore 之前记下来：它会清掉 URL 上的 code，之后就看不出是不是回调了
-  var wbIsCallback = false;
-  var isWatchaCb = watchaIsCallback();
+  // 老链接里可能还带着上一版第三方登录的 code/state/error，清掉别留在地址栏
   try {
-    var wbUrl = new URL(window.location.href);
-    wbIsCallback = wbUrl.searchParams.has('code') || wbUrl.searchParams.has('error');
+    var stale = new URL(window.location.href);
+    if (stale.searchParams.has('code') || stale.searchParams.has('state') || stale.searchParams.has('error')) stripAuthCb();
   } catch (e) { /* 老浏览器 */ }
 
-  // 观猹回跳和 WorkBuddy 回跳走两条路，别互相认错
-  var bootLogin = isWatchaCb
-    ? watchaExchange().then(function () { return '观猹'; })
-    : wbRestore().then(function (bound) { return bound ? 'WorkBuddy' : null; });
-
-  bootLogin.then(function (via) {
-    if (via) closeAuth();   // 登录成功必须把弹窗收掉，否则遮罩会把整页挡住
-    return cloudInit().then(function () { return via; });
-  }).then(function (via) {
-    if (via) toast('已用' + via + '账号登录，正在同步题集…');
-    return watchaConfig();
-  }).catch(function (e) {
-    // 只有"确实是授权回调"才弹窗报错；普通访问出错静默降级成游客
-    cloudInit();
-    watchaConfig();
-    if (wbIsCallback) {
-      openAuth('login');
-      authErr((e && e.message) || '登录失败，请重试或改用昵称密码');
-    }
-  });
+  // 连服务端放到本轮渲染之后：连不上就静默降级成游客，不挡首屏
+  Promise.resolve().then(function () { return cloudInit(); }).catch(function () {});
 
   /* =========================================================
      ⑦ 题集广场：别人分享的题集，按专业 / 科目筛，一键复制成自己的
@@ -8833,6 +8601,7 @@
       return '<div class="item plaza-item" data-id="' + esc(it.id) + '">' +
         '<div class="item-main">' +
         '<div class="item-stem">' + esc(it.course) +
+        (it.demo ? ' <span class="pill ok">官方示例</span>' : '') +
         (it.mine ? ' <span class="pill ok">我分享的</span>' : '') + '</div>' +
         '<div class="item-sub">' + tags +
         '<span class="plaza-num">' + it.qCount + ' 题</span>' +
@@ -8901,6 +8670,18 @@
   /* 同一个人重复点同一份：已有就直接切过去，别叠出一堆副本 */
   function bankFromPlaza(plazaId) {
     return S.banks.filter(function (b) { return b.from && b.from.plazaId === plazaId; })[0] || null;
+  }
+
+  /* 官方示例题集：广场固定第一位。没有题集的人从首页点一下就能直接用，
+     不用先去广场翻、也不用手动导入 */
+  function takeDemoBank(btn) {
+    function go() {
+      var demo = Plaza.items.filter(function (x) { return x.demo; })[0];
+      if (!demo) { toast('示例题集还没准备好，稍后再试'); return; }
+      takePlaza(demo.id, btn);
+    }
+    if (Plaza.loaded) { go(); return; }
+    loadPlaza().then(go);
   }
 
   function takePlaza(id, btn) {

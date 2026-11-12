@@ -2,11 +2,11 @@
 # =========================================================
 #  期末刷题站 · 发版
 # ---------------------------------------------------------
-#  部署那一步是 WorkBuddy 的工具调用，脚本里调不到，所以拆成两半：
+#  部署那一步是平台客户端里的操作，脚本里调不到，所以拆成两半：
 #
 #    bash scripts/release.sh prep "v1.23.0 一句话说明"
 #        挪走 data/ 里不该发的文件 → 全量测试 → commit → push
-#        然后去 WorkBuddy 里发布这个应用
+#        然后去客户端里发布这个应用
 #
 #    bash scripts/release.sh done
 #        核验线上（版本号 / 三件套 sha1 / 403）→ 把 data/ 挪回来
@@ -26,11 +26,12 @@ cd "$ROOT" || exit 1
 
 # 暂存目录放在项目【外面】，否则会被打进部署包
 STASH="$ROOT/../.fq-release-stash"
-B="https://2119633980357275648.app.workbuddy.host"
+# 改成你的站点地址，或用环境变量 FQ_BASE_URL 传
+B="${FQ_BASE_URL:-https://your-site.example}"
 S="?sharecode=6PMDOKLNBN"
 
-# 只有这三个该跟着发版（各有服务端模块读它）
-KEEP="pay.config.json watcha-oauth.config.json mail.config.json"
+# 只有这两个该跟着发版（各有服务端模块读它）
+KEEP="pay.config.json mail.config.json"
 
 c_ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
 c_bad()  { printf '\033[31m✗\033[0m %s\n' "$1"; }
@@ -107,7 +108,7 @@ verify() {
   done
 
   local blocked=1
-  for p in /data/pay.config.json /data/mail.config.json /server.js /pay.js /watcha-oauth.js /mailer.js /package.json; do
+  for p in /data/pay.config.json /data/mail.config.json /server.js /pay.js /mailer.js /package.json; do
     local code; code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$B$p$S")"
     if [ "$code" != "403" ]; then c_bad "$p 居然返回 $code（应该是 403）"; blocked=0; fi
   done
@@ -163,7 +164,7 @@ do_prep() {
   c_ok "已推送"
 
   hr
-  echo "4/4 下一步：去 WorkBuddy 里发布这个应用"
+  echo "4/4 下一步：去平台客户端里发布这个应用"
   echo
   echo "   发布完成后运行：  bash scripts/release.sh done"
   echo

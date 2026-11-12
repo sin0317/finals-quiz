@@ -6,6 +6,7 @@ node_modules/
 *.log
 .DS_Store
 
-# WorkBuddy 本地元数据（发布记录，与代码无关）
-.workbuddy/
-.wbapp_*.genie
+# 环境变量与密钥
+.env
+.env.local
+.env.*.local

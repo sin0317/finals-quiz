@@ -2,7 +2,7 @@
 
 把课程笔记粘进来，自动变成选择题和填空题，按笔记顺序刷。给同学之间互相分享题集用的。
 
-在线试用：<https://2119633980357275648.app.workbuddy.host/?sharecode=6PMDOKLNBN>
+在线试用：<https://【部署后填入你的站点地址】/?sharecode=6PMDOKLNBN>
 
 <a href="https://watcha.cn/products/qi-mo-shua-ti-zhan?utm_source=product-badge&utm_content=invite" target="_blank" rel="noopener noreferrer"><img src="assets/watcha-badge.png" alt="期末刷题站 观猹徽章" width="216"></a>
 
@@ -160,11 +160,11 @@ PORT=8080 npm start    # 换端口
 
 没有 Node 也能用：直接双击 `index.html`，出题、刷题、背知识点、错题本、统计全部照常，只是没有登录和云同步（页面显示「离线模式」）。
 
-登录支持三种方式：观猹 OAuth 一键登录、WorkBuddy OAuth 一键登录（这两个都需要从已注册的线上域名打开，本地 localhost 用不了）、昵称 + 密码（本地可用）。
+登录只用昵称 + 密码：不需要手机号邮箱，本地跑服务和线上部署都能用；不登录就是游客，全站功能照常。
 
 ## 测试
 
-42 套脚本、1800 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先、加粗识别、广场、作答与回看、用户改题、题目批注、背诵形式、收藏夹、删题与墓碑、导入账单、手动加题与快捷挖空、分组推进与间隔复习、刷新续答、观猹登录、付费与冲刺报告。
+41 套脚本、1751 项断言，覆盖后端接口、浏览器交互、题库还原、原卷分区、原卷原样录入（含老版 .doc 转 docx）、真题优先、加粗识别、广场、作答与回看、用户改题、题目批注、背诵形式、收藏夹、删题与墓碑、导入账单、手动加题与快捷挖空、分组推进与间隔复习、刷新续答、付费与冲刺报告。
 
 ```bash
 node test/run.js            # 跑全部，最后一行给「几套全绿 / 合计几项 / 用时」
@@ -186,11 +186,9 @@ app.js       全部前端逻辑：出题、判分、刷题、背诵、统计、�
              （文件开头有一份「模块地图」，改东西先看那儿）
 server.js    后端，只用 Node 自带模块（http / fs / crypto）
 pay.js       爱猹收（观猹支付）接入层：查权益 / 扣额度，失败一律关闭
-watcha-oauth.js  观猹 OAuth2 接入层：授权码 + PKCE、换 token、取用户信息
 mailer.js    「提建议」直接发到站长邮箱（零依赖 SMTP）
-vendor/      WorkBuddy 登录 SDK（本地托管，不走外网 CDN）
-data/        运行时数据与配置，不进版本库；发版只带三个 *.config.json（见 docs/开发手册.md）
-test/        42 套回归 + _harness.js（公共骨架）+ run.js（一键跑分器）
+data/        运行时数据与配置，不进版本库；发版只带两个 *.config.json（见 docs/开发手册.md）
+test/        41 套回归 + _harness.js（公共骨架）+ run.js（一键跑分器）
 scripts/     release.sh：把「挪 data → 提交 → 推送 → 核验 → 挪回」固化成两条命令
 docs/        使用说明.md（给用户）· 开发手册.md（给自己：改一个功能要动哪几处）
              · 更新日志.md
@@ -198,22 +196,27 @@ docs/        使用说明.md（给用户）· 开发手册.md（给自己：改�
 
 数据结构就是几个 JSON 文件，没有数据库。`data/` 在 `.gitignore` 里，部署后自动生成。
 
+**托管环境会清空文件系统时，接一个云端 Redis 就行**，代码不用改：配好下面两个环境变量，
+`store-remote.js` 会把五份 JSON 整份同步到 Upstash，重启/重新部署都不丢；不配就照旧写本地文件。
+
+```
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=xxxx
+# 可选：多个站点共用一个库时用来隔开，默认 fq:
+FQ_REDIS_PREFIX=fq:
+```
+
+免费额度是 250MB 存储 + 每月 50 万条命令，这套应用一天最多几十条命令，跑不满。
+云端连不上会打一条错误日志并自动降级成本地文件，不会起不来。
+
 支付配置放在 `data/pay.config.json`（同样不进版本库），里面是服务端 API Key 和权益 ID；
 也可以用环境变量 `WATCHA_PAY_API_KEY` / `WATCHA_PAY_ENTITLEMENT_ID` / `WATCHA_PAY_BASE_URL` 覆盖。
 **密钥只放服务端**，前端只跟后端自己的三个接口对话，永远拿不到 Key。
 
-观猹登录的配置放在 `data/watcha-oauth.config.json`（同样不进版本库）：`clientId`、`redirectUri`、
-`sharecode`、`scope`（默认 `read`）、`baseUrl`，公开客户端还可以不填 `clientSecret`。
-也可以用环境变量 `WATCHA_OAUTH_CLIENT_ID` / `WATCHA_OAUTH_CLIENT_SECRET` /
-`WATCHA_OAUTH_REDIRECT_URI` / `WATCHA_OAUTH_SHARECODE` / `WATCHA_OAUTH_SCOPE` /
-`WATCHA_OAUTH_BASE_URL` 覆盖。
-`redirectUri` 必须和观猹后台登记的回调地址同一个源；线上有分享码门禁，实际的 `redirect_uri`
-会带上当前页的分享码（前端把当前地址交给服务端，服务端只认同源的地址）。
-
 > ⚠️ **发版前先挪一下 `data/`**。发版会把整个目录打包上传，`data/` 里除了运行数据，还可能有
 > 本地快照和各种令牌。直接发布会用本地 `stats.json` 覆盖线上的真实访问数据，也可能把不该上服务器的
 > 文件带上去。稳妥做法：发版前把 `data/` 挪到目录外，只放一份 `pay.config.json` 和一份
-> `watcha-oauth.config.json` 进去，发完再挪回来。
+> `mail.config.json` 进去，发完再挪回来。
 
 ## 已知限制
 
@@ -225,4 +228,4 @@ docs/        使用说明.md（给用户）· 开发手册.md（给自己：改�
 - 括号里写的词当答案有个前提：这一行得有题号（`1.` / `2、`），或者它前面没有正在收的题。否则一行没标号的选项（`药品（包括中药）说明书`）容易被误当成一道填空题
 - 填空题区里，括号空着、答案也没写在旁边的题会被跳过（卷子本身没给答案，抄下来也没法判分）
 - 广场没有点赞/评论，只有分享、取用、删除
-- 登录接了观猹 OAuth、WorkBuddy OAuth 和昵称密码，微信/QQ 需要备案域名与资质，暂未接
+- 登录只有昵称 + 密码（密码用 scrypt 加盐哈希），没有第三方一键登录；微信/QQ 登录需要备案域名与资质，暂未接

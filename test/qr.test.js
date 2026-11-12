@@ -134,7 +134,7 @@ function decodeText(q) {
   return { mode, count, text: Buffer.from(bytes).toString('utf8') };
 }
 
-const LIVE = 'https://2119633980357275648.app.workbuddy.host/?sharecode=6PMDOKLNBN';
+const LIVE = 'https://2119633980357275648.app.traesite7.host/?sharecode=6PMDOKLNBN';
 
 console.log('\n[1] 版本按长度自己选');
 {
@@ -157,8 +157,8 @@ console.log('\n[2] 反解回来必须一字不差');
 {
   [LIVE,
    'https://a.cn/?s=ABC',
-   'https://finals-quiz.app.workbuddy.host/?sharecode=LKWARVTOI6',
-   'https://2119633980357275648.app.workbuddy.host/?sharecode=6PMDOKLNBN&from=card'
+   'https://finals-quiz.app.traesite7.host/?sharecode=LKWARVTOI6',
+   'https://2119633980357275648.app.traesite7.host/?sharecode=6PMDOKLNBN&from=card'
   ].forEach(text => {
     const q = QR.encode(text);
     const got = decodeText(q);
@@ -184,7 +184,7 @@ console.log('\n[4] 矩阵基线（改了编码逻辑就会变，逼你重新用�
   }
   const hash = crypto.createHash('sha256').update(dump).digest('hex').slice(0, 16);
   console.log('    当前矩阵哈希: ' + hash + '  (v' + q.version + ' mask' + q.mask + ')');
-  ok(hash === 'daf8b4de7a5c5083', 'live 地址的矩阵哈希与基线一致', hash);
+  ok(hash === '237d7823807820d8', 'live 地址的矩阵哈希与基线一致', hash);
 }
 
 console.log('\n[5] 三个定位角必须是标准样式（黑框-白环-黑心）');

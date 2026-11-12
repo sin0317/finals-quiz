@@ -1,4 +1,5 @@
 'use strict';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 /* 后端接口冒烟测试：起一个临时端口 + 临时数据目录，跑完整链路
    运行： node test/api.test.js                                        */
 
@@ -217,46 +218,6 @@ function cookieFrom(res) {
   // 16. 伪造 session
   const forged = await req('GET', '/api/sync', null, 'fq_sid=deadbeef');
   ok(forged.status === 401, '伪造的 session 无效', forged.status);
-
-  // 17. WorkBuddy 账号登录：云端 uid 换本站会话
-  const c1 = await req('POST', '/api/cloud-login', { cloudId: 'wb_uid_alice_0001', name: '阿黎' });
-  ok(c1.status === 200 && !!c1.json.user, '云端身份能换到本站会话', c1.json);
-  ok(c1.json.user.provider === 'workbuddy', '账号标记为 workbuddy 来源', c1.json.user);
-  ok(c1.json.user.role === 'user', '已有站长时，云端登录的新人不是站长', c1.json.user);
-  ok(c1.json.isNew === true, '首次登录被标记为新账号', c1.json.isNew);
-  const ckCloud = cookieFrom(c1);
-  const uidA = c1.json.user.id;
-
-  const c2 = await req('POST', '/api/cloud-login', { cloudId: 'wb_uid_alice_0001', name: '阿黎改名' });
-  ok(c2.json.user.id === uidA, '同一个云端 uid 认回同一个账号（不重复建号）', { before: uidA, after: c2.json.user.id });
-  ok(c2.json.isNew === false, '第二次登录不再是新账号', c2.json.isNew);
-  ok(c2.json.user.loginCount >= 2, '登录次数累加', c2.json.user.loginCount);
-  ok(c2.json.user.name === '阿黎改名', '昵称跟着云端身份更新', c2.json.user.name);
-
-  const c3 = await req('POST', '/api/cloud-login', { cloudId: 'wb_uid_bob_0002', name: '阿黎' });
-  ok(c3.json.user.id !== uidA, '不同云端 uid 是不同账号');
-  ok(c3.json.user.username !== c2.json.user.username, '昵称撞车自动加序号', c3.json.user.username);
-
-  const c4 = await req('POST', '/api/cloud-login', { cloudId: 'x' });
-  ok(c4.status === 400, '云端 uid 太短被拒绝', c4.status);
-  const c5 = await req('POST', '/api/cloud-login', { cloudId: 'bad uid with space' });
-  ok(c5.status === 400, '云端 uid 含空格被拒绝', c5.status);
-
-  // 云端账号没有密码，不能被密码登录绕过
-  const c6 = await req('POST', '/api/login', { username: c2.json.user.username, password: 'whatever123' });
-  ok(c6.status === 400, 'WorkBuddy 账号不能走密码登录', c6.status);
-  ok(/WorkBuddy/.test(c6.json.error || ''), '并提示改用 WorkBuddy 登录', c6.json.error);
-
-  // 云端账号的会话与题集同步
-  const cs = await req('GET', '/api/me', null, ckCloud);
-  ok(cs.json.user && cs.json.user.id === uidA, '云端登录能恢复会话', cs.json.user);
-  const cpush = await req('PUT', '/api/sync', {
-    banks: [{ id: 'b_c', course: '云端课', questions: [{ id: 'q_c1', type: 'fill', stem: '题干', answer: '答案' }] }],
-    stats: {}, log: []
-  }, ckCloud);
-  ok(cpush.status === 200, '云端账号能上传题集', cpush.status);
-  const cpull = await req('GET', '/api/sync', null, ckCloud);
-  ok(cpull.json.banks && cpull.json.banks.length === 1, '云端账号能拉回自己的题集', cpull.json.banks && cpull.json.banks.length);
 
   child.kill('SIGTERM');
   await new Promise(function (r) { setTimeout(r, 300); });

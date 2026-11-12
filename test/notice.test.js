@@ -86,7 +86,7 @@ console.log('\n一、第一次访问：弹公告，把这一版讲清楚');
   ok(all.indexOf('找不回来') >= 0, '把「删了找不回」说在前面', all.slice(0, 60));
   // 地址类文案一律取 location.host，不许在公告里写死域名（域名换过三次了）
   const whole = title + lead + all;
-  ok(!/\.workbuddy\.host|https?:\/\//.test(whole), '公告正文里没有写死域名', whole.match(/\.workbuddy\.host|https?:\/\/\S*/));
+  ok(!/https?:\/\/|\.host\b/.test(whole), '公告正文里没有写死域名', whole.match(/https?:\/\/\S*|\.host\b/));
   ok(!/url\(/i.test(all), '没有塞图片外链');
   ok(d.querySelector('#noticeUrl').hidden === false, '把当前地址摆出来了');
   ok(d.querySelector('#noticeUrlText').textContent === 'localhost', '显示的是当前域名',

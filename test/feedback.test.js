@@ -1,4 +1,5 @@
 'use strict';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 /* 页脚「提建议」回归
    运行： NODE_PATH=<workspace>/node_modules node test/feedback.test.js
 
