@@ -2,11 +2,16 @@
 
 把课程笔记粘进来，自动变成选择题和填空题，按笔记顺序刷。给同学之间互相分享题集用的。
 
-在线试用：<https://【部署后填入你的站点地址】/?sharecode=6PMDOKLNBN>
+在线试用：<https://37j7vwgsfmzlb9wnr4q.traesite.cn/>
 
 <a href="https://watcha.cn/products/qi-mo-shua-ti-zhan?utm_source=product-badge&utm_content=invite" target="_blank" rel="noopener noreferrer"><img src="assets/watcha-badge.png" alt="期末刷题站 观猹徽章" width="216"></a>
 
 纯前端 + 零第三方依赖的 Node 后端，`npm start` 就能跑，不装数据库。
+
+> **这是参赛用的青春版（分支 `competition-2026`，v1.25.0）**
+> 为了让评委不依赖任何第三方资质就能跑起来，去掉了观猹（Watcha）一键登录和相关路由，
+> 只保留「昵称 + 密码」与游客模式；数据默认写本地 JSON，接一个免费 Upstash Redis 即可云端持久化。
+> `main` 分支仍是带完整第三方登录的版本。
 
 ## 它做什么
 
@@ -143,20 +148,32 @@
 
 ## 更新日志
 
-从 v1.2.0 到 v1.21.1 的完整变更记在 [CHANGELOG.md](CHANGELOG.md)：24 个版本、按时间倒序、每版写清「新增了什么 / 修好了什么」，末尾列着还没做的边界。
+从 v1.2.0 到 v1.25.0 的完整变更记在 [CHANGELOG.md](CHANGELOG.md)：按时间倒序、每版写清「新增了什么 / 修好了什么」，末尾列着还没做的边界。
 
 按功能（而不是按版本）整理的总览在 [FEATURES.md](FEATURES.md)：19 条、带编号，01-12 与封面图上的十二张卡片一一对应。
 
 ## 跑起来
 
-需要 Node 18+。
+需要 Node 18+。三条命令：
 
 ```bash
-npm start              # 默认 3000 端口
-PORT=8080 npm start    # 换端口
+npm install    # 只有一个依赖 @upstash/redis（不装也能跑，退回本地文件）
+npm start      # 默认 3000 端口
+# 浏览器打开 http://localhost:3000
 ```
 
-打开 <http://localhost:3000>。
+想换端口：`PORT=8080 npm start`（Windows PowerShell：`$env:PORT=8080; npm start`）。
+
+**可选：接云端存储（容器重启不丢数据）**
+
+不配也能用，数据写 `data/*.json`；配了这两行就整份同步到 Upstash Redis：
+
+```bash
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=xxxx
+```
+
+也可以不设环境变量，直接在 `data/redis.config.json` 里写 `{"url": "...", "token": "..."}`（托管平台不允许明文注入密钥时用这个）。
 
 没有 Node 也能用：直接双击 `index.html`，出题、刷题、背知识点、错题本、统计全部照常，只是没有登录和云同步（页面显示「离线模式」）。
 
