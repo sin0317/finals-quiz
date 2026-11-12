@@ -1,0 +1,35 @@
+<<<<<<< HEAD
+# 运行时数据（部署后自动生成）
+data/
+
+# 依赖与日志
+node_modules/
+*.log
+.DS_Store
+
+# 环境变量与密钥
+.env
+.env.local
+.env.*.local
+
+# 支付宝沙箱配置（含私钥，绝不入库）
+sandbox-config.json
+
+# 部署过程临时产物
+dist/
+*.zip
+trae-deploy-*/
+=======
+# 运行时数据（部署后自动生成）
+data/
+
+# 依赖与日志
+node_modules/
+*.log
+.DS_Store
+
+# 环境变量与密钥
+.env
+.env.local
+.env.*.local
+>>>>>>> origin/competition-2026

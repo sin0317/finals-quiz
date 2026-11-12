@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>期末刷题 · 把笔记变成题目</title>
+<link rel="stylesheet" href="styles.css?v=1.26.1">
+</head>
+<body style="">
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">期末</span>
+    <span class="brand-text">笔记变题库</span>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="import">① 导入笔记</button>
+    <button class="tab" data-view="quiz">② 刷题</button>
+    <button class="tab" data-view="recite">③ 背知识点</button>
+    <button class="tab" data-view="wrong">④ 错题本</button>
+    <button class="tab" data-view="fav" id="favTab">⑤ 收藏夹</button>
+    <button class="tab" data-view="stats">⑥ 数据统计</button>
+    <button class="tab" data-view="plaza">⑦ 题集广场</button>
+    <button class="tab" data-view="sprint">⑧ 冲刺报告</button>
+  </nav>
+  <div class="topbar-right">
+    <button id="acctBtn" class="acct-btn" title="账号与同步">
+      <span class="acct-avatar" id="acctAvatar">游</span>
+      <span class="acct-name" id="acctName">游客</span>
+      <span class="acct-vip" id="acctVip" hidden>VIP · 免收费</span>
+      <span class="acct-dot" id="acctDot" title="同步状态"></span>
+    </button>
+    <select id="bankSelect" class="select mini" title="当前题集"></select>
+    <button id="themeBtn" class="icon-btn" title="切换深浅色">🌙</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ 导入：第一步原卷（可选）→ 第二步笔记 ============ -->
+  <section class="view active" id="view-import">
+
+    <!-- 流程条：先说清「谁先谁后、哪一步可以跳过」 -->
+    <div class="flow">
+      <div class="flow-item" id="flowPaper">
+        <span class="flow-n">1</span>
+        <div class="flow-body">
+          <b>导入原卷<span class="badge opt">可选</span></b>
+          <span id="flowPaperSub">先做这步，选择题才有真题可出</span>
+        </div>
+      </div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-item" id="flowNote">
+        <span class="flow-n">2</span>
+        <div class="flow-body">
+          <b>导入笔记<span class="badge req">必做</span></b>
+          <span id="flowNoteSub">先翻原卷真题，翻不到才按笔记挖空出填空</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card tight">
+      <div class="row">
+        <label class="fld-label" for="courseName">课程</label>
+        <input id="courseName" class="input" placeholder="两步要填同一个名字，例如：中国近代史">
+      </div>
+    </div>
+
+    <!-- ========== 第一步：原卷 ========== -->
+    <div class="card step" id="stepPaper">
+      <div class="card-head">
+        <h2>第一步 · 导入原卷 <span class="badge opt">可选</span></h2>
+      </div>
+      <div class="row">
+        <button class="btn" id="paperPickBtn" type="button">选择原卷文件（可多选）</button>
+        <button class="btn ghost" id="paperClearBtn" type="button">清空</button>
+        <input type="file" id="paperInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc,.csv" multiple hidden>
+      </div>
+      <div id="paperFiles" class="file-list" hidden></div>
+      <div id="paperDrop" class="textarea">
+        <textarea id="paperText" class="textarea-inner" rows="9" placeholder="把试卷整段粘进来，保留分段标题：
+
+单选题
+药物治疗的核心问题是（　）A
+A、合理用药　　B、获得最佳疗效
+多选题
+药物治疗要求（　）ABCD
+A.安全  B.有效  C.经济  D.适当"></textarea>
+      </div>
+      <div class="row right">
+        <span class="muted" id="paperStat"></span>
+        <button class="btn primary" id="paperExtractBtn" type="button">解析原卷，存进真题库</button>
+      </div>
+      <div class="step-note" id="paperPoolBar">这一步可以跳过 —— 没有原卷也能直接做第二步，只是卷子里没考过的内容会按笔记挖空出填空题，不会给你编选择题</div>
+    </div>
+
+    <!-- ========== 第二步：笔记 ========== -->
+    <div class="card step" id="stepNote">
+      <div class="card-head">
+        <h2>第二步 · 导入笔记 <span class="badge req">必做</span></h2>
+      </div>
+      <div class="row">
+        <button class="btn" id="pickFileBtn" type="button">选择笔记文件（可多选）</button>
+        <button class="btn ghost" id="loadSampleBtn" type="button">载入示例笔记</button>
+        <button class="btn ghost" id="noteClearBtn" type="button">清空</button>
+        <input type="file" id="fileInput" accept=".txt,.md,.markdown,.docx,.pdf,.doc,.csv" multiple hidden>
+      </div>
+      <div id="noteFiles" class="file-list" hidden></div>
+      <div id="dropZone" class="textarea" placeholder="">
+        <textarea id="noteText" class="textarea-inner" rows="7" placeholder="把笔记整段粘进来。多用「……是……」「……包括……」这样的判断句，提炼最准。
+
+例如：
+林则徐是开眼看世界的第一人。"></textarea>
+      </div>
+      <div class="row right">
+        <span class="muted" id="noteStat"></span>
+        <button class="btn primary" id="extractBtn" type="button">一键提炼知识点</button>
+      </div>
+    </div>
+
+    <!-- ========== 补导入：题集已经建好，后来又拿到卷子 / 笔记 ========== -->
+    <div class="card step" id="stepSup">
+      <div class="card-head">
+        <h2>补充导入 <span class="badge opt">随时可用</span></h2>
+      </div>
+      <div class="row">
+        <button class="btn" id="supPickBtn" type="button">选择文件（可多选）</button>
+        <input type="file" id="supInput" accept=".txt,.md,.markdown,.docx,.doc,.pdf,.csv" multiple hidden>
+        <span class="muted" id="supStat"></span>
+        <div class="grow"></div>
+        <button class="btn ghost" id="supClearBtn" type="button">清空</button>
+        <button class="btn primary" id="supParseBtn" type="button">解析并预览</button>
+      </div>
+      <div id="supFiles" class="file-list" hidden></div>
+      <div class="textarea">
+        <textarea id="supText" class="textarea-inner" rows="3" placeholder="也可以粘一段新笔记或新试卷"></textarea>
+      </div>
+    </div>
+
+    <div class="card" id="reportCard" hidden="">
+      <div class="card-head">
+        <h2>这次导入的结果</h2>
+        <span class="hint">每份文件单独算账；没出成题的句子可以拿来手动加题</span>
+      </div>
+      <div id="reportBody"></div>
+    </div>
+
+    <div class="card" id="previewCard" hidden="">
+      <div class="card-head">
+        <h2 id="previewTitle">核对题目，确认后保存</h2>
+        <span class="hint" id="previewHint">标「原卷真题」的题干和选项来自你导入的卷子；可用 ↑ ↓ 调顺序，不需要的取消勾选</span>
+      </div>
+      <div class="table-wrap">
+        <table id="previewTable">
+          <thead>
+            <tr>
+              <th class="c-chk"><input type="checkbox" id="chkAll"></th>
+              <th class="c-type">题型</th>
+              <th>题干（挖空处用 ____ 表示）</th>
+              <th class="c-ans">正确答案</th>
+              <th class="c-op"></th>
+            </tr>
+          </thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <span class="muted" id="previewCount"></span>
+        <div class="grow"></div>
+        <button class="btn ghost" id="delSelectedBtn">删除选中</button>
+        <button class="btn primary" id="saveBankBtn">保存到题集</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>我的题集</h2>
+        <div class="grow"></div>
+        <button class="btn ghost tiny" id="addQBtn" type="button" title="不导入笔记也能加题：自己写题干、选项、答案">＋ 手动加题</button>
+      </div>
+      <div id="bankList" class="list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>题集文件（换电脑 / 分享给同学）</h2>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="exportBtn">导出当前题集 JSON</button>
+        <button class="btn ghost" id="importBtn">导入题集 JSON</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden="">
+        <div class="grow"></div>
+        <button class="btn" id="exportMdBtn">导出 Markdown（可直接粘进乐享 / 笔记软件）</button>
+      </div>
+      <details class="detail">
+        <summary>题集 JSON 格式说明</summary>
+        <pre>{
+  "course": "中国近代史",
+  "questions": [
+    { "type": "single", "stem": "林则徐是____", "answer": "开眼看世界的第一人", "source": "原文句子" },
+    { "type": "multi",  "stem": "洋务运动的内容包括____", "answer": ["创办军事工业", "创办民用工业"], "source": "原文句子" }
+  ]
+}</pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ 刷题 ============ -->
+  <section class="view" id="view-quiz" hidden="">
+    <!-- 手机上六个下拉太占地方：默认收成这一条，点开才是整块工具栏 -->
+    <div class="tb-compact" id="quizTbBar">
+      <button class="tb-open" id="quizTbOpen" type="button" aria-expanded="false" aria-controls="quizTb" title="展开或收起筛选项">
+        <span class="tb-ic" aria-hidden="true">⚙</span>
+        <span class="tb-sum" id="quizTbSum">范围 全部 · 题型 全部</span>
+        <span class="tb-caret" aria-hidden="true">▾</span>
+      </button>
+      <button class="btn primary tb-go" id="quizGoBtn" type="button">开始</button>
+    </div>
+    <div class="toolbar tb-collapsed" id="quizTb">
+      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="qRange" class="select">
+        <option value="all">全部</option>
+        <option value="weak">未掌握</option>
+        <option value="wrong">错题</option>
+        <option value="new">没练过</option>
+        <option value="fav">只刷收藏</option>
+      </select></label>
+      <label class="tfield" data-sum="1"><span class="tl">题型</span><select id="qType" class="select">
+        <option value="all">全部</option>
+        <option value="single">单选</option>
+        <option value="multi">多选</option>
+        <option value="fill">填空</option>
+        <option value="term">名词解释</option>
+        <option value="short">简答</option>
+      </select></label>
+      <!-- 形式的默认值：改这里的 selected 必须同时改 app.js 的 DEFAULT_FORM，两处要一致 -->
+      <label class="tfield"><span class="tl">形式</span><select id="qForm" class="select" title="默认全部给选项；卷子上没有两个以上选项的题、以及名词解释/简答，永远是自己写">
+        <option value="mix">混合</option>
+        <option value="choice" selected>全部给选项</option>
+        <option value="fill">全部考填空</option>
+      </select></label>
+      <label class="tfield" data-sum="1"><span class="tl">题量</span><select id="qCount" class="select">
+        <option value="10">10</option>
+        <option value="20" selected="">20</option>
+        <option value="40">40</option>
+        <option value="0">全部</option>
+      </select></label>
+      <label class="tfield"><span class="tl">顺序</span><select id="qOrder" class="select">
+        <option value="seq">跟着笔记走</option>
+        <option value="rand">随机 · 生的优先</option>
+      </select></label>
+      <label class="tfield"><span class="tl">抽题</span><select id="qMode" class="select" title="间隔复习：答对的题隔几组再来，答错的下组必来，不够再补新题；只刷没见过的：练过一次就不再出现">
+        <option value="srs" selected>间隔复习</option>
+        <option value="fresh">只刷没见过的</option>
+      </select></label>
+      <div class="grow"></div>
+      <button class="btn primary" id="quizStartBtn">开始刷题</button>
+    </div>
+    <div id="quizBody"></div>
+    <!-- 用户反馈：教这题该怎么出（点「✏️ 改题」展开） -->
+    <div id="fixPanel" class="fix-panel" hidden></div>
+  </section>
+
+  <!-- ============ 背知识点 ============ -->
+  <section class="view" id="view-recite" hidden="">
+    <div class="tb-compact" id="reciteTbBar">
+      <button class="tb-open" id="reciteTbOpen" type="button" aria-expanded="false" aria-controls="reciteTb" title="展开或收起筛选项">
+        <span class="tb-ic" aria-hidden="true">⚙</span>
+        <span class="tb-sum" id="reciteTbSum">范围 全部</span>
+        <span class="tb-caret" aria-hidden="true">▾</span>
+      </button>
+      <button class="btn primary tb-go" id="reciteGoBtn" type="button">开始</button>
+    </div>
+    <div class="toolbar tb-collapsed" id="reciteTb">
+      <label class="tfield" data-sum="1"><span class="tl">范围</span><select id="rRange" class="select">
+        <option value="all">全部</option>
+        <option value="weak">未掌握</option>
+        <option value="wrong">错题</option>
+        <option value="new">没练过</option>
+        <option value="fav">只看收藏</option>
+      </select></label>
+      <label class="tfield"><span class="tl">顺序</span><select id="rOrder" class="select">
+        <option value="seq">跟着笔记走</option>
+        <option value="rand">随机 · 生的优先</option>
+      </select></label>
+      <!-- 形式的默认值：改这里的 selected 必须同时改 app.js 的 DEFAULT_FORM，两处要一致 -->
+      <label class="tfield" data-sum="1"><span class="tl">形式</span><select id="rForm" class="select" title="默认全部给选项；想更狠就切「全部考填空」（默写最考验回忆）。名词解释、简答、以及卷子上没有选项的题，永远是自己写">
+        <option value="fill">全部考填空</option>
+        <option value="choice" selected>全部给选项</option>
+        <option value="mix">混合</option>
+      </select></label>
+      <label class="switch"><input type="checkbox" id="rHint"> 给首字提示</label>
+      <div class="grow"></div>
+      <button class="btn primary" id="reciteStartBtn">开始看知识点</button>
+    </div>
+    <div id="reciteBody"></div>
+    <!-- 背知识点里也能直接改题：这块地方跟刷题页那块是同一个面板的两个落点 -->
+    <div id="fixPanelRecite" class="fix-panel" hidden></div>
+  </section>
+
+  <!-- ============ 错题本 ============ -->
+  <section class="view" id="view-wrong" hidden="">
+    <div class="toolbar">
+      <label class="tfield"><span class="tl">显示</span><select id="wFilter" class="select">
+        <option value="wrong">只看错题</option>
+        <option value="weak">未掌握（含已订正）</option>
+        <option value="all">全部题目</option>
+      </select></label>
+      <div class="grow"></div>
+      <button class="btn primary" id="wrongDrillBtn">错题特训</button>
+      <button class="btn ghost" id="clearWrongBtn">清空错题记录</button>
+    </div>
+    <div id="wrongList" class="list"></div>
+  </section>
+
+  <!-- ============ 收藏夹 ============ -->
+  <section class="view" id="view-fav" hidden>
+    <div class="toolbar">
+      <label class="tfield"><span class="tl">范围</span><select id="favScope" class="select" title="题目收藏在各自的题集里；想看所有题集的收藏就切「全部题集」">
+        <option value="bank">当前题集</option>
+        <option value="all">全部题集</option>
+      </select></label>
+      <label class="tfield"><span class="tl">排序</span><select id="favSort" class="select">
+        <option value="new">最近收藏</option>
+        <option value="mastery">最不熟在前</option>
+      </select></label>
+      <div class="grow"></div>
+      <button class="btn primary" id="favDrillBtn">刷收藏的题</button>
+      <button class="btn ghost" id="favClearBtn">清空收藏</button>
+    </div>
+    <div id="favList" class="list"></div>
+  </section>
+
+  <!-- ============ 数据统计 ============ -->
+  <section class="view" id="view-stats" hidden="">
+    <div class="kpis" id="kpis"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>今日战绩</h3>
+      </div>
+      <div id="todayLine" class="today-line"></div>
+      <div class="row">
+        <button class="btn primary" id="genCardBtn">生成战绩卡</button>
+        <span class="muted">存成竖图，带站点二维码</span>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <div class="card-head"><h3>掌握度分布</h3></div>
+        <div id="dist" class="dist"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>最近 7 天练习量</h3></div>
+        <div id="weekly" class="weekly"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>最该再背一遍的知识点</h3></div>
+      <div id="weakList" class="list"></div>
+    </div>
+
+    <div class="card" id="acctCard">
+      <div class="card-head"><h3>账号与同步</h3><span class="hint" id="syncHint">不登录也能用，数据只存在这台设备的浏览器里</span></div>
+      <div class="acct-body">
+        <div class="acct-who">
+          <span class="acct-avatar big" id="acctAvatar2">游</span>
+          <div class="acct-who-main">
+            <div class="acct-who-name" id="acctName2">游客</div>
+            <div class="acct-who-sub" id="acctSub">登录后可换设备继续刷，题集和练习记录会自动跟着走</div>
+          </div>
+        </div>
+        <div class="row right" id="acctActs">
+          <button class="btn primary" id="loginBtn">注册 / 登录</button>
+          <button class="btn ghost" id="syncNowBtn" hidden>立即同步</button>
+          <button class="btn ghost" id="logoutBtn" hidden>退出登录</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="adminCard" hidden>
+      <div class="card-head"><h3>站点使用情况</h3></div>
+      <div class="kpis small" id="adminKpis"></div>
+      <div class="table-wrap"><table class="tbl" id="adminTable"><thead><tr>
+        <th>昵称</th><th>注册时间</th><th>最近活跃</th><th>登录</th><th>题集</th><th>题目</th><th>答题</th><th>正确率</th><th>同步时间</th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="chart-row" id="adminDaily"></div>
+      <div class="admin-fb" id="adminFb">
+        <div class="fld-head"><span>收到的建议</span><em class="muted" id="adminFbMeta"></em></div>
+        <div id="adminFbList" class="admin-fb-list"></div>
+      </div>
+      <div class="row right"><button class="btn ghost" id="adminRefreshBtn">刷新</button></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>数据管理</h3></div>
+      <div class="row">
+        <button class="btn ghost" id="exportAllBtn">导出全部数据</button>
+        <button class="btn ghost" id="importAllBtn">导入全部数据</button>
+        <input type="file" id="importAllFile" accept=".json" hidden="">
+        <div class="grow"></div>
+        <button class="btn danger" id="resetStatsBtn">清空练习记录</button>
+        <button class="btn danger" id="delBankBtn">删除当前题集</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 题集广场 ============ -->
+  <section class="view" id="view-plaza" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h2>题集广场</h2>
+        <div class="grow"></div>
+        <button class="btn primary" id="plazaShareBtn">分享我的题集</button>
+      </div>
+
+      <div class="plaza-filter">
+        <input id="plazaSearch" class="input" placeholder="搜题集名 / 专业 / 科目">
+        <select id="plazaMajor" class="select"><option value="">全部专业</option></select>
+        <select id="plazaSubject" class="select"><option value="">全部科目</option></select>
+        <select id="plazaSort" class="select">
+          <option value="new">最新分享</option>
+          <option value="hot">最多人取用</option>
+        </select>
+        <button class="btn ghost" id="plazaMineBtn" title="只看我自己分享的">我分享的</button>
+        <button class="btn ghost" id="plazaRefreshBtn" title="重新拉一遍">刷新</button>
+      </div>
+
+      <div id="plazaHint" class="muted"></div>
+      <div id="plazaList" class="list plaza-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ 冲刺报告（付费功能） ============ -->
+  <section class="view" id="view-sprint" hidden>
+    <div class="sprint-hero">
+      <h2 class="sprint-title">考前 72 小时，只刷该刷的</h2>
+      <p class="sprint-sub">按你已经答过的题算：哪几个章节还在漏分、每个章节只补哪几道</p>
+    </div>
+
+    <!-- 未登录 -->
+    <div class="card" id="sprintNeedLogin" hidden>
+      <div class="card-head"><h3>先登录一下</h3></div>
+      <p class="hint">冲刺报告要挂在你自己的账号上，换设备打开也还在。刷题、导入、题集广场这些不登录照样能用。</p>
+      <div class="row"><button class="btn primary" id="sprintLoginBtn">去登录</button></div>
+    </div>
+
+    <!-- 未购买 -->
+    <div class="card sprint-lock" id="sprintLock" hidden>
+      <div class="sprint-price-row">
+        <span class="sprint-amount" id="sprintPrice">¥9.90</span>
+        <span class="sprint-once">一次买断 · 永久可看 · 不自动续费</span>
+      </div>
+      <p class="sprint-env" id="sprintEnv" hidden></p>
+      <ul class="sprint-bullets">
+        <li>薄弱章节 Top 5，按「还能补回多少分」排序，不是按章节顺序</li>
+        <li>每章只列必刷的题，附题干，不用再翻整本笔记</li>
+        <li>72 小时时间表：今天该刷哪几道，明天该回头背哪几个</li>
+      </ul>
+      <div class="row" id="sprintBuyRow">
+        <button class="btn primary" id="sprintBuyBtn">解锁冲刺报告</button>
+      </div>
+      <p class="hint">不想付费也行：去「题集广场」取用任意一份题集，加入就送 7 天冲刺报告体验。</p>
+      <div class="sprint-qr" id="sprintQr" hidden>
+        <img id="sprintQrImg" alt="支付宝扫码支付" width="180" height="180">
+        <p class="hint" id="sprintScanTip" hidden>用支付宝扫上面的二维码付款，付完点下面的「我付好了」刷新权益。</p>
+        <p class="hint" id="sprintQrHint">用支付宝扫一下，或者点上面的按钮直接打开支付页</p>
+        <button class="btn ghost" id="sprintRecheckBtn">我付好了，刷新一下</button>
+      </div>
+    </div>
+
+    <!-- 报告 -->
+    <p class="sprint-bonus" id="sprintBonus" hidden></p>
+    <div id="sprintReport"></div>
+  </section>
+
+  <!-- ============ 页脚（版本号） ============ -->
+  <footer class="app-footer">
+    <span id="appVer">期末刷题站 v1.26.1</span>
+    <span class="foot-sep">·</span>
+    <a class="star-link" id="starLink" href="https://github.com/sin0317/finals-quiz" target="_blank" rel="noopener noreferrer" title="代码开源在 GitHub，觉得有用就点颗星">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/>
+      </svg>
+      <span>给我 Star</span>
+    </a>
+    <button class="foot-link" id="fbOpenBtn" type="button" title="用着哪儿别扭、哪道题出得不对、想要什么功能 —— 写给我，直接到邮箱">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M8 1.8c-3.6 0-6.5 2.5-6.5 5.6 0 1.7.9 3.2 2.3 4.2v2.5a.4.4 0 0 0 .64.32l2.3-1.6c.4.06.83.1 1.26.1 3.6 0 6.5-2.5 6.5-5.6S11.6 1.8 8 1.8Z"/>
+      </svg>
+      <span>提建议</span>
+    </button>
+    <a class="watcha-badge" id="watchaBadge" href="https://watcha.cn/products/qi-mo-shua-ti-zhan?utm_source=product-badge&amp;utm_content=invite" target="_blank" rel="noopener noreferrer" title="期末刷题站在观猹上架了，去点评一句">
+      <img src="assets/watcha-badge.png" alt="期末刷题站 观猹徽章" width="400" height="84">
+    </a>
+  </footer>
+
+</main>
+
+<div id="ctxMenu" class="ctx-menu" hidden>
+  <button data-act="use">设为当前题集</button>
+  <button data-act="rename">重命名</button>
+  <button data-act="share">分享到广场</button>
+  <button data-act="export">导出 JSON</button>
+  <button data-act="md">导出 Markdown</button>
+  <button data-act="del" class="danger">删除题集</button>
+</div>
+
+<div id="authModal" class="modal" hidden>
+  <div class="modal-mask" data-close="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-tabs">
+        <button class="mtab active" data-mtab="login">登录</button>
+        <button class="mtab" data-mtab="reg">注册</button>
+      </div>
+      <button class="mini-btn" data-close="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip" id="authTip">不登录也能正常使用；登录后题集会存到云端，换台设备继续刷。</p>
+      <button class="btn ghost" id="demoLoginBtn" style="width:100%;margin-bottom:12px;font-weight:500">✨ 一键进入演示（VIP 评委账号，免付费全功能）</button>
+      <label class="fld">
+        <span>昵称</span>
+        <input id="authUser" class="input" placeholder="例如：小明 / xiaoming" maxlength="20" autocomplete="username">
+      </label>
+      <label class="fld" id="authNameFld" hidden>
+        <span>显示名（可留空）</span>
+        <input id="authName" class="input" placeholder="同学们在榜单里看到的名字，默认就是昵称" maxlength="20">
+      </label>
+      <label class="fld">
+        <span>密码</span>
+        <input id="authPass" class="input" type="password" placeholder="6–64 位" maxlength="64" autocomplete="current-password">
+      </label>
+      <div class="modal-err" id="authErr" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="authFootHint"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-close="1">取消</button>
+      <button class="btn primary" id="authSubmit">登录</button>
+    </div>
+  </div>
+</div>
+
+<div id="shareModal" class="modal" hidden>
+  <div class="modal-mask" data-shareclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>分享到广场</div>
+      <button class="mini-btn" data-shareclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip">分享的是题目和答案，广场上的人都能看到、都能拿去刷；可以随时取消。练习记录不会跟着分享。</p>
+      <div class="share-extra">
+        <label class="chk-line" id="shareMemoRow">
+          <input type="checkbox" id="shareMemo">
+          <span>带上我写的批注（<b id="shareMemoN">0</b> 条）</span>
+        </label>
+        <label class="chk-line" id="shareFixRow">
+          <input type="checkbox" id="shareFix">
+          <span>带上我改过的题（<b id="shareFixN">0</b> 道）</span>
+        </label>
+        <p class="share-extra-tip" id="shareExtraTip">批注跟题走，别人答完那道题才看得到；改过的题带着你改后的说法，对方也能「恢复原样」。</p>
+      </div>
+      <label class="fld">
+        <span>题集</span>
+        <select id="shareBank" class="select"></select>
+      </label>
+      <div class="fld-row">
+        <label class="fld">
+          <span>专业</span>
+          <input id="shareMajor" class="input" list="majorList" placeholder="例如：药学" maxlength="12">
+        </label>
+        <label class="fld">
+          <span>科目</span>
+          <input id="shareSubject" class="input" list="subjectList" placeholder="例如：临床药物治疗学" maxlength="24">
+        </label>
+      </div>
+      <label class="fld">
+        <span>一句话推荐（可留空）</span>
+        <input id="shareNote" class="input" placeholder="例如：老师划的重点全在这" maxlength="40">
+      </label>
+      <div class="modal-err" id="shareErr" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="shareMeta"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-shareclose="1">取消</button>
+      <button class="btn primary" id="shareDoBtn">分享</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="majorList"></datalist>
+<datalist id="subjectList"></datalist>
+
+<div id="noticeModal" class="modal" hidden>
+  <div class="modal-mask" data-noticeclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div id="noticeTitle">更新公告</div>
+      <button class="mini-btn" data-noticeclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip" id="noticeLead"></p>
+      <ul class="notice-list" id="noticeList"></ul>
+      <div class="notice-url" id="noticeUrl" hidden>
+        <span class="notice-url-k">新地址</span>
+        <code id="noticeUrlText"></code>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="noticeVer"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" id="noticeCopyBtn">复制新地址</button>
+      <button class="btn primary" data-noticeclose="1">知道了</button>
+    </div>
+  </div>
+</div>
+
+<div id="cardModal" class="modal" hidden>
+  <div class="modal-mask" data-cardclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>今日战绩卡</div>
+      <button class="mini-btn" data-cardclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body card-preview-body">
+      <img id="cardPreview" alt="今日战绩卡">
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="cardTip"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-cardclose="1">关闭</button>
+      <button class="btn primary" id="cardSaveBtn">保存图片</button>
+    </div>
+  </div>
+</div>
+
+<div id="fbModal" class="modal" hidden>
+  <div class="modal-mask" data-fbclose="1"></div>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>给站长提个建议</div>
+      <button class="mini-btn" data-fbclose="1" title="关闭">✕</button>
+    </div>
+    <div class="modal-body" id="fbBody">
+      <p class="modal-tip">用着别扭的地方、哪道题出得不对、想要什么功能 —— 直接写，会发到站长邮箱，不用登录。写清「在哪一步」「点了什么」最好复现。</p>
+      <div class="fb-kinds" id="fbKinds">
+        <button type="button" class="fb-kind on" data-kind="idea">提个建议</button>
+        <button type="button" class="fb-kind" data-kind="bug">哪儿出错了</button>
+        <button type="button" class="fb-kind" data-kind="want">想要的功能</button>
+      </div>
+      <label class="fld">
+        <span>具体说说</span>
+        <textarea id="fbText" class="fb-textarea" rows="5" maxlength="2000" spellcheck="false"
+          placeholder="例如：导入一份答案带括号的卷子，第 3 题的选项被拆成了两条，一条是残句"></textarea>
+      </label>
+      <div class="fb-count-line">
+        <span class="muted" id="fbCount">0 / 2000</span>
+        <span class="grow"></span>
+        <span class="muted" id="fbVerTag"></span>
+      </div>
+      <label class="fld">
+        <span>留个联系方式？（可留空）</span>
+        <input id="fbContact" class="input" maxlength="60" autocomplete="off"
+          placeholder="邮箱 / QQ / 微信，想听回音的时候留一个">
+      </label>
+      <div class="modal-err" id="fbErr" hidden></div>
+    </div>
+    <div class="modal-body" id="fbDone" hidden>
+      <div class="fb-done">
+        <div class="fb-done-icon">✓</div>
+        <b>收到了，谢谢。</b>
+        <p>每一条都会被读到 —— 你踩到的坑，很可能下一个人也会踩。</p>
+        <p class="muted" id="fbDoneNote"></p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="fbFootHint"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-fbclose="1" id="fbCancelBtn">取消</button>
+      <button class="btn primary" id="fbSendBtn">发送</button>
+    </div>
+  </div>
+</div>
+
+<!-- 站内确认框。为什么不用 window.confirm：在沙箱 iframe（预览面板、部分 WebView）里
+     原生弹窗会被直接忽略，confirm 悄悄返回 false，点了跟没点一样 —— 删题删不掉就是这么来的。 -->
+<div id="cfmModal" class="modal" hidden>
+  <div class="modal-mask" data-cfmclose="1"></div>
+  <div class="modal-box" tabindex="-1">
+    <div class="modal-head">
+      <div id="cfmTitle">确认一下</div>
+      <button class="mini-btn" data-cfmclose="1" title="关闭（Esc）">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip" id="cfmText"></p>
+      <div class="cfm-quote" id="cfmQuote" hidden></div>
+      <!-- 需要填一句的场景（重命名题集）才出现，其余一律藏着 -->
+      <label class="cfm-field" id="cfmField" hidden>
+        <span id="cfmLabel">名称</span>
+        <input class="input" id="cfmInput" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="cfm-note" id="cfmNote" hidden></p>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="cfmHint"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-cfmclose="1" id="cfmCancel">取消</button>
+      <button class="btn danger-solid" id="cfmOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="qaModal" class="modal" hidden>
+  <div class="modal-mask" data-qaclose="1"></div>
+  <div class="modal-box" id="qaBox" tabindex="-1">
+    <div class="modal-head">
+      <div>手动加一道题</div>
+      <button class="mini-btn" data-qaclose="1" title="关闭（Esc）">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip">不导入笔记也能加题 —— 解析没认出来的句子、老师课上补的重点、自己整理的错题，都能自己写进来。</p>
+      <div class="qa-top">
+        <label class="fld"><span>题型</span><select id="qaType" class="select">
+          <option value="fill">填空</option>
+          <option value="single">单选</option>
+          <option value="multi">多选</option>
+          <option value="term">名词解释</option>
+          <option value="short">简答</option>
+        </select></label>
+        <label class="fld"><span>加到哪个题集</span><select id="qaBank" class="select"></select></label>
+      </div>
+      <label class="fld" id="qaCourseWrap" hidden><span>新题集叫什么</span>
+        <input id="qaCourse" class="input" maxlength="40" placeholder="例如：临床药物治疗学" autocomplete="off"></label>
+      <div class="fld" id="qaStemFld">
+        <div class="qa-stem-head">
+          <span>题干</span>
+          <button class="qa-blank" id="qaBlankBtn" type="button"
+            title="先在题干里选中要考的那几个字，再点这里（Alt+W）">✂ 选中的字挖成空</button>
+        </div>
+        <textarea id="qaStem" class="fb-textarea" rows="3" spellcheck="false"
+          placeholder="例：首过效应最明显的给药途径是 ____ 。&#10;也可以先把整句写完，再选中要考的那几个字点右上角「✂」"></textarea>
+      </div>
+      <label class="fld" id="qaOptsWrap" hidden><span>选项（一行一个）</span>
+        <textarea id="qaOpts" class="fb-textarea" rows="4" spellcheck="false"
+          placeholder="静脉注射&#10;口服&#10;肌内注射&#10;皮肤给药"></textarea></label>
+      <label class="fld"><span>答案</span>
+        <textarea id="qaAns" class="fb-textarea" rows="2" spellcheck="false" placeholder="口服"></textarea></label>
+      <p class="qa-hint" id="qaHint"></p>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="qaFoot">Ctrl + Enter 直接加进题集</span>
+      <div class="grow"></div>
+      <button class="btn ghost" data-qaclose="1" type="button">取消</button>
+      <button class="btn primary" id="qaSave" type="button">加进题集</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="vendor/qr-mini.js?v=1.26.1"></script>
+<script src="app.js?v=1.26.1"></script>
+
+
+</body></html>

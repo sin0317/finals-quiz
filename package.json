@@ -1,0 +1,20 @@
+{
+  "name": "finals-quiz",
+  "version": "1.26.1",
+  "private": true,
+  "description": "期末刷题站 —— 把课程笔记变成题目，支持游客直接使用，可选登录后多设备同步题集",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.41.0",
+    "alipay-sdk": "^4.14.0"
+  },
+  "devDependencies": {
+    "happy-dom": "^21.0.4"
+  }
+}
