@@ -8267,7 +8267,6 @@
     $('#authTip').textContent = (m === 'reg'
       ? '注册只存昵称和密码哈希，不需要手机号邮箱。密码用 scrypt 加盐保存。'
       : '不登录也能正常使用；登录后题集会存到云端，换台设备继续刷。');
-    $('#authErr').hidden = true;
   }
   function authErr(msg) {
     var e = $('#authErr');
